@@ -6,15 +6,17 @@ from django.dispatch import receiver
 
 from turing.domain.enums import TuringRole
 from turing.models.configuration import PlatformConfiguration, SpeechProviderConfig
+from turing.models.organization import Organization
 
 
 @receiver(post_migrate)
 def seed_turing_defaults(sender, **kwargs) -> None:
-    """Seed singleton config + Speechmatics provider row after migrate."""
+    """Seed singleton config, default org, Speechmatics provider, superuser memberships."""
     if sender.name != "turing":
         return
 
     PlatformConfiguration.get_solo()
+    default_org = Organization.get_default()
     SpeechProviderConfig.objects.get_or_create(
         code="speechmatics",
         defaults={
@@ -27,12 +29,12 @@ def seed_turing_defaults(sender, **kwargs) -> None:
         },
     )
 
-    # Optional: attach membership for superusers if none exists
     User = get_user_model()
-    for user in User.objects.filter(is_superuser=True):
-        from turing.models import TuringMembership
+    from turing.models import TuringMembership
 
+    for user in User.objects.filter(is_superuser=True):
         TuringMembership.objects.get_or_create(
             user=user,
+            organization=default_org,
             defaults={"role": TuringRole.ADMIN, "is_active": True},
         )

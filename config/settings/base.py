@@ -216,3 +216,8 @@ TURING_ALLOWED_AUDIO_EXTENSIONS = os.environ.get(
     "mp3,wav,m4a,webm,ogg",
 )
 TURING_ALLOWED_AUDIO_MIME_TYPES = os.environ.get("TURING_ALLOWED_AUDIO_MIME_TYPES", "")
+
+# Media storage (local by default; set TURING_STORAGE_BACKEND=s3 in production)
+from config.settings.storage import apply_media_storage  # noqa: E402
+
+apply_media_storage(globals())

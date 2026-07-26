@@ -17,7 +17,13 @@ Phase 1 provides a shared transcription engine that host Django projects can ins
 
 **Phase 2.4** encrypts provider API keys at rest and masks them in Admin (DB secret → env fallback).
 
-**Phase 2.5** adds media storage abstraction, audio format validation, and best-effort audio metadata (duration/rate/channels). See [docs/media-storage.md](docs/media-storage.md).
+**Phase 2.6** upgrades transcripts into structured intelligence (words, confidence, review workflow, search). See [docs/transcript-intelligence.md](docs/transcript-intelligence.md).
+
+**Phase 2.7** adds organization-based ownership, memberships, API queryset scoping, and correct approve/review capabilities. See [docs/authorization-tenancy.md](docs/authorization-tenancy.md).
+
+**Phase 2.8** hardens the async pipeline: submit claiming, provider-aware cancel, persist race safety, and lifecycle transition checks. See [docs/async-pipeline.md](docs/async-pipeline.md).
+
+**Phase 2.9** adds production object storage (S3-compatible), signed URLs, and streaming uploads. See [docs/media-storage.md](docs/media-storage.md) and [docs/deployment.md](docs/deployment.md).
 
 ## Current status
 
@@ -100,7 +106,8 @@ Priority: **database secret → environment variable → configuration error**.
 | Media assets | Upload audio (or register an external URL) |
 | Processing jobs | Job status, retries, logs |
 | Transcripts | Segments, speakers, revisions, review |
-| Turing memberships | Roles: Admin, Reviewer, Editor, User, Viewer |
+| Organizations | Tenant / data-ownership boundary |
+| Turing memberships | User ↔ Organization ↔ role (Admin, Reviewer, Editor, …) |
 
 ## Basic workflow
 
@@ -167,7 +174,6 @@ Use session auth or DRF Token authentication.
 ## Roadmap (later phases)
 
 - Provider webhooks (replace/augment poll tasks)
-- Object storage hardening
 - Export (TXT / DOCX / PDF)
 - CRM and meeting product integrations (host apps on top of the same engine)
 - Additional STT providers and AI capabilities (summarization, analytics, etc.)

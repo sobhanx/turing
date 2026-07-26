@@ -9,16 +9,21 @@ from turing.models.media import TimeStampedModel
 
 class TuringMembership(TimeStampedModel):
     """
-    Maps a host User to a Turing role.
+    Connects a host User to an Organization with a Turing role.
 
-    Host projects may also map their own RBAC onto Turing capabilities;
-    this model provides a built-in Admin-managed role system.
+    A user may belong to multiple organizations with different roles.
+    Host projects may also map their own RBAC onto Turing capabilities.
     """
 
-    user = models.OneToOneField(
+    user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="turing_membership",
+        related_name="turing_memberships",
+    )
+    organization = models.ForeignKey(
+        "turing.Organization",
+        on_delete=models.CASCADE,
+        related_name="memberships",
     )
     role = models.CharField(
         max_length=16,
@@ -32,6 +37,16 @@ class TuringMembership(TimeStampedModel):
     class Meta:
         verbose_name = "Turing membership"
         verbose_name_plural = "Turing memberships"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "organization"],
+                name="turing_membership_user_org_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["organization", "role"]),
+            models.Index(fields=["user", "is_active"]),
+        ]
 
     def __str__(self) -> str:
-        return f"{self.user} → {self.role}"
+        return f"{self.user} → {self.organization.slug} ({self.role})"

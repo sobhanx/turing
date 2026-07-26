@@ -64,6 +64,14 @@ class ProcessingJob(UUIDModel):
         blank=True,
         related_name="turing_jobs",
     )
+    organization = models.ForeignKey(
+        "turing.Organization",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="jobs",
+        help_text="Copied from media at job creation.",
+    )
     tenant_key = models.CharField(max_length=64, blank=True, default="", db_index=True)
 
     class Meta:
@@ -72,6 +80,7 @@ class ProcessingJob(UUIDModel):
             models.Index(fields=["status", "priority", "created_at"]),
             models.Index(fields=["media", "capability"]),
             models.Index(fields=["tenant_key", "-created_at"]),
+            models.Index(fields=["organization", "-created_at"]),
         ]
         constraints = [
             models.UniqueConstraint(

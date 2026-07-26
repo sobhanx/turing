@@ -74,6 +74,31 @@ Existing plaintext rows are migrated/encrypted automatically on upgrade (`0003_e
 - Restrict Admin access to trusted operators
 - Never commit API keys to git
 
+## Object storage (Phase 2.9)
+
+Local development keeps files under `MEDIA_ROOT` (`TURING_STORAGE_BACKEND=local`).
+
+Production should use a private S3-compatible bucket:
+
+```bash
+pip install "django-turing[s3]"   # boto3
+
+export TURING_STORAGE_BACKEND=s3
+export TURING_S3_BUCKET=turing-media
+export TURING_S3_REGION=eu-west-1
+export TURING_S3_ACCESS_KEY=...          # or AWS_ACCESS_KEY_ID
+export TURING_S3_SECRET_KEY=...          # or AWS_SECRET_ACCESS_KEY
+export TURING_SIGNED_URL_TTL_SECONDS=3600
+# Optional MinIO / custom endpoint:
+# export TURING_S3_ENDPOINT_URL=https://minio.example.com
+```
+
+Objects are stored **private** (`default_acl=None`) with **querystring signed URLs**.
+Transcription jobs prefer those signed URLs so workers do not load entire audio
+files into memory for remote backends.
+
+See [media-storage.md](media-storage.md) for the storage architecture.
+
 ## Pre-flight checks
 
 ```bash

@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import BinaryIO
 
-from django.core.files.base import ContentFile
 from django.utils.text import get_valid_filename
 
 from turing.models import MediaAsset
@@ -19,7 +18,7 @@ class MediaStorageService:
     High-level media storage operations for MediaAsset.
 
     Keeps services/adapters off Django local paths so S3/Azure/GCS can
-    be introduced later by swapping the StorageGateway only.
+    be introduced by swapping Django ``STORAGES`` behind StorageGateway.
     """
 
     def __init__(self, gateway: StorageGateway | None = None) -> None:
@@ -34,18 +33,21 @@ class MediaStorageService:
         *,
         filename: str,
         content: bytes | BinaryIO,
+        content_type: str = "",
         key_prefix: str = "turing/media",
     ) -> str:
+        """
+        Persist upload under a dated key.
+
+        Accepts a file-like object and streams it to the backend — do not
+        require callers to load the full file into memory first.
+        """
         safe_name = get_valid_filename(filename) or "audio.bin"
         from django.utils import timezone
 
         stamp = timezone.now()
         key = f"{key_prefix}/{stamp:%Y/%m}/{safe_name}"
-        if hasattr(content, "read"):
-            data = content.read()
-        else:
-            data = content
-        return self.gateway.save(key, ContentFile(data))
+        return self.gateway.save(key, content, content_type=content_type)
 
     def read_bytes(self, asset: MediaAsset) -> bytes:
         key = self._resolve_key(asset)
@@ -73,6 +75,16 @@ class MediaStorageService:
         if not key:
             return ""
         return self.gateway.url(key)
+
+    def signed_url(self, asset: MediaAsset, *, expires_in: int | None = None) -> str:
+        """Time-limited URL for private buckets (S3 querystring auth)."""
+        key = self._resolve_key(asset)
+        if not key:
+            return ""
+        return self.gateway.signed_url(key, expires_in=expires_in)
+
+    def supports_remote_fetch(self) -> bool:
+        return self.gateway.supports_remote_fetch()
 
     def _resolve_key(self, asset: MediaAsset) -> str:
         if asset.object_key:

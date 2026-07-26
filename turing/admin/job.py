@@ -40,14 +40,16 @@ class ProcessingJobAdmin(admin.ModelAdmin):
         "capability",
         "provider_code",
         "media_link",
+        "organization",
         "language_code",
         "attempt_count",
         "created_by",
         "created_at",
         "finished_at",
     )
-    list_filter = ("status", "capability", "provider_code", "created_at")
+    list_filter = ("status", "capability", "provider_code", "organization", "created_at")
     search_fields = ("id", "external_job_id", "idempotency_key", "error_code", "tenant_key")
+    autocomplete_fields = ("organization",)
     readonly_fields = (
         "external_job_id",
         "attempt_count",

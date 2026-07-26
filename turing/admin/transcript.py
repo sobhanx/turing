@@ -4,12 +4,14 @@ from django.contrib import admin, messages
 from django.utils.html import format_html
 
 from turing.domain.enums import TranscriptStatus
+from turing.domain.exceptions import ValidationError
 from turing.models import (
     ReviewAssignment,
     Speaker,
     Transcript,
     TranscriptRevision,
     TranscriptSegment,
+    TranscriptWord,
 )
 from turing.services.transcript import TranscriptService
 
@@ -30,11 +32,18 @@ class TranscriptSegmentInline(admin.TabularInline):
         "end_ms",
         "text",
         "confidence",
+        "word_count_display",
         "is_edited",
     )
-    readonly_fields = ("sequence", "confidence", "is_edited")
+    readonly_fields = ("sequence", "confidence", "word_count_display", "is_edited")
     ordering = ("sequence",)
     show_change_link = True
+
+    @admin.display(description="Words")
+    def word_count_display(self, obj: TranscriptSegment):
+        if not obj or not obj.pk:
+            return "—"
+        return obj.word_count
 
 
 class TranscriptRevisionInline(admin.TabularInline):
@@ -58,26 +67,35 @@ class TranscriptAdmin(admin.ModelAdmin):
         "status_badge",
         "language_code",
         "version",
+        "word_count",
+        "confidence_display",
         "is_primary",
+        "organization",
         "media",
-        "confidence_avg",
         "updated_at",
     )
-    list_filter = ("status", "is_primary", "language_code", "created_at")
+    list_filter = ("status", "is_primary", "language_code", "organization", "created_at")
     search_fields = ("id", "full_text", "media__original_filename", "job__id")
     readonly_fields = (
         "job",
         "media",
+        "organization",
         "full_text",
         "version",
+        "word_count",
         "confidence_avg",
         "approved_at",
         "approved_by",
         "created_at",
         "updated_at",
     )
+    autocomplete_fields = ("organization",)
     inlines = [SpeakerInline, TranscriptSegmentInline, TranscriptRevisionInline]
-    actions = ("submit_for_self_review", "mark_approved")
+    actions = (
+        "submit_for_self_review",
+        "mark_approved",
+        "return_to_draft",
+    )
 
     @admin.display(description="Status")
     def status_badge(self, obj: Transcript):
@@ -92,6 +110,12 @@ class TranscriptAdmin(admin.ModelAdmin):
             colors.get(obj.status, "#6c757d"),
             obj.get_status_display(),
         )
+
+    @admin.display(description="Confidence")
+    def confidence_display(self, obj: Transcript):
+        if obj.confidence_avg is None:
+            return "—"
+        return f"{obj.confidence_avg:.2f}"
 
     def save_formset(self, request, form, formset, change):
         """Persist inline segment/speaker edits through TranscriptService for revisions."""
@@ -120,7 +144,6 @@ class TranscriptAdmin(admin.ModelAdmin):
         if formset.model is Speaker:
             for instance in instances:
                 if instance.pk:
-                    # Reload original to detect rename
                     original = Speaker.objects.get(pk=instance.pk)
                     instance.save()
                     if original.display_name != instance.display_name:
@@ -143,18 +166,47 @@ class TranscriptAdmin(admin.ModelAdmin):
         service = TranscriptService()
         count = 0
         for transcript in queryset:
-            service.submit_for_review(
-                transcript=transcript,
-                assignee=request.user,
-                assigned_by=request.user,
+            try:
+                service.submit_for_review(
+                    transcript=transcript,
+                    assignee=request.user,
+                    assigned_by=request.user,
+                )
+                count += 1
+            except ValidationError as exc:
+                self.message_user(request, f"{transcript.id}: {exc}", messages.ERROR)
+        if count:
+            self.message_user(
+                request,
+                f"Submitted {count} transcript(s) for review.",
+                messages.SUCCESS,
             )
-            count += 1
-        self.message_user(request, f"Submitted {count} transcript(s) for review.", messages.SUCCESS)
 
-    @admin.action(description="Mark approved")
+    @admin.action(description="Approve selected transcripts")
     def mark_approved(self, request, queryset):
-        updated = queryset.update(status=TranscriptStatus.APPROVED)
-        self.message_user(request, f"Approved {updated} transcript(s).", messages.SUCCESS)
+        service = TranscriptService()
+        count = 0
+        for transcript in queryset:
+            try:
+                service.approve(transcript=transcript, approved_by=request.user)
+                count += 1
+            except ValidationError as exc:
+                self.message_user(request, f"{transcript.id}: {exc}", messages.ERROR)
+        if count:
+            self.message_user(request, f"Approved {count} transcript(s).", messages.SUCCESS)
+
+    @admin.action(description="Return to draft")
+    def return_to_draft(self, request, queryset):
+        service = TranscriptService()
+        count = 0
+        for transcript in queryset:
+            try:
+                service.return_to_draft(transcript=transcript)
+                count += 1
+            except ValidationError as exc:
+                self.message_user(request, f"{transcript.id}: {exc}", messages.ERROR)
+        if count:
+            self.message_user(request, f"Returned {count} transcript(s) to draft.", messages.SUCCESS)
 
 
 @admin.register(TranscriptSegment)
@@ -166,15 +218,22 @@ class TranscriptSegmentAdmin(admin.ModelAdmin):
         "start_ms",
         "end_ms",
         "text_short",
+        "confidence",
+        "word_count",
         "is_edited",
     )
     list_filter = ("is_edited",)
     search_fields = ("text", "transcript__id")
     raw_id_fields = ("transcript", "speaker")
+    readonly_fields = ("confidence", "words", "provider_payload", "is_edited")
 
     @admin.display(description="Text")
     def text_short(self, obj: TranscriptSegment):
         return obj.text[:80]
+
+    @admin.display(description="Words")
+    def word_count(self, obj: TranscriptSegment):
+        return obj.word_count
 
     def save_model(self, request, obj, form, change):
         if change:
@@ -188,6 +247,14 @@ class TranscriptSegmentAdmin(admin.ModelAdmin):
             )
         else:
             super().save_model(request, obj, form, change)
+
+
+@admin.register(TranscriptWord)
+class TranscriptWordAdmin(admin.ModelAdmin):
+    list_display = ("text", "segment", "sequence", "start_ms", "end_ms", "confidence")
+    search_fields = ("text", "segment__transcript__id")
+    raw_id_fields = ("segment",)
+    list_filter = ("confidence",)
 
 
 @admin.register(TranscriptRevision)

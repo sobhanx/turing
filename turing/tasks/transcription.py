@@ -90,6 +90,10 @@ def submit_transcription_job(self, job_id: str) -> str:
     if result in {"submitted", "already_submitted"}:
         _schedule_poll(str(job.id), poll_count=0, countdown=0)
         return result
+    if result == "submit_in_progress":
+        # Another worker holds the submit claim — retry shortly.
+        submit_transcription_job.apply_async(args=[str(job.id)], countdown=2.0)
+        return result
     return result
 
 

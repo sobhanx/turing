@@ -35,8 +35,30 @@ from Admin or API schedules `submit_transcription_job` automatically.
 ## Idempotency
 
 - Re-submit is skipped when `external_job_id` is already set.
-- `persist_from_provider` returns the existing transcript if one exists for the job.
+- Concurrent workers claim `stage=submitting` before provider I/O; losers return
+  `submit_in_progress` (Celery retries shortly) instead of creating a second
+  provider job.
+- If two submits still race after provider I/O, the orphan `external_job_id` is
+  best-effort cancelled via `STTProvider.cancel`.
+- `persist_from_provider` returns the existing transcript if one exists for the
+  job (including `IntegrityError` races).
+- `mark_succeeded` is a no-op when the job is already `cancelled`.
 - Retries after failure clear `external_job_id` and start a new attempt.
+
+## Cancel
+
+Local cancel always wins for Turing state. When `external_job_id` is set,
+`JobOrchestrator.cancel` also calls the provider cancel API (best-effort;
+provider errors are logged and do not undo local cancel).
+
+Fetch/persist re-checks cancel under `select_for_update` before writing the
+transcript and before marking the job succeeded.
+
+## Lifecycle transitions
+
+`domain/policies.py` defines allowed `ProcessingJob` status transitions.
+Enqueue / succeed / fail / cancel paths validate transitions (invalid moves
+raise `JobStateError` or are skipped safely for succeed/fail).
 
 ## Backoff & limits
 

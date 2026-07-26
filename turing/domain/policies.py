@@ -21,6 +21,32 @@ EDITABLE_TRANSCRIPT_STATUSES = frozenset(
     }
 )
 
+# Allowed from → to transitions for ProcessingJob.status
+ALLOWED_JOB_TRANSITIONS: dict[str, frozenset[str]] = {
+    JobStatus.PENDING: frozenset(
+        {JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.CANCELLED, JobStatus.FAILED}
+    ),
+    JobStatus.QUEUED: frozenset(
+        {JobStatus.RUNNING, JobStatus.PENDING, JobStatus.CANCELLED, JobStatus.FAILED}
+    ),
+    JobStatus.RUNNING: frozenset(
+        {
+            JobStatus.SUCCEEDED,
+            JobStatus.FAILED,
+            JobStatus.CANCELLED,
+            JobStatus.RUNNING,  # idempotent / resume
+        }
+    ),
+    JobStatus.FAILED: frozenset(
+        {JobStatus.QUEUED, JobStatus.PENDING, JobStatus.RUNNING, JobStatus.CANCELLED}
+    ),
+    JobStatus.PARTIAL: frozenset(
+        {JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.FAILED, JobStatus.CANCELLED}
+    ),
+    JobStatus.SUCCEEDED: frozenset({JobStatus.SUCCEEDED}),  # idempotent only
+    JobStatus.CANCELLED: frozenset({JobStatus.CANCELLED}),
+}
+
 ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
     TuringRole.ADMIN: frozenset(
         {
@@ -67,6 +93,17 @@ ROLE_CAPABILITIES: dict[str, frozenset[str]] = {
 }
 
 
+def assert_job_transition(current: str, new: str) -> None:
+    """Validate a ProcessingJob status transition."""
+    if current == new:
+        return
+    allowed = ALLOWED_JOB_TRANSITIONS.get(current, frozenset())
+    if new not in allowed:
+        raise JobStateError(
+            f"Invalid job transition '{current}' → '{new}'."
+        )
+
+
 def assert_job_can_enqueue(status: str) -> None:
     if status not in {JobStatus.PENDING, JobStatus.FAILED, JobStatus.QUEUED}:
         raise JobStateError(f"Cannot enqueue job in status '{status}'.")
@@ -84,6 +121,22 @@ def assert_job_can_cancel(status: str) -> None:
         raise JobStateError(f"Cannot cancel job in terminal status '{status}'.")
 
 
+def assert_job_can_succeed(status: str) -> None:
+    if status == JobStatus.CANCELLED:
+        raise JobStateError("Cannot mark a cancelled job as succeeded.")
+    if status == JobStatus.SUCCEEDED:
+        return
+    assert_job_transition(status, JobStatus.SUCCEEDED)
+
+
+def assert_job_can_fail(status: str) -> None:
+    if status in {JobStatus.SUCCEEDED, JobStatus.CANCELLED}:
+        raise JobStateError(f"Cannot mark job as failed from status '{status}'.")
+    if status == JobStatus.FAILED:
+        return
+    assert_job_transition(status, JobStatus.FAILED)
+
+
 def assert_transcript_editable(status: str) -> None:
     allowed = {
         TranscriptStatus.DRAFT,
@@ -91,6 +144,18 @@ def assert_transcript_editable(status: str) -> None:
     }
     if status not in allowed:
         raise JobStateError(f"Transcript in status '{status}' is not editable.")
+
+
+def assert_can_submit_for_review(status: str) -> None:
+    if status == TranscriptStatus.APPROVED:
+        raise JobStateError("Approved transcripts cannot be submitted for review.")
+    if status == TranscriptStatus.ARCHIVED:
+        raise JobStateError("Archived transcripts cannot be submitted for review.")
+
+
+def assert_can_approve(status: str) -> None:
+    if status not in {TranscriptStatus.DRAFT, TranscriptStatus.IN_REVIEW}:
+        raise JobStateError(f"Cannot approve transcript in status '{status}'.")
 
 
 def role_has_capability(role: str, capability: str) -> bool:

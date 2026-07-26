@@ -25,6 +25,7 @@ from turing.services.transcript import TranscriptService
 
 
 PIPELINE_META_KEY = "turing_pipeline"
+SUBMIT_CLAIM_STALE_SECONDS = 120
 
 
 class TranscriptionService:
@@ -77,7 +78,11 @@ class TranscriptionService:
         """
         Submit media to the STT provider (idempotent).
 
-        Returns: submitted | already_submitted | already_succeeded | cancelled
+        Uses a row-level claim (``stage=submitting``) so concurrent workers
+        do not create duplicate provider jobs. Orphan handles are cancelled.
+
+        Returns: submitted | already_submitted | submit_in_progress |
+                 already_succeeded | cancelled
         """
         with transaction.atomic():
             job = (
@@ -108,6 +113,7 @@ class TranscriptionService:
                     stage="submitted",
                     external_job_id=job.external_job_id,
                 )
+                attempt.save(update_fields=["response_metadata", "updated_at"])
                 self.orchestrator.log(
                     job,
                     f"Resume existing provider job {job.external_job_id} (skip re-submit).",
@@ -116,6 +122,21 @@ class TranscriptionService:
                 return "already_submitted"
 
             attempt = self._ensure_running_attempt(job)
+            if self._has_active_submit_claim(attempt):
+                self.orchestrator.log(
+                    job,
+                    "Submit already claimed by another worker; skipping duplicate.",
+                    attempt=attempt,
+                    level=LogLevel.WARNING,
+                )
+                return "submit_in_progress"
+
+            self._update_pipeline_meta(
+                attempt,
+                stage="submitting",
+                submit_claimed_at=timezone.now().isoformat(),
+            )
+            attempt.save(update_fields=["response_metadata", "updated_at"])
 
         # Provider I/O outside the row lock
         provider = ProviderRegistry.get(job.provider_code)
@@ -123,6 +144,7 @@ class TranscriptionService:
             request = self._build_request(job)
             handle = provider.submit(request)
         except ProviderError as exc:
+            self._clear_submit_claim(attempt)
             self.orchestrator.mark_failed(
                 job,
                 attempt,
@@ -131,6 +153,7 @@ class TranscriptionService:
             )
             raise
         except Exception as exc:  # noqa: BLE001
+            self._clear_submit_claim(attempt)
             self.orchestrator.mark_failed(
                 job,
                 attempt,
@@ -139,22 +162,52 @@ class TranscriptionService:
             )
             raise
 
+        external_id = (handle.external_job_id or "").strip()
+        if not external_id:
+            self._clear_submit_claim(attempt)
+            self.orchestrator.mark_failed(
+                job,
+                attempt,
+                error_code="PROVIDER_RESPONSE",
+                error_message="Provider returned an empty external_job_id.",
+            )
+            raise ProviderError(
+                "Provider returned an empty external_job_id.",
+                code="PROVIDER_RESPONSE",
+                retryable=True,
+            )
+
         with transaction.atomic():
             job = ProcessingJob.objects.select_for_update().get(pk=job_id)
+            if job.status == JobStatus.CANCELLED:
+                self.orchestrator.cancel_provider_job(
+                    job,
+                    external_job_id=external_id,
+                    provider_code=job.provider_code,
+                )
+                return "cancelled"
+
             # Another worker may have submitted concurrently
-            if job.external_job_id and job.external_job_id != handle.external_job_id:
+            if job.external_job_id and job.external_job_id != external_id:
+                self.orchestrator.cancel_provider_job(
+                    job,
+                    external_job_id=external_id,
+                    provider_code=job.provider_code,
+                )
                 self.orchestrator.log(
                     job,
-                    "Concurrent submit detected; keeping existing external_job_id.",
+                    "Concurrent submit detected; cancelled orphan provider job "
+                    f"{external_id}; keeping {job.external_job_id}.",
                     attempt=attempt,
                     level=LogLevel.WARNING,
                 )
                 return "already_submitted"
-            job.external_job_id = handle.external_job_id
+
+            job.external_job_id = external_id
             job.status = JobStatus.RUNNING
             job.save(update_fields=["external_job_id", "status", "updated_at"])
             attempt.refresh_from_db()
-            attempt.external_job_id = handle.external_job_id
+            attempt.external_job_id = external_id
             attempt.request_payload = {
                 "language_code": job.language_code,
                 "options": {
@@ -168,7 +221,7 @@ class TranscriptionService:
             self._update_pipeline_meta(
                 attempt,
                 stage="submitted",
-                external_job_id=handle.external_job_id,
+                external_job_id=external_id,
                 submitted_at=timezone.now().isoformat(),
                 poll_count=0,
             )
@@ -182,7 +235,7 @@ class TranscriptionService:
             )
             self.orchestrator.log(
                 job,
-                f"Submitted to {job.provider_code}: {handle.external_job_id}",
+                f"Submitted to {job.provider_code}: {external_id}",
                 attempt=attempt,
                 context={"stage": "submit"},
             )
@@ -376,32 +429,19 @@ class TranscriptionService:
                     retryable=False,
                 )
             attempt = self._latest_attempt(job)
-
-        provider = ProviderRegistry.get(job.provider_code)
-        handle = ProviderJobHandle(
-            external_job_id=job.external_job_id,
-            provider_code=job.provider_code,
-        )
-        try:
+            external_job_id = job.external_job_id
+            provider_code = job.provider_code
             if attempt:
                 self._update_pipeline_meta(attempt, stage="fetching")
                 attempt.save(update_fields=["response_metadata", "updated_at"])
+
+        provider = ProviderRegistry.get(provider_code)
+        handle = ProviderJobHandle(
+            external_job_id=external_job_id,
+            provider_code=provider_code,
+        )
+        try:
             normalized = provider.fetch_result(handle)
-            transcript = self.transcript_service.persist_from_provider(
-                job=job,
-                normalized=normalized,
-                source=RevisionSource.PROVIDER,
-            )
-            if attempt:
-                self._update_pipeline_meta(attempt, stage="persisted")
-                attempt.save(update_fields=["response_metadata", "updated_at"])
-            if attempt:
-                self.orchestrator.mark_succeeded(job, attempt)
-            else:
-                job.status = JobStatus.SUCCEEDED
-                job.finished_at = timezone.now()
-                job.save(update_fields=["status", "finished_at", "updated_at"])
-            return transcript
         except ProviderError as exc:
             self.orchestrator.mark_failed(
                 job,
@@ -418,6 +458,67 @@ class TranscriptionService:
                 error_message=str(exc),
             )
             raise
+
+        # Re-check cancel before writing transcript
+        with transaction.atomic():
+            job = (
+                ProcessingJob.objects.select_for_update()
+                .select_related("media")
+                .get(pk=job_id)
+            )
+            if job.status == JobStatus.CANCELLED:
+                raise TuringError("Job was cancelled.")
+            existing = Transcript.objects.filter(job=job).first()
+            if existing:
+                attempt = self._latest_attempt(job)
+                if job.status != JobStatus.SUCCEEDED and attempt:
+                    self.orchestrator.mark_succeeded(job, attempt)
+                return existing
+            attempt = self._latest_attempt(job)
+
+        try:
+            transcript = self.transcript_service.persist_from_provider(
+                job=job,
+                normalized=normalized,
+                source=RevisionSource.PROVIDER,
+            )
+        except ProviderError as exc:
+            self.orchestrator.mark_failed(
+                job,
+                attempt,
+                error_code=exc.code,
+                error_message=exc.message,
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001
+            self.orchestrator.mark_failed(
+                job,
+                attempt,
+                error_code="INTERNAL_ERROR",
+                error_message=str(exc),
+            )
+            raise
+
+        with transaction.atomic():
+            job = ProcessingJob.objects.select_for_update().get(pk=job_id)
+            attempt = self._latest_attempt(job)
+            if job.status == JobStatus.CANCELLED:
+                self.orchestrator.log(
+                    job,
+                    "Transcript persisted but job was cancelled; leaving cancelled.",
+                    attempt=attempt,
+                    level=LogLevel.WARNING,
+                )
+                return transcript
+            if attempt:
+                self._update_pipeline_meta(attempt, stage="persisted")
+                attempt.save(update_fields=["response_metadata", "updated_at"])
+                self.orchestrator.mark_succeeded(job, attempt)
+            elif job.status != JobStatus.SUCCEEDED:
+                job.status = JobStatus.SUCCEEDED
+                job.finished_at = timezone.now()
+                job.save(update_fields=["status", "finished_at", "updated_at"])
+            return transcript
 
     def should_automatic_retry(self, job: ProcessingJob, *, error_code: str) -> bool:
         retryable_codes = {
@@ -460,6 +561,33 @@ class TranscriptionService:
 
     def _latest_attempt(self, job: ProcessingJob) -> ProcessingAttempt | None:
         return job.attempts.order_by("-attempt_number").first()
+
+    def _pipeline_meta(self, attempt: ProcessingAttempt) -> dict[str, Any]:
+        meta = dict(attempt.response_metadata or {})
+        return dict(meta.get(PIPELINE_META_KEY) or {})
+
+    def _has_active_submit_claim(self, attempt: ProcessingAttempt) -> bool:
+        pipeline = self._pipeline_meta(attempt)
+        if pipeline.get("stage") != "submitting":
+            return False
+        raw = pipeline.get("submit_claimed_at")
+        if not raw:
+            return True
+        claimed_at = parse_datetime(str(raw))
+        if claimed_at is None:
+            return True
+        if timezone.is_naive(claimed_at):
+            claimed_at = timezone.make_aware(claimed_at, dt_timezone.utc)
+        age = (timezone.now() - claimed_at).total_seconds()
+        return age < SUBMIT_CLAIM_STALE_SECONDS
+
+    def _clear_submit_claim(self, attempt: ProcessingAttempt) -> None:
+        attempt.refresh_from_db()
+        pipeline = self._pipeline_meta(attempt)
+        if pipeline.get("stage") != "submitting":
+            return
+        self._update_pipeline_meta(attempt, stage="submit_failed")
+        attempt.save(update_fields=["response_metadata", "updated_at"])
 
     def _update_pipeline_meta(self, attempt: ProcessingAttempt, **fields: Any) -> None:
         meta = dict(attempt.response_metadata or {})
@@ -517,8 +645,27 @@ class TranscriptionService:
 
         from turing.services.media import MediaService
 
+        media_service = MediaService()
+        # Prefer signed/remote URL so STT providers fetch without loading bytes in-worker.
+        if media_service.storage.supports_remote_fetch():
+            try:
+                settings = get_turing_settings()
+                signed = media_service.signed_url(
+                    media,
+                    expires_in=getattr(settings, "signed_url_ttl_seconds", 3600),
+                )
+                if signed and str(signed).startswith(("http://", "https://")):
+                    request.media_url = signed
+                    return request
+            except Exception as exc:  # noqa: BLE001
+                self.orchestrator.log(
+                    job,
+                    f"Signed URL unavailable; falling back to byte upload: {exc}",
+                    level=LogLevel.WARNING,
+                )
+
         try:
-            request.media_bytes = MediaService().read_bytes(media)
+            request.media_bytes = media_service.read_bytes(media)
             return request
         except FileNotFoundError:
             pass

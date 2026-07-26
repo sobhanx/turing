@@ -14,6 +14,7 @@ class MediaAssetAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "display_name",
+        "organization",
         "use_case",
         "source_type",
         "audio_format",
@@ -23,7 +24,14 @@ class MediaAssetAdmin(admin.ModelAdmin):
         "uploaded_by",
         "created_at",
     )
-    list_filter = ("use_case", "source_type", "storage_backend", "audio_format", "created_at")
+    list_filter = (
+        "organization",
+        "use_case",
+        "source_type",
+        "storage_backend",
+        "audio_format",
+        "created_at",
+    )
     search_fields = ("id", "original_filename", "external_url", "checksum", "tenant_key")
     readonly_fields = (
         "checksum",
@@ -39,9 +47,16 @@ class MediaAssetAdmin(admin.ModelAdmin):
         "updated_at",
     )
     raw_id_fields = ("uploaded_by",)
+    autocomplete_fields = ("organization",)
     actions = ("create_transcription_jobs",)
 
     def save_model(self, request, obj, form, change):
+        if not obj.organization_id:
+            from turing.models import Organization
+
+            obj.organization = Organization.get_default()
+            if not obj.tenant_key:
+                obj.tenant_key = obj.organization.slug
         super().save_model(request, obj, form, change)
         if obj.file or obj.object_key:
             try:

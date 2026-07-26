@@ -24,6 +24,7 @@ class TuringSettings:
     retry_backoff_base_seconds: float
     retry_backoff_max_seconds: float
     storage_backend: str
+    signed_url_ttl_seconds: int
     speechmatics_api_key: str
     speechmatics_base_url: str
     auto_enqueue: bool
@@ -56,6 +57,7 @@ def _load_from_django() -> TuringSettings:
         retry_backoff_base_seconds=float(_env("TURING_RETRY_BACKOFF_BASE_SECONDS", 5.0)),
         retry_backoff_max_seconds=float(_env("TURING_RETRY_BACKOFF_MAX_SECONDS", 300.0)),
         storage_backend=_env("TURING_STORAGE_BACKEND", "local"),
+        signed_url_ttl_seconds=int(_env("TURING_SIGNED_URL_TTL_SECONDS", 3600)),
         speechmatics_api_key=_env("TURING_SPEECHMATICS_API_KEY", ""),
         speechmatics_base_url=_env(
             "TURING_SPEECHMATICS_BASE_URL",
@@ -133,6 +135,7 @@ def _cached_settings() -> TuringSettings:
         retry_backoff_base_seconds=base.retry_backoff_base_seconds,
         retry_backoff_max_seconds=base.retry_backoff_max_seconds,
         storage_backend=platform.storage_backend or base.storage_backend,
+        signed_url_ttl_seconds=base.signed_url_ttl_seconds,
         speechmatics_api_key=api_key,
         speechmatics_base_url=base_url,
         auto_enqueue=platform.auto_enqueue,

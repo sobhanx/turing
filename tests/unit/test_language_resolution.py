@@ -20,12 +20,10 @@ User = get_user_model()
 
 @pytest.fixture
 def media(db):
-    user = User.objects.create_user(username="lang_user", password="pass")
     return MediaService().create_from_upload(
         uploaded_file=io.BytesIO(b"audio"),
         filename="sample.wav",
         use_case=UseCase.MEETING,
-        uploaded_by=user,
     )
 
 

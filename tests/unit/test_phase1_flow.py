@@ -74,20 +74,17 @@ def test_speechmatics_mapper_builds_segments_and_speakers():
 @pytest.mark.django_db
 def test_media_upload_and_job_creation(settings):
     settings.CELERY_TASK_ALWAYS_EAGER = True
-    user = User.objects.create_user(username="alice", password="pass")
     media = MediaService().create_from_upload(
         uploaded_file=io.BytesIO(b"fake-audio-bytes"),
         filename="call.wav",
         content_type="audio/wav",
         use_case=UseCase.CRM_CALL,
-        uploaded_by=user,
     )
     assert media.byte_size > 0
     assert media.checksum
 
     job = JobOrchestrator().create_transcription_job(
         media=media,
-        created_by=user,
         auto_enqueue=False,
         language_code="en",
         options={"diarization": True},
@@ -104,11 +101,9 @@ def test_transcription_persist_and_human_edit(monkeypatch):
         uploaded_file=io.BytesIO(b"abc"),
         filename="meeting.wav",
         use_case=UseCase.MEETING,
-        uploaded_by=user,
     )
     job = JobOrchestrator().create_transcription_job(
         media=media,
-        created_by=user,
         auto_enqueue=False,
         language_code="en",
     )

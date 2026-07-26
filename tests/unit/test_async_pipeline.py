@@ -78,12 +78,10 @@ class FakeProvider:
 
 @pytest.fixture
 def media(db):
-    user = User.objects.create_user(username="async_user", password="pass")
     return MediaService().create_from_upload(
         uploaded_file=io.BytesIO(b"audio-bytes"),
         filename="fa.wav",
         use_case=UseCase.VOICE_FILE,
-        uploaded_by=user,
     )
 
 

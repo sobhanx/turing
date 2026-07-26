@@ -12,6 +12,7 @@ class MediaAssetFilter(django_filters.FilterSet):
             "use_case": ["exact"],
             "source_type": ["exact"],
             "tenant_key": ["exact"],
+            "organization": ["exact"],
             "created_at": ["gte", "lte"],
         }
 
@@ -25,11 +26,14 @@ class ProcessingJobFilter(django_filters.FilterSet):
             "provider_code": ["exact"],
             "media": ["exact"],
             "tenant_key": ["exact"],
+            "organization": ["exact"],
             "created_at": ["gte", "lte"],
         }
 
 
 class TranscriptFilter(django_filters.FilterSet):
+    q = django_filters.CharFilter(method="filter_search", label="Search")
+
     class Meta:
         model = Transcript
         fields = {
@@ -37,4 +41,10 @@ class TranscriptFilter(django_filters.FilterSet):
             "media": ["exact"],
             "language_code": ["exact"],
             "is_primary": ["exact"],
+            "organization": ["exact"],
         }
+
+    def filter_search(self, queryset, name, value):
+        from turing.services.transcript import TranscriptService
+
+        return TranscriptService().search(value, queryset=queryset)

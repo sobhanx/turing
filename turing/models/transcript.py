@@ -20,14 +20,27 @@ class Transcript(UUIDModel):
         on_delete=models.CASCADE,
         related_name="transcripts",
     )
+    organization = models.ForeignKey(
+        "turing.Organization",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="transcripts",
+        help_text="Copied from job/media at persist time.",
+    )
     language_code = models.CharField(max_length=16, blank=True, default="")
     status = models.CharField(
         max_length=16,
         choices=TranscriptStatus.choices,
         default=TranscriptStatus.DRAFT,
         db_index=True,
+        help_text="Review workflow: draft → in_review → approved.",
     )
-    full_text = models.TextField(blank=True, default="")
+    full_text = models.TextField(
+        blank=True,
+        default="",
+        help_text="Denormalized searchable transcript body.",
+    )
     version = models.PositiveIntegerField(default=1)
     is_primary = models.BooleanField(
         default=True,
@@ -35,6 +48,10 @@ class Transcript(UUIDModel):
         help_text="Marks the current primary transcript for the media asset.",
     )
     confidence_avg = models.FloatField(null=True, blank=True)
+    word_count = models.PositiveIntegerField(
+        default=0,
+        help_text="Cached word count from provider words or segment text.",
+    )
     approved_at = models.DateTimeField(null=True, blank=True)
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -43,7 +60,11 @@ class Transcript(UUIDModel):
         blank=True,
         related_name="turing_approved_transcripts",
     )
-    metadata = models.JSONField(default=dict, blank=True)
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Provider-agnostic metadata bag (raw provider payload refs, etc.).",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -51,6 +72,7 @@ class Transcript(UUIDModel):
             models.Index(fields=["media", "status"]),
             models.Index(fields=["status", "-updated_at"]),
             models.Index(fields=["is_primary", "media"]),
+            models.Index(fields=["organization", "status"]),
         ]
         verbose_name = "Transcript"
         verbose_name_plural = "Transcripts"
@@ -110,9 +132,17 @@ class TranscriptSegment(UUIDModel):
     words = models.JSONField(
         default=list,
         blank=True,
-        help_text="Optional word-level timings: [{text, start_ms, end_ms, confidence}].",
+        help_text=(
+            "Optional provider-agnostic word list: "
+            "[{text, start_ms, end_ms, confidence}, ...]. "
+            "Mirrored in TranscriptWord when present."
+        ),
     )
-    provider_payload = models.JSONField(default=dict, blank=True)
+    provider_payload = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Opaque provider segment metadata (kept for reprocessing/debug).",
+    )
     is_edited = models.BooleanField(default=False)
 
     class Meta:
@@ -128,6 +158,50 @@ class TranscriptSegment(UUIDModel):
     def __str__(self) -> str:
         preview = self.text[:60] + ("…" if len(self.text) > 60 else "")
         return f"[{self.start_ms}-{self.end_ms}ms] {preview}"
+
+    @property
+    def word_count(self) -> int:
+        if self.words:
+            return len(self.words)
+        return len(self.text.split()) if self.text else 0
+
+
+class TranscriptWord(UUIDModel):
+    """
+    Structured word-level timing row (provider-agnostic).
+
+    Prefer this for querying; ``TranscriptSegment.words`` JSON remains for
+    compact API payloads and backward compatibility.
+    """
+
+    segment = models.ForeignKey(
+        TranscriptSegment,
+        on_delete=models.CASCADE,
+        related_name="word_entries",
+    )
+    sequence = models.PositiveIntegerField()
+    text = models.CharField(max_length=512)
+    start_ms = models.PositiveIntegerField(default=0)
+    end_ms = models.PositiveIntegerField(default=0)
+    confidence = models.FloatField(null=True, blank=True)
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Optional extras (speaker_label, provider ids, …).",
+    )
+
+    class Meta:
+        ordering = ["sequence"]
+        unique_together = [("segment", "sequence")]
+        indexes = [
+            models.Index(fields=["segment", "start_ms"]),
+            models.Index(fields=["text"]),
+        ]
+        verbose_name = "Transcript word"
+        verbose_name_plural = "Transcript words"
+
+    def __str__(self) -> str:
+        return f"{self.text}[{self.start_ms}-{self.end_ms}]"
 
 
 class TranscriptRevision(UUIDModel):

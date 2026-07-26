@@ -85,12 +85,20 @@ class MediaAsset(UUIDModel):
         blank=True,
         related_name="turing_media_assets",
     )
+    organization = models.ForeignKey(
+        "turing.Organization",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="media_assets",
+        help_text="Owning organization (data boundary). Defaults to the seeded Default org.",
+    )
     tenant_key = models.CharField(
         max_length=64,
         blank=True,
         default="",
         db_index=True,
-        help_text="Optional logical tenant / host-project isolation key.",
+        help_text="Optional host-project isolation key (often mirrors organization.slug).",
     )
     metadata = models.JSONField(default=dict, blank=True)
 
@@ -99,6 +107,7 @@ class MediaAsset(UUIDModel):
         indexes = [
             models.Index(fields=["uploaded_by", "-created_at"]),
             models.Index(fields=["tenant_key", "-created_at"]),
+            models.Index(fields=["organization", "-created_at"]),
             models.Index(fields=["use_case", "-created_at"]),
         ]
         verbose_name = "Media asset"

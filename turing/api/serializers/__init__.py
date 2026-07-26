@@ -35,6 +35,7 @@ class MediaAssetSerializer(serializers.ModelSerializer):
             "audio_codec",
             "checksum",
             "external_url",
+            "organization",
             "tenant_key",
             "metadata",
             "display_name",
@@ -52,6 +53,7 @@ class MediaAssetSerializer(serializers.ModelSerializer):
             "audio_format",
             "audio_codec",
             "checksum",
+            "organization",
             "uploaded_by",
             "created_at",
             "updated_at",
@@ -63,6 +65,7 @@ class MediaUploadSerializer(serializers.Serializer):
     external_url = serializers.URLField(required=False, allow_blank=True)
     use_case = serializers.ChoiceField(choices=UseCase.choices, default=UseCase.GENERIC)
     tenant_key = serializers.CharField(required=False, allow_blank=True, default="")
+    organization_id = serializers.IntegerField(required=False, allow_null=True)
     metadata = serializers.JSONField(required=False)
 
     def validate(self, attrs):
@@ -99,6 +102,7 @@ class ProcessingJobSerializer(serializers.ModelSerializer):
             "started_at",
             "finished_at",
             "created_by",
+            "organization",
             "tenant_key",
             "created_at",
             "updated_at",
@@ -115,6 +119,7 @@ class ProcessingJobSerializer(serializers.ModelSerializer):
             "started_at",
             "finished_at",
             "created_by",
+            "organization",
             "created_at",
             "updated_at",
         ]
@@ -188,12 +193,14 @@ class TranscriptSerializer(serializers.ModelSerializer):
             "id",
             "job",
             "media",
+            "organization",
             "language_code",
             "status",
             "full_text",
             "version",
             "is_primary",
             "confidence_avg",
+            "word_count",
             "approved_at",
             "approved_by",
             "speakers",
@@ -205,9 +212,11 @@ class TranscriptSerializer(serializers.ModelSerializer):
             "id",
             "job",
             "media",
+            "organization",
             "full_text",
             "version",
             "confidence_avg",
+            "word_count",
             "approved_at",
             "approved_by",
             "created_at",
@@ -222,11 +231,13 @@ class TranscriptListSerializer(serializers.ModelSerializer):
             "id",
             "job",
             "media",
+            "organization",
             "language_code",
             "status",
             "version",
             "is_primary",
             "confidence_avg",
+            "word_count",
             "created_at",
             "updated_at",
         ]

@@ -1,14 +1,27 @@
 from __future__ import annotations
 
+import logging
+
 from django.contrib.auth.models import AbstractBaseUser
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from turing.conf import get_turing_settings
 from turing.domain.enums import Capability, JobStatus, LogLevel
 from turing.domain.exceptions import JobStateError, NotFoundError, ValidationError
-from turing.domain.policies import assert_job_can_cancel, assert_job_can_retry
+from turing.domain.policies import (
+    assert_job_can_cancel,
+    assert_job_can_enqueue,
+    assert_job_can_fail,
+    assert_job_can_retry,
+    assert_job_can_succeed,
+    assert_job_transition,
+)
 from turing.models import MediaAsset, ProcessingAttempt, ProcessingJob, ProcessingLog
 from turing.providers.registry import ProviderRegistry
+from turing.providers.types import ProviderJobHandle
+
+logger = logging.getLogger(__name__)
 
 
 class JobOrchestrator:
@@ -31,6 +44,15 @@ class JobOrchestrator:
         if code not in ProviderRegistry.codes():
             raise ValidationError(f"Provider '{code}' is not registered.")
 
+        if created_by is not None and media.organization_id:
+            from turing.auth.tenancy import assert_organization_access
+
+            assert_organization_access(
+                created_by,
+                media.organization,
+                capability="manage_jobs",
+            )
+
         if idempotency_key:
             existing = ProcessingJob.objects.filter(idempotency_key=idempotency_key).first()
             if existing:
@@ -44,19 +66,31 @@ class JobOrchestrator:
             provider_code=code,
         )
 
-        job = ProcessingJob.objects.create(
-            media=media,
-            capability=Capability.STT,
-            provider_code=code,
-            status=JobStatus.PENDING,
-            priority=priority,
-            language_code=language,
-            options=opts,
-            idempotency_key=idempotency_key or "",
-            max_attempts=settings.default_max_attempts,
-            created_by=created_by,
-            tenant_key=media.tenant_key,
-        )
+        try:
+            with transaction.atomic():
+                job = ProcessingJob.objects.create(
+                    media=media,
+                    capability=Capability.STT,
+                    provider_code=code,
+                    status=JobStatus.PENDING,
+                    priority=priority,
+                    language_code=language,
+                    options=opts,
+                    idempotency_key=idempotency_key or "",
+                    max_attempts=settings.default_max_attempts,
+                    created_by=created_by,
+                    organization=media.organization,
+                    tenant_key=media.tenant_key,
+                )
+        except IntegrityError:
+            if idempotency_key:
+                existing = ProcessingJob.objects.filter(
+                    idempotency_key=idempotency_key
+                ).first()
+                if existing:
+                    return existing
+            raise
+
         self.log(job, "Job created.", level=LogLevel.INFO, context={"provider": code})
 
         should_enqueue = settings.auto_enqueue if auto_enqueue is None else auto_enqueue
@@ -108,17 +142,13 @@ class JobOrchestrator:
         countdown: float = 0.0,
         clear_external_job: bool | None = None,
     ) -> ProcessingJob:
-        if job.status not in {
-            JobStatus.PENDING,
-            JobStatus.FAILED,
-            JobStatus.QUEUED,
-        }:
-            raise JobStateError(f"Cannot enqueue job in status '{job.status}'.")
+        assert_job_can_enqueue(job.status)
 
         # Retries after failure must re-submit unless caller resumes an existing provider job
         if clear_external_job is None:
             clear_external_job = job.status == JobStatus.FAILED
 
+        assert_job_transition(job.status, JobStatus.QUEUED)
         job.status = JobStatus.QUEUED
         job.queued_at = timezone.now()
         job.finished_at = None
@@ -179,12 +209,69 @@ class JobOrchestrator:
         return self.enqueue(job, clear_external_job=True)
 
     def cancel(self, job: ProcessingJob) -> ProcessingJob:
-        assert_job_can_cancel(job.status)
-        job.status = JobStatus.CANCELLED
-        job.finished_at = timezone.now()
-        job.save(update_fields=["status", "finished_at", "updated_at"])
-        self.log(job, "Job cancelled.")
+        """
+        Cancel locally and best-effort cancel the provider job.
+
+        Provider cancel failures are logged but do not undo local cancellation.
+        """
+        with transaction.atomic():
+            locked = (
+                ProcessingJob.objects.select_for_update()
+                .select_related("media")
+                .get(pk=job.pk)
+            )
+            assert_job_can_cancel(locked.status)
+            assert_job_transition(locked.status, JobStatus.CANCELLED)
+            external_job_id = locked.external_job_id
+            provider_code = locked.provider_code
+            locked.status = JobStatus.CANCELLED
+            locked.finished_at = timezone.now()
+            locked.save(update_fields=["status", "finished_at", "updated_at"])
+            self.log(locked, "Job cancelled.")
+            job = locked
+
+        if external_job_id:
+            self.cancel_provider_job(
+                job,
+                external_job_id=external_job_id,
+                provider_code=provider_code,
+            )
         return job
+
+    def cancel_provider_job(
+        self,
+        job: ProcessingJob,
+        *,
+        external_job_id: str | None = None,
+        provider_code: str | None = None,
+    ) -> bool:
+        """Best-effort provider cancel. Returns True if cancel was attempted successfully."""
+        eid = (external_job_id or job.external_job_id or "").strip()
+        if not eid:
+            return False
+        code = provider_code or job.provider_code
+        try:
+            provider = ProviderRegistry.get(code)
+            provider.cancel(
+                ProviderJobHandle(external_job_id=eid, provider_code=code)
+            )
+            self.log(
+                job,
+                f"Requested provider cancel for {eid}.",
+                context={"external_job_id": eid},
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Provider cancel failed for job %s (%s): %s", job.id, eid, exc
+            )
+            self.log(
+                job,
+                f"Provider cancel failed (ignored): {exc}",
+                level=LogLevel.WARNING,
+                context={"external_job_id": eid, "error": str(exc)},
+            )
+            return False
 
     def get(self, job_id) -> ProcessingJob:
         try:
@@ -193,6 +280,7 @@ class JobOrchestrator:
             raise NotFoundError(f"Job '{job_id}' not found.") from exc
 
     def begin_attempt(self, job: ProcessingJob) -> ProcessingAttempt:
+        assert_job_transition(job.status, JobStatus.RUNNING)
         job.attempt_count += 1
         job.status = JobStatus.RUNNING
         job.started_at = timezone.now()
@@ -218,7 +306,32 @@ class JobOrchestrator:
         self.log(job, f"Attempt #{attempt.attempt_number} started.", attempt=attempt)
         return attempt
 
-    def mark_succeeded(self, job: ProcessingJob, attempt: ProcessingAttempt) -> None:
+    def mark_succeeded(self, job: ProcessingJob, attempt: ProcessingAttempt) -> bool:
+        """
+        Mark job succeeded. Returns False if skipped (e.g. already cancelled).
+        """
+        job.refresh_from_db()
+        if job.status == JobStatus.CANCELLED:
+            self.log(
+                job,
+                "Skip mark_succeeded; job already cancelled.",
+                attempt=attempt,
+                level=LogLevel.WARNING,
+            )
+            return False
+        try:
+            assert_job_can_succeed(job.status)
+        except JobStateError as exc:
+            self.log(
+                job,
+                f"Skip mark_succeeded: {exc.message}",
+                attempt=attempt,
+                level=LogLevel.WARNING,
+            )
+            return False
+        if job.status == JobStatus.SUCCEEDED:
+            return True
+
         now = timezone.now()
         attempt.status = JobStatus.SUCCEEDED
         attempt.finished_at = now
@@ -237,6 +350,7 @@ class JobOrchestrator:
             ]
         )
         self.log(job, "Job succeeded.", attempt=attempt, level=LogLevel.INFO)
+        return True
 
     def mark_failed(
         self,
@@ -245,7 +359,28 @@ class JobOrchestrator:
         *,
         error_code: str,
         error_message: str,
-    ) -> None:
+    ) -> bool:
+        job.refresh_from_db()
+        if job.status in {JobStatus.SUCCEEDED, JobStatus.CANCELLED}:
+            self.log(
+                job,
+                f"Skip mark_failed; job already {job.status}.",
+                attempt=attempt,
+                level=LogLevel.WARNING,
+                context={"error_code": error_code},
+            )
+            return False
+        try:
+            assert_job_can_fail(job.status)
+        except JobStateError as exc:
+            self.log(
+                job,
+                f"Skip mark_failed: {exc.message}",
+                attempt=attempt,
+                level=LogLevel.WARNING,
+            )
+            return False
+
         now = timezone.now()
         if attempt:
             attempt.status = JobStatus.FAILED
@@ -281,6 +416,7 @@ class JobOrchestrator:
             level=LogLevel.ERROR,
             context={"error_code": error_code},
         )
+        return True
 
     def log(
         self,
