@@ -33,6 +33,20 @@ class PlatformConfiguration(TimeStampedModel):
         default=500 * 1024 * 1024,
         help_text="Maximum upload size in bytes.",
     )
+    allowed_audio_extensions = models.CharField(
+        max_length=255,
+        blank=True,
+        default="mp3,wav,m4a,webm,ogg",
+        help_text="Comma-separated audio extensions allowed for upload.",
+    )
+    allowed_audio_mime_types = models.TextField(
+        blank=True,
+        default="",
+        help_text=(
+            "Optional comma-separated MIME allow-list. "
+            "Leave blank to use built-in defaults for the configured extensions."
+        ),
+    )
     default_max_attempts = models.PositiveSmallIntegerField(default=3)
     poll_interval_seconds = models.FloatField(default=3.0)
     poll_timeout_seconds = models.PositiveIntegerField(default=1800)

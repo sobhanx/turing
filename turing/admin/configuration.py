@@ -37,6 +37,8 @@ class PlatformConfigurationAdmin(admin.ModelAdmin):
                     "poll_interval_seconds",
                     "poll_timeout_seconds",
                     "max_upload_bytes",
+                    "allowed_audio_extensions",
+                    "allowed_audio_mime_types",
                     "storage_backend",
                 )
             },

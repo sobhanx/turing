@@ -54,6 +54,28 @@ class MediaAsset(UUIDModel):
     content_type = models.CharField(max_length=128, blank=True, default="")
     byte_size = models.BigIntegerField(default=0)
     duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    sample_rate_hz = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Detected audio sample rate in Hz, if available.",
+    )
+    channels = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Detected channel count, if available.",
+    )
+    audio_format = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="Detected container/format (e.g. wav, mp3).",
+    )
+    audio_codec = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        help_text="Detected codec when available.",
+    )
     checksum = models.CharField(max_length=64, blank=True, default="", db_index=True)
     external_url = models.URLField(max_length=2048, blank=True, default="")
     uploaded_by = models.ForeignKey(
@@ -89,3 +111,20 @@ class MediaAsset(UUIDModel):
     @property
     def display_name(self) -> str:
         return self.original_filename or self.object_key or self.external_url or str(self.id)
+
+    @property
+    def display_duration(self) -> str:
+        if self.duration_ms is None:
+            return "—"
+        total_seconds = self.duration_ms // 1000
+        minutes, seconds = divmod(total_seconds, 60)
+        return f"{minutes}:{seconds:02d}"
+
+    @property
+    def display_size(self) -> str:
+        size = self.byte_size or 0
+        if size < 1024:
+            return f"{size} B"
+        if size < 1024 * 1024:
+            return f"{size / 1024:.1f} KB"
+        return f"{size / (1024 * 1024):.1f} MB"

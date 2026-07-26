@@ -17,6 +17,8 @@ Phase 1 provides a shared transcription engine that host Django projects can ins
 
 **Phase 2.4** encrypts provider API keys at rest and masks them in Admin (DB secret → env fallback).
 
+**Phase 2.5** adds media storage abstraction, audio format validation, and best-effort audio metadata (duration/rate/channels). See [docs/media-storage.md](docs/media-storage.md).
+
 ## Current status
 
 - Audio upload → Speechmatics batch transcription → transcript persistence
@@ -77,7 +79,9 @@ Run migrations for the `turing` app in the host project.
 Speechmatics credentials are managed in **Django Admin** (encrypted at rest; no source-code edits required):
 
 1. **Speech provider configs** → `speechmatics` → set **API key** (shown masked after save)
-2. Optionally adjust **Platform configuration** (default provider, default language, upload limits, auto-enqueue)
+2. Optionally adjust **Platform configuration** (default provider, default language, upload limits, allowed audio extensions, auto-enqueue)
+
+Supported uploads by default: **mp3, wav, m4a, webm, ogg** (see [docs/media-storage.md](docs/media-storage.md)).
 
 Environment fallback (optional):
 

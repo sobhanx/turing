@@ -13,6 +13,8 @@ from django.conf import settings
 class TuringSettings:
     default_provider: str
     max_upload_bytes: int
+    allowed_audio_extensions: str
+    allowed_audio_mime_types: str
     default_max_attempts: int
     poll_interval_seconds: float
     poll_timeout_seconds: int
@@ -38,6 +40,11 @@ def _load_from_django() -> TuringSettings:
     return TuringSettings(
         default_provider=_env("TURING_DEFAULT_PROVIDER", "speechmatics"),
         max_upload_bytes=int(_env("TURING_MAX_UPLOAD_BYTES", 500 * 1024 * 1024)),
+        allowed_audio_extensions=_env(
+            "TURING_ALLOWED_AUDIO_EXTENSIONS",
+            "mp3,wav,m4a,webm,ogg",
+        ),
+        allowed_audio_mime_types=_env("TURING_ALLOWED_AUDIO_MIME_TYPES", ""),
         default_max_attempts=int(_env("TURING_DEFAULT_MAX_ATTEMPTS", 3)),
         poll_interval_seconds=base_interval,
         poll_timeout_seconds=int(_env("TURING_POLL_TIMEOUT_SECONDS", 1800)),
@@ -109,6 +116,12 @@ def _cached_settings() -> TuringSettings:
     return TuringSettings(
         default_provider=default_provider,
         max_upload_bytes=platform.max_upload_bytes or base.max_upload_bytes,
+        allowed_audio_extensions=(
+            platform.allowed_audio_extensions or base.allowed_audio_extensions
+        ),
+        allowed_audio_mime_types=(
+            platform.allowed_audio_mime_types or base.allowed_audio_mime_types
+        ),
         default_max_attempts=platform.default_max_attempts or base.default_max_attempts,
         poll_interval_seconds=poll_interval,
         poll_timeout_seconds=platform.poll_timeout_seconds or base.poll_timeout_seconds,

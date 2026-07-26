@@ -515,6 +515,14 @@ class TranscriptionService:
             request.media_url = media.external_url
             return request
 
+        from turing.services.media import MediaService
+
+        try:
+            request.media_bytes = MediaService().read_bytes(media)
+            return request
+        except FileNotFoundError:
+            pass
+
         if media.file:
             media.file.open("rb")
             try:

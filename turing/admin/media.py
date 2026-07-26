@@ -6,6 +6,7 @@ from turing.conf import clear_settings_cache, get_turing_settings
 from turing.domain.exceptions import TuringError, ValidationError
 from turing.models import MediaAsset
 from turing.services.job_orchestrator import JobOrchestrator
+from turing.services.media import MediaService
 
 
 @admin.register(MediaAsset)
@@ -15,16 +16,42 @@ class MediaAssetAdmin(admin.ModelAdmin):
         "display_name",
         "use_case",
         "source_type",
-        "content_type",
-        "byte_size",
+        "audio_format",
+        "display_duration",
+        "display_size",
+        "storage_backend",
         "uploaded_by",
         "created_at",
     )
-    list_filter = ("use_case", "source_type", "storage_backend", "created_at")
+    list_filter = ("use_case", "source_type", "storage_backend", "audio_format", "created_at")
     search_fields = ("id", "original_filename", "external_url", "checksum", "tenant_key")
-    readonly_fields = ("checksum", "byte_size", "object_key", "created_at", "updated_at")
+    readonly_fields = (
+        "checksum",
+        "byte_size",
+        "object_key",
+        "duration_ms",
+        "sample_rate_hz",
+        "channels",
+        "audio_format",
+        "audio_codec",
+        "storage_backend",
+        "created_at",
+        "updated_at",
+    )
     raw_id_fields = ("uploaded_by",)
     actions = ("create_transcription_jobs",)
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if obj.file or obj.object_key:
+            try:
+                if not obj.original_filename and obj.file:
+                    obj.original_filename = obj.file.name.rsplit("/", 1)[-1]
+                    obj.save(update_fields=["original_filename", "updated_at"])
+                MediaService().enrich_uploaded_asset(obj)
+            except ValidationError as exc:
+                self.message_user(request, str(exc), messages.ERROR)
+                raise
 
     @admin.action(description="Create transcription jobs (Speechmatics)")
     def create_transcription_jobs(self, request, queryset):
@@ -37,7 +64,6 @@ class MediaAssetAdmin(admin.ModelAdmin):
         clear_settings_cache()
         settings = get_turing_settings()
         if not (settings.default_language or "").strip():
-            # Also allow provider-level default; orchestrator resolves fully.
             from turing.models.configuration import SpeechProviderConfig
 
             provider_has_lang = SpeechProviderConfig.objects.filter(
