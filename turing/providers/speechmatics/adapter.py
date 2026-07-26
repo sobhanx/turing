@@ -27,7 +27,7 @@ class SpeechmaticsAdapter(STTProvider):
         if self._client is not None:
             return self._client
         settings = get_turing_settings()
-        # Prefer Admin provider row when present
+        # Priority: DB encrypted secret → env → empty (client errors clearly)
         api_key = settings.speechmatics_api_key
         base_url = settings.speechmatics_base_url
         operating_point = "enhanced"
@@ -36,7 +36,9 @@ class SpeechmaticsAdapter(STTProvider):
 
             row = SpeechProviderConfig.objects.filter(code=self.code, is_active=True).first()
             if row:
-                api_key = row.api_key or api_key
+                db_key = (row.api_key or "").strip()
+                if db_key:
+                    api_key = db_key
                 base_url = row.base_url or base_url
                 operating_point = row.operating_point or operating_point
         except Exception:

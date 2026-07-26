@@ -5,6 +5,8 @@ from django.db import models, transaction
 
 from turing.domain.enums import StorageBackend
 from turing.models.media import TimeStampedModel
+from turing.security.fields import EncryptedCharField
+from turing.security.secrets import mask_secret
 
 
 class PlatformConfiguration(TimeStampedModel):
@@ -94,11 +96,15 @@ class SpeechProviderConfig(TimeStampedModel):
         default=100,
         help_text="Lower values are preferred when selecting a default.",
     )
-    api_key = models.CharField(
-        max_length=512,
+    api_key = EncryptedCharField(
+        max_length=1024,
         blank=True,
         default="",
-        help_text="Leave blank to fall back to environment / Django settings.",
+        help_text=(
+            "Provider API key (stored encrypted). Leave blank in Admin to keep the "
+            "current key, or clear via env-only setup. Empty falls back to "
+            "TURING_SPEECHMATICS_API_KEY."
+        ),
     )
     base_url = models.URLField(max_length=512, blank=True, default="")
     default_language = models.CharField(max_length=16, blank=True, default="")
@@ -123,6 +129,10 @@ class SpeechProviderConfig(TimeStampedModel):
     def __str__(self) -> str:
         state = "active" if self.is_active else "inactive"
         return f"{self.name} ({self.code}, {state})"
+
+    @property
+    def api_key_masked(self) -> str:
+        return mask_secret(self.api_key)
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)

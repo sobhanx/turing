@@ -41,17 +41,38 @@ Recommended:
 | `SECURE_SSL_REDIRECT` | `true` (default in production) |
 | `LOG_LEVEL` | `INFO` |
 
-## Secure defaults (production module)
+## Provider secrets (Phase 2.4)
 
-Enabled when using `config.settings.production`:
+Speechmatics API keys configured in Admin are **encrypted at rest** (Fernet, key
+derived from `DJANGO_SECRET_KEY`).
 
-- `DEBUG = False`
-- `SESSION_COOKIE_SECURE = True`
-- `CSRF_COOKIE_SECURE = True`
-- `SECURE_SSL_REDIRECT = True`
-- `SECURE_HSTS_SECONDS = 31536000` (1 year)
-- `SECURE_PROXY_SSL_HEADER` when `TURING_BEHIND_PROXY=true`
-- SQLite refused unless `TURING_ALLOW_SQLITE_IN_PRODUCTION=true`
+| Priority | Source |
+|----------|--------|
+| 1 | Database `SpeechProviderConfig.api_key` (decrypted in-process) |
+| 2 | `TURING_SPEECHMATICS_API_KEY` environment variable |
+| 3 | Missing → clear configuration error when submitting jobs |
+
+### Admin UX
+
+- List/detail show a masked value only (e.g. `********abcd`)
+- Password field is always empty on edit — enter a new key to replace, or leave blank to keep
+- Plaintext keys are never rendered after save
+
+### Local development
+
+Either:
+
+1. Set the key in **Admin → Speech provider configs** (recommended), or  
+2. Export `TURING_SPEECHMATICS_API_KEY=...` in `.env`
+
+Existing plaintext rows are migrated/encrypted automatically on upgrade (`0003_encrypt_provider_api_keys`).
+
+### Production recommendations
+
+- Use a strong, stable `DJANGO_SECRET_KEY` (rotating it invalidates encrypted DB secrets — re-enter keys after rotation)
+- Prefer Admin-stored encrypted secrets or a secret manager injected as env
+- Restrict Admin access to trusted operators
+- Never commit API keys to git
 
 ## Pre-flight checks
 

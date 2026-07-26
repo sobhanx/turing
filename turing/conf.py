@@ -64,9 +64,10 @@ def get_turing_settings(*, refresh: bool = False) -> TuringSettings:
     """
     Resolve runtime settings.
 
-    Priority:
-    1. PlatformConfiguration / SpeechProviderConfig from DB (Admin)
-    2. Django settings / environment variables
+    Provider API key priority:
+    1. SpeechProviderConfig.api_key (DB, decrypted)
+    2. TURING_SPEECHMATICS_API_KEY / Django settings (environment)
+    3. Empty — callers (Speechmatics client) raise a clear configuration error
     """
     if refresh:
         _cached_settings.cache_clear()
@@ -96,8 +97,11 @@ def _cached_settings() -> TuringSettings:
             is_active=True,
         ).first()
         if provider:
-            api_key = provider.api_key or api_key
-            base_url = provider.base_url or base_url
+            db_key = (provider.api_key or "").strip()
+            if db_key:
+                api_key = db_key
+            if provider.base_url:
+                base_url = provider.base_url
     except Exception:
         pass
 

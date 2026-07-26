@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from django import forms
 from django.contrib import admin
 
 from turing.models import PlatformConfiguration, SpeechProviderConfig
+from turing.security.secrets import mask_secret
 
 
 @admin.register(PlatformConfiguration)
@@ -53,19 +55,66 @@ class PlatformConfigurationAdmin(admin.ModelAdmin):
         return False
 
 
+class SpeechProviderConfigForm(forms.ModelForm):
+    """Never prefill or render the live API key; blank means keep existing."""
+
+    api_key = forms.CharField(
+        required=False,
+        label="API key",
+        widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
+        help_text=(
+            "Enter a new key to replace the stored secret. "
+            "Leave blank to keep the current key. "
+            "Stored values are encrypted at rest."
+        ),
+    )
+
+    class Meta:
+        model = SpeechProviderConfig
+        fields = (
+            "code",
+            "name",
+            "is_active",
+            "priority",
+            "api_key",
+            "base_url",
+            "default_language",
+            "operating_point",
+            "enable_diarization",
+            "extra_options",
+        )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["api_key"].initial = ""
+
+
 @admin.register(SpeechProviderConfig)
 class SpeechProviderConfigAdmin(admin.ModelAdmin):
-    list_display = ("name", "code", "is_active", "priority", "operating_point", "updated_at")
+    form = SpeechProviderConfigForm
+    list_display = (
+        "name",
+        "code",
+        "is_active",
+        "priority",
+        "api_key_display",
+        "operating_point",
+        "updated_at",
+    )
     list_filter = ("is_active",)
     search_fields = ("name", "code")
     ordering = ("priority", "code")
+    readonly_fields = ("api_key_display",)
     fieldsets = (
         (None, {"fields": ("code", "name", "is_active", "priority")}),
         (
             "Credentials",
             {
-                "fields": ("api_key", "base_url"),
-                "description": "Leave API key blank to use TURING_SPEECHMATICS_API_KEY from the environment.",
+                "fields": ("api_key_display", "api_key", "base_url"),
+                "description": (
+                    "API keys are encrypted in the database and never shown in full. "
+                    "Priority: database secret → TURING_SPEECHMATICS_API_KEY env → error."
+                ),
             },
         ),
         (
@@ -80,3 +129,21 @@ class SpeechProviderConfigAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    @admin.display(description="API key")
+    def api_key_display(self, obj: SpeechProviderConfig) -> str:
+        if not obj or not obj.pk:
+            return "(not set)"
+        return mask_secret(obj.api_key)
+
+    def save_model(self, request, obj, form, change):
+        new_key = (form.cleaned_data.get("api_key") or "").strip()
+        if change and not new_key:
+            # Preserve existing encrypted secret when the password field is left blank.
+            previous = SpeechProviderConfig.objects.get(pk=obj.pk)
+            obj.api_key = previous.api_key
+        elif new_key:
+            obj.api_key = new_key
+        else:
+            obj.api_key = ""
+        super().save_model(request, obj, form, change)

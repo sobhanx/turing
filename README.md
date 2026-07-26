@@ -15,6 +15,8 @@ Phase 1 provides a shared transcription engine that host Django projects can ins
 
 **Phase 2.3** splits Django settings into local vs production modules with env-based secrets and HTTPS cookie hardening. See [docs/deployment.md](docs/deployment.md).
 
+**Phase 2.4** encrypts provider API keys at rest and masks them in Admin (DB secret → env fallback).
+
 ## Current status
 
 - Audio upload → Speechmatics batch transcription → transcript persistence
@@ -72,10 +74,10 @@ Run migrations for the `turing` app in the host project.
 
 ## Configuration
 
-Speechmatics credentials are managed in **Django Admin** (no source-code edits required):
+Speechmatics credentials are managed in **Django Admin** (encrypted at rest; no source-code edits required):
 
-1. **Speech provider configs** → `speechmatics` → set **API key** (and base URL if needed)
-2. Optionally adjust **Platform configuration** (default provider, upload limits, auto-enqueue, diarization defaults)
+1. **Speech provider configs** → `speechmatics` → set **API key** (shown masked after save)
+2. Optionally adjust **Platform configuration** (default provider, default language, upload limits, auto-enqueue)
 
 Environment fallback (optional):
 
@@ -83,7 +85,7 @@ Environment fallback (optional):
 export TURING_SPEECHMATICS_API_KEY=...
 ```
 
-Admin key overrides the env value when set.
+Priority: **database secret → environment variable → configuration error**.
 
 ### Main Admin sections
 
@@ -161,7 +163,7 @@ Use session auth or DRF Token authentication.
 ## Roadmap (later phases)
 
 - Provider webhooks (replace/augment poll tasks)
-- Object storage hardening and secret encryption for provider keys
+- Object storage hardening
 - Export (TXT / DOCX / PDF)
 - CRM and meeting product integrations (host apps on top of the same engine)
 - Additional STT providers and AI capabilities (summarization, analytics, etc.)

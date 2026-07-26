@@ -35,6 +35,7 @@ dependencies = [
     "requests>=2.31",
     "django-storages>=1.14",
     "Pillow>=10.0",
+    "cryptography>=42.0",
 ]
 
 [project.optional-dependencies]
