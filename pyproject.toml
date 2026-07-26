@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "django-turing"
+version = "0.1.0"
+description = "Reusable Speech Intelligence Platform for Django"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Turing" }]
+keywords = ["django", "speech", "transcription", "speechmatics", "stt"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: Django",
+    "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.0",
+    "Framework :: Django :: 5.1",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "Django>=4.2,<6",
+    "djangorestframework>=3.14",
+    "django-filter>=23.5",
+    "celery>=5.3",
+    "redis>=5.0",
+    "requests>=2.31",
+    "django-storages>=1.14",
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+s3 = ["boto3>=1.34"]
+azure = ["django-storages[azure]>=1.14"]
+gcs = ["django-storages[google]>=1.14"]
+dev = [
+    "pytest>=8.0",
+    "pytest-django>=4.8",
+    "factory-boy>=3.3",
+    "responses>=0.25",
+    "python-dotenv>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/turing/django-turing"
+
+[tool.setuptools.packages.find]
+include = ["turing*"]
+exclude = ["config*", "tests*"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py"]
+addopts = "-q"
