@@ -39,7 +39,10 @@ class JobOrchestrator:
         opts = dict(options or {})
         if "diarization" not in opts:
             opts["diarization"] = settings.enable_diarization_default
-        language = language_code or settings.default_language or ""
+        language = self._resolve_language_code(
+            language_code=language_code,
+            provider_code=code,
+        )
 
         job = ProcessingJob.objects.create(
             media=media,
@@ -61,41 +64,119 @@ class JobOrchestrator:
             self.enqueue(job)
         return job
 
-    def enqueue(self, job: ProcessingJob) -> ProcessingJob:
-        if job.status not in {JobStatus.PENDING, JobStatus.FAILED, JobStatus.QUEUED}:
+    def _resolve_language_code(self, *, language_code: str, provider_code: str) -> str:
+        """
+        Resolve STT language for a new job.
+
+        Order:
+        1. Explicit language_code argument
+        2. PlatformConfiguration / settings default_language
+        3. SpeechProviderConfig.default_language for the selected provider
+
+        Raises ValidationError if none are set — never silently omit language.
+        """
+        explicit = (language_code or "").strip()
+        if explicit:
+            return explicit
+
+        settings = get_turing_settings()
+        platform_default = (settings.default_language or "").strip()
+        if platform_default:
+            return platform_default
+
+        from turing.models.configuration import SpeechProviderConfig
+
+        provider = SpeechProviderConfig.objects.filter(
+            code=provider_code,
+            is_active=True,
+        ).first()
+        if provider:
+            provider_default = (provider.default_language or "").strip()
+            if provider_default:
+                return provider_default
+
+        raise ValidationError(
+            "language_code is required. Pass language_code when creating the job, "
+            "or set Platform configuration → Default language "
+            "(e.g. fa for Persian), or Speech provider configs → Default language."
+        )
+
+    def enqueue(
+        self,
+        job: ProcessingJob,
+        *,
+        countdown: float = 0.0,
+        clear_external_job: bool | None = None,
+    ) -> ProcessingJob:
+        if job.status not in {
+            JobStatus.PENDING,
+            JobStatus.FAILED,
+            JobStatus.QUEUED,
+        }:
             raise JobStateError(f"Cannot enqueue job in status '{job.status}'.")
+
+        # Retries after failure must re-submit unless caller resumes an existing provider job
+        if clear_external_job is None:
+            clear_external_job = job.status == JobStatus.FAILED
 
         job.status = JobStatus.QUEUED
         job.queued_at = timezone.now()
-        job.error_code = ""
-        job.error_message = ""
+        job.finished_at = None
+        if clear_external_job:
+            job.external_job_id = ""
+        # Keep last error visible until a successful run clears it in mark_succeeded
         job.save(
             update_fields=[
                 "status",
                 "queued_at",
-                "error_code",
-                "error_message",
+                "finished_at",
+                "external_job_id",
                 "updated_at",
             ]
         )
-        self.log(job, "Job queued for background processing.")
+        self.log(
+            job,
+            "Job queued for async transcription pipeline.",
+            context={"countdown": countdown, "clear_external_job": clear_external_job},
+        )
 
-        from turing.tasks.transcription import process_transcription_job
+        from turing.tasks.transcription import submit_transcription_job
 
         try:
-            process_transcription_job.delay(str(job.id))
-        except Exception as exc:  # noqa: BLE001
-            # Broker may be unavailable in local/dev; keep job queued for later workers.
+            async_result = submit_transcription_job.apply_async(
+                args=[str(job.id)],
+                countdown=max(0.0, float(countdown)),
+            )
             self.log(
                 job,
-                f"Celery enqueue failed (job left queued): {exc}",
+                "Celery submit task scheduled.",
+                context={"task_id": getattr(async_result, "id", None), "countdown": countdown},
+            )
+        except Exception as exc:  # noqa: BLE001
+            job.error_code = "ENQUEUE_FAILED"
+            job.error_message = (
+                f"Failed to schedule Celery task (is Redis/broker running?): {exc}"
+            )
+            job.status = JobStatus.PENDING
+            job.save(
+                update_fields=[
+                    "status",
+                    "error_code",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+            self.log(
+                job,
+                job.error_message,
                 level=LogLevel.ERROR,
+                context={"error_code": "ENQUEUE_FAILED"},
             )
         return job
 
     def retry(self, job: ProcessingJob) -> ProcessingJob:
         assert_job_can_retry(job.status, job.attempt_count, job.max_attempts)
-        return self.enqueue(job)
+        return self.enqueue(job, clear_external_job=True)
 
     def cancel(self, job: ProcessingJob) -> ProcessingJob:
         assert_job_can_cancel(job.status)
@@ -115,7 +196,18 @@ class JobOrchestrator:
         job.attempt_count += 1
         job.status = JobStatus.RUNNING
         job.started_at = timezone.now()
-        job.save(update_fields=["attempt_count", "status", "started_at", "updated_at"])
+        job.error_code = ""
+        job.error_message = ""
+        job.save(
+            update_fields=[
+                "attempt_count",
+                "status",
+                "started_at",
+                "error_code",
+                "error_message",
+                "updated_at",
+            ]
+        )
         attempt = ProcessingAttempt.objects.create(
             job=job,
             attempt_number=job.attempt_count,

@@ -11,15 +11,20 @@ Turing is the shared speech intelligence core for host products. The same engine
 
 Phase 1 provides a shared transcription engine that host Django projects can install and run: upload audio, transcribe with Speechmatics, store an editable transcript (segments, speakers, revisions), and manage the flow from Django Admin (and a REST API).
 
-## Current status — Phase 1 complete
+**Phase 2.1** adds a production async pipeline: Celery tasks for submit → poll (non-blocking backoff) → fetch/persist, with idempotent retries.
+
+**Phase 2.3** splits Django settings into local vs production modules with env-based secrets and HTTPS cookie hardening. See [docs/deployment.md](docs/deployment.md).
+
+## Current status
 
 - Audio upload → Speechmatics batch transcription → transcript persistence
 - Timestamped segments and speaker labels
 - Human editing with revision history
 - Live validation: **Persian (`fa`) speech transcription** succeeded end-to-end
+- Async Celery pipeline (auto-enqueue); sync CLI remains a debug fallback
 - Designed as an installable app, not a single-company product
 
-Not in Phase 1: real-time streaming, CRM/meeting product integrations, multi-provider STT, AI summarization/analytics, or file export.
+Not included yet: real-time streaming, CRM/meeting product integrations, multi-provider STT, AI summarization/analytics, or file export.
 
 ## Tech stack
 
@@ -27,7 +32,7 @@ Not in Phase 1: real-time streaming, CRM/meeting product integrations, multi-pro
 |-------|--------|
 | Framework | Django |
 | API | Django REST Framework |
-| Async jobs | Celery + Redis (optional; sync command available) |
+| Async jobs | Celery + Redis (**required** for production auto-processing) |
 | STT provider | Speechmatics Batch API |
 | Database | SQLite (local demo) / PostgreSQL (recommended for real deploys) |
 
@@ -40,6 +45,10 @@ python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
 ```
+
+Default settings module: `config.settings` (local). Local HTTP development still works without a strong `DJANGO_SECRET_KEY`.
+
+For production, use `config.settings.production` and required env vars — see [docs/deployment.md](docs/deployment.md).
 
 Admin: http://127.0.0.1:8000/admin/  
 API base: http://127.0.0.1:8000/api/turing/v1/
@@ -92,25 +101,31 @@ Admin key overrides the env value when set.
 ```text
 Upload audio (Admin or API)
     → Create transcription job (language e.g. fa / en)
-    → Process job (Celery worker or sync command)
+    → Auto-enqueue Celery pipeline (if auto_enqueue enabled)
+         submit → poll (backoff) → fetch/persist
     → Review transcript (segments + speakers)
     → Edit text / rename speakers
     → Revision history recorded
 ```
 
-### Process a job without Celery
+### Celery worker (production path)
+
+```bash
+# Redis must be running (CELERY_BROKER_URL)
+celery -A config worker -l info -Q turing.default,turing.high,turing.export
+```
+
+With `Platform configuration.auto_enqueue=True` (default), job creation schedules processing automatically — no manual `turing_process_job` in normal use.
+
+See [docs/async-pipeline.md](docs/async-pipeline.md) for task names, backoff settings, idempotency, and webhook-ready polling.
+
+### Sync fallback (debug only)
 
 ```bash
 python manage.py turing_process_job <job-uuid>
 ```
 
-With Celery (optional):
-
-```bash
-celery -A config worker -l info -Q turing.default,turing.high,turing.export
-```
-
-**Note:** For Persian audio, set the job `language_code` to `fa`. The Admin bulk “create jobs” action may not set language; create the job via shell/API with `language_code="fa"` when needed.
+**Note:** Set **Platform configuration → Default language** to `fa` for Persian (or pass `language_code` when creating a job). Admin bulk “Create transcription jobs” uses that default and will refuse to create jobs if no language is configured.
 
 ### Example: create a Persian job (shell)
 
@@ -123,7 +138,7 @@ job = JobOrchestrator().create_transcription_job(
     media=media,
     language_code="fa",
     options={"diarization": True},
-    auto_enqueue=False,
+    # auto_enqueue=True by default → Celery submit task is scheduled
 )
 print(job.id)
 ```
@@ -145,8 +160,8 @@ Use session auth or DRF Token authentication.
 
 ## Roadmap (later phases)
 
-- More reliable async processing (non-blocking poll / webhooks)
-- Stronger production packaging (secrets, Postgres, object storage)
+- Provider webhooks (replace/augment poll tasks)
+- Object storage hardening and secret encryption for provider keys
 - Export (TXT / DOCX / PDF)
 - CRM and meeting product integrations (host apps on top of the same engine)
 - Additional STT providers and AI capabilities (summarization, analytics, etc.)

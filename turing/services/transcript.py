@@ -32,6 +32,11 @@ class TranscriptService:
         source: str = RevisionSource.PROVIDER,
         created_by: AbstractBaseUser | None = None,
     ) -> Transcript:
+        # Idempotent: never create a second transcript for the same job
+        existing = Transcript.objects.filter(job=job).first()
+        if existing:
+            return existing
+
         # Demote previous primary transcripts for this media
         Transcript.objects.filter(media=job.media, is_primary=True).update(is_primary=False)
 

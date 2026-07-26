@@ -110,6 +110,7 @@ def test_transcription_persist_and_human_edit(monkeypatch):
         media=media,
         created_by=user,
         auto_enqueue=False,
+        language_code="en",
     )
 
     class FakeProvider:

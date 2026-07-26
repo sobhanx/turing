@@ -7,8 +7,9 @@ from turing.services.transcription import TranscriptionService
 
 class Command(BaseCommand):
     help = (
-        "Process a Turing transcription job synchronously "
-        "(useful when Celery is not running)."
+        "Synchronously run the full transcription pipeline "
+        "(debug/fallback when Celery workers are unavailable). "
+        "Production should rely on Celery: submit → poll → fetch/persist."
     )
 
     def add_arguments(self, parser):

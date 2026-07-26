@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from django.contrib import admin, messages
 
+from turing.conf import clear_settings_cache, get_turing_settings
+from turing.domain.exceptions import TuringError, ValidationError
 from turing.models import MediaAsset
 from turing.services.job_orchestrator import JobOrchestrator
 
@@ -26,16 +28,56 @@ class MediaAssetAdmin(admin.ModelAdmin):
 
     @admin.action(description="Create transcription jobs (Speechmatics)")
     def create_transcription_jobs(self, request, queryset):
+        """
+        Create jobs using Platform / provider default language.
+
+        Does not silently create jobs without language_code — configure
+        Platform configuration → Default language (e.g. fa) first.
+        """
+        clear_settings_cache()
+        settings = get_turing_settings()
+        if not (settings.default_language or "").strip():
+            # Also allow provider-level default; orchestrator resolves fully.
+            from turing.models.configuration import SpeechProviderConfig
+
+            provider_has_lang = SpeechProviderConfig.objects.filter(
+                code=settings.default_provider,
+                is_active=True,
+            ).exclude(default_language="").exists()
+            if not provider_has_lang:
+                self.message_user(
+                    request,
+                    "Cannot create transcription jobs: no default language configured. "
+                    "Set Platform configuration → Default language (e.g. fa for Persian), "
+                    "then try again.",
+                    messages.ERROR,
+                )
+                return
+
         orchestrator = JobOrchestrator()
         created = 0
+        languages: set[str] = set()
         for media in queryset:
-            orchestrator.create_transcription_job(
-                media=media,
-                created_by=request.user,
-            )
+            try:
+                job = orchestrator.create_transcription_job(
+                    media=media,
+                    created_by=request.user,
+                )
+            except (ValidationError, TuringError) as exc:
+                self.message_user(
+                    request,
+                    f"Failed for media {media.id}: {exc}",
+                    messages.ERROR,
+                )
+                continue
             created += 1
-        self.message_user(
-            request,
-            f"Created and enqueued {created} transcription job(s).",
-            messages.SUCCESS,
-        )
+            languages.add(job.language_code)
+
+        if created:
+            lang_note = ", ".join(sorted(languages)) or "(none)"
+            self.message_user(
+                request,
+                f"Created and enqueued {created} transcription job(s) "
+                f"with language_code={lang_note}.",
+                messages.SUCCESS,
+            )

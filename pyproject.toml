@@ -48,6 +48,8 @@ dev = [
     "responses>=0.25",
     "python-dotenv>=1.0",
 ]
+postgres = ["psycopg[binary]>=3.1"]
+
 
 [project.urls]
 Homepage = "https://github.com/turing/django-turing"

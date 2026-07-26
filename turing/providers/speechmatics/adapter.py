@@ -99,12 +99,17 @@ class SpeechmaticsAdapter(STTProvider):
             "operating_point": operating_point,
             "diarization": "speaker" if request.diarization else "none",
         }
-        if request.language_code:
-            transcription_config["language"] = request.language_code
-        else:
-            # Speechmatics requires a language; use "auto" when available via extra,
-            # otherwise default to English and allow Admin override.
-            transcription_config["language"] = request.extra_options.get("language", "en")
+        language = (request.language_code or "").strip() or (
+            str(request.extra_options.get("language") or "").strip()
+        )
+        if not language:
+            from turing.domain.exceptions import ConfigurationError
+
+            raise ConfigurationError(
+                "Speechmatics requires a language_code (e.g. fa, en). "
+                "Set it on the ProcessingJob or Platform configuration default language."
+            )
+        transcription_config["language"] = language
 
         config: dict[str, Any] = {
             "type": "transcription",
@@ -115,9 +120,11 @@ class SpeechmaticsAdapter(STTProvider):
         # Merge provider/job extras carefully
         for key, value in (request.extra_options or {}).items():
             if key == "language":
-                transcription_config["language"] = value
+                continue  # already applied
             elif key == "transcription_config" and isinstance(value, dict):
                 transcription_config.update(value)
-            elif key not in {"language"}:
+                # Do not allow extras to wipe required language
+                transcription_config["language"] = language
+            else:
                 config[key] = value
         return config

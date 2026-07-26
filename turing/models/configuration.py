@@ -36,14 +36,20 @@ class PlatformConfiguration(TimeStampedModel):
     poll_timeout_seconds = models.PositiveIntegerField(default=1800)
     auto_enqueue = models.BooleanField(
         default=True,
-        help_text="Automatically enqueue Celery when a job is created.",
+        help_text=(
+            "Automatically schedule the async Celery pipeline "
+            "(submit → poll → fetch/persist) when a job is created."
+        ),
     )
     enable_diarization_default = models.BooleanField(default=True)
     default_language = models.CharField(
         max_length=16,
         blank=True,
         default="",
-        help_text="Empty means provider auto-detect / provider default.",
+        help_text=(
+            "Default STT language for new jobs (e.g. fa, en). "
+            "Required for Admin bulk job creation when language is not set explicitly."
+        ),
     )
     api_require_auth = models.BooleanField(
         default=True,

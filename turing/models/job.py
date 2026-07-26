@@ -38,7 +38,10 @@ class ProcessingJob(UUIDModel):
         max_length=16,
         blank=True,
         default="",
-        help_text="Empty triggers provider language detection when supported.",
+        help_text=(
+            "STT language (e.g. fa, en). Empty uses Platform / provider default language; "
+            "job creation fails if no default is configured."
+        ),
     )
     options = models.JSONField(
         default=dict,
