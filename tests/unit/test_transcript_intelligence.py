@@ -31,6 +31,9 @@ def _wav_like_upload():
 
 @pytest.fixture
 def transcript_with_words(db, monkeypatch):
+    from turing.domain.enums import TuringRole
+    from turing.models import Organization, TuringMembership
+
     user = User.objects.create_user(username="intel", password="pass")
     raw, name = _wav_like_upload()
     media = MediaService().create_from_upload(
@@ -38,6 +41,12 @@ def transcript_with_words(db, monkeypatch):
         filename=name,
         content_type="audio/wav",
         use_case=UseCase.MEETING,
+    )
+    TuringMembership.objects.create(
+        user=user,
+        organization=media.organization or Organization.get_default(),
+        role=TuringRole.REVIEWER,
+        is_active=True,
     )
     job = JobOrchestrator().create_transcription_job(
         media=media,
@@ -119,6 +128,7 @@ def test_existing_transcript_without_words_still_compatible(db):
     transcript = Transcript.objects.create(
         job=job,
         media=media,
+        organization=media.organization,
         status=TranscriptStatus.DRAFT,
         full_text="legacy text",
         word_count=0,

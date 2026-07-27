@@ -3,7 +3,13 @@ from __future__ import annotations
 from django.contrib import admin, messages
 from django.utils.html import format_html
 
+from turing.admin.authz import (
+    CapabilityGatedAdminMixin,
+    admin_assert_capability,
+    admin_scope_queryset,
+)
 from turing.domain.enums import JobStatus
+from turing.domain.exceptions import PermissionDeniedError
 from turing.models import ProcessingAttempt, ProcessingJob, ProcessingLog
 from turing.services.job_orchestrator import JobOrchestrator
 
@@ -33,7 +39,12 @@ class ProcessingLogInline(admin.TabularInline):
 
 
 @admin.register(ProcessingJob)
-class ProcessingJobAdmin(admin.ModelAdmin):
+class ProcessingJobAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+    turing_view_capability = "view_transcript"
+    turing_change_capability = "manage_jobs"
+    turing_add_capability = "manage_jobs"
+    turing_delete_capability = "manage_jobs"
+
     list_display = (
         "id",
         "status_badge",
@@ -65,6 +76,23 @@ class ProcessingJobAdmin(admin.ModelAdmin):
     inlines = [ProcessingAttemptInline, ProcessingLogInline]
     actions = ("retry_jobs", "cancel_jobs", "enqueue_jobs")
 
+    def get_queryset(self, request):
+        return admin_scope_queryset(super().get_queryset(request), request.user)
+
+    def save_model(self, request, obj, form, change):
+        if not obj.organization_id and obj.media_id:
+            obj.organization = obj.media.organization
+        try:
+            admin_assert_capability(
+                request.user,
+                organization=obj.organization,
+                capability="manage_jobs",
+            )
+        except PermissionDeniedError as exc:
+            self.message_user(request, str(exc), messages.ERROR)
+            return
+        admin.ModelAdmin.save_model(self, request, obj, form, change)
+
     @admin.display(description="Status")
     def status_badge(self, obj: ProcessingJob):
         colors = {
@@ -93,9 +121,14 @@ class ProcessingJobAdmin(admin.ModelAdmin):
         count = 0
         for job in queryset:
             try:
+                admin_assert_capability(
+                    request.user,
+                    organization=job.organization,
+                    capability="manage_jobs",
+                )
                 orch.enqueue(job)
                 count += 1
-            except Exception as exc:  # noqa: BLE001
+            except (PermissionDeniedError, Exception) as exc:  # noqa: BLE001
                 self.message_user(request, f"{job.id}: {exc}", messages.ERROR)
         self.message_user(request, f"Enqueued {count} job(s).", messages.SUCCESS)
 
@@ -105,9 +138,14 @@ class ProcessingJobAdmin(admin.ModelAdmin):
         count = 0
         for job in queryset:
             try:
+                admin_assert_capability(
+                    request.user,
+                    organization=job.organization,
+                    capability="manage_jobs",
+                )
                 orch.retry(job)
                 count += 1
-            except Exception as exc:  # noqa: BLE001
+            except (PermissionDeniedError, Exception) as exc:  # noqa: BLE001
                 self.message_user(request, f"{job.id}: {exc}", messages.ERROR)
         self.message_user(request, f"Retried {count} job(s).", messages.SUCCESS)
 
@@ -117,19 +155,41 @@ class ProcessingJobAdmin(admin.ModelAdmin):
         count = 0
         for job in queryset:
             try:
+                admin_assert_capability(
+                    request.user,
+                    organization=job.organization,
+                    capability="manage_jobs",
+                )
                 orch.cancel(job)
                 count += 1
-            except Exception as exc:  # noqa: BLE001
+            except (PermissionDeniedError, Exception) as exc:  # noqa: BLE001
                 self.message_user(request, f"{job.id}: {exc}", messages.ERROR)
         self.message_user(request, f"Cancelled {count} job(s).", messages.SUCCESS)
 
 
 @admin.register(ProcessingLog)
-class ProcessingLogAdmin(admin.ModelAdmin):
+class ProcessingLogAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+    turing_view_capability = "view_transcript"
+    turing_change_capability = "manage_jobs"
+    turing_delete_capability = "manage_jobs"
+
     list_display = ("created_at", "job", "level", "message_short")
     list_filter = ("level", "created_at")
     search_fields = ("message", "job__id")
     readonly_fields = ("job", "attempt", "level", "message", "context", "created_at", "updated_at")
+
+    def get_queryset(self, request):
+        return admin_scope_queryset(
+            super().get_queryset(request),
+            request.user,
+            field="job__organization_id",
+        )
+
+    def turing_organization(self, obj):
+        return obj.job.organization if obj and obj.job_id else None
+
+    def has_add_permission(self, request) -> bool:
+        return False
 
     @admin.display(description="Message")
     def message_short(self, obj: ProcessingLog):

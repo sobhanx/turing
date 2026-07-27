@@ -7,11 +7,22 @@ from turing.domain.exceptions import NotFoundError, PermissionDeniedError
 from turing.models import Organization, TuringMembership
 
 
-def user_sees_all_organizations(user: AbstractBaseUser | None) -> bool:
-    """Staff/superuser retain cross-org visibility (Admin + API ops)."""
+def user_is_global_bypass(user: AbstractBaseUser | None) -> bool:
+    """
+    True only for Django superusers.
+
+    ``is_staff`` alone does **not** grant Turing capabilities or cross-org access.
+    Staff may use Django Admin UI; membership (or superuser) is required for
+    Turing business actions.
+    """
     if user is None or not getattr(user, "is_authenticated", False):
         return False
-    return bool(getattr(user, "is_superuser", False) or getattr(user, "is_staff", False))
+    return bool(getattr(user, "is_superuser", False))
+
+
+def user_sees_all_organizations(user: AbstractBaseUser | None) -> bool:
+    """Cross-org visibility / unscoped querysets — superuser only."""
+    return user_is_global_bypass(user)
 
 
 def active_memberships_for(user: AbstractBaseUser | None) -> QuerySet[TuringMembership]:
@@ -48,20 +59,14 @@ def assert_organization_access(
     """
     Ensure ``user`` may use ``organization`` (and optionally a capability there).
 
-    Staff/superuser bypass membership checks for local/Admin ops.
-    Unauthenticated / system callers (``user is None``) are allowed for CLI paths.
+    - Superuser: always allowed (optional capability still treated as granted).
+    - Members: must have an active membership; capability checked in that org.
+    - ``user is None``: allowed for CLI/system paths.
+    - Staff without membership: denied.
     """
     if user is None or not getattr(user, "is_authenticated", False):
         return
-    if user_sees_all_organizations(user):
-        if capability:
-            from turing.auth.roles import user_has_capability
-
-            if not user_has_capability(user, capability, organization=organization):
-                raise PermissionDeniedError(
-                    f"Missing capability '{capability}' for organization "
-                    f"'{organization.slug}'."
-                )
+    if user_is_global_bypass(user):
         return
 
     membership = get_membership_for_organization(user, organization)
@@ -90,30 +95,26 @@ def resolve_organization(
     """
     Resolve owning organization for create paths.
 
-    Explicit targets (``organization``, ``organization_id``, or ``tenant_key``)
-    are membership-validated. They never fall back to Default on denial.
+    Explicit targets are membership-validated (superuser bypasses).
+    They never fall back to Default on denial.
 
     When no explicit target is given:
+    - superuser → Default
     - authenticated member → first active membership org
-    - staff/superuser → Default
-    - authenticated non-member → PermissionDeniedError
+    - authenticated non-member (including staff) → PermissionDeniedError
     - no user (CLI/system) → Default (local workflow)
     """
-    explicit = False
     org: Organization | None = None
 
     if organization is not None:
-        explicit = True
         org = organization
     elif organization_id not in (None, ""):
-        explicit = True
         org = Organization.objects.filter(pk=organization_id, is_active=True).first()
         if org is None:
             raise NotFoundError(f"Organization '{organization_id}' not found.")
     else:
         key = (tenant_key or "").strip()
         if key:
-            explicit = True
             org = Organization.objects.filter(slug=key, is_active=True).first()
             if org is None:
                 org = Organization.objects.filter(
@@ -128,11 +129,8 @@ def resolve_organization(
 
     # Implicit resolution (no explicit target)
     if user is not None and getattr(user, "is_authenticated", False):
-        if user_sees_all_organizations(user):
-            default = Organization.get_default()
-            if capability:
-                assert_organization_access(user, default, capability=capability)
-            return default
+        if user_is_global_bypass(user):
+            return Organization.get_default()
         membership = active_memberships_for(user).order_by("id").first()
         if membership is None:
             raise PermissionDeniedError(

@@ -3,12 +3,14 @@ from __future__ import annotations
 from django import forms
 from django.contrib import admin
 
+from turing.admin.authz import GlobalCapabilityAdminMixin
 from turing.models import PlatformConfiguration, SpeechProviderConfig
 from turing.security.secrets import mask_secret
 
 
 @admin.register(PlatformConfiguration)
-class PlatformConfigurationAdmin(admin.ModelAdmin):
+class PlatformConfigurationAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
+    turing_capability = "manage_config"
     list_display = (
         "default_provider_code",
         "storage_backend",
@@ -51,7 +53,9 @@ class PlatformConfigurationAdmin(admin.ModelAdmin):
     )
 
     def has_add_permission(self, request) -> bool:
-        return not PlatformConfiguration.objects.exists()
+        if not PlatformConfiguration.objects.exists():
+            return super().has_add_permission(request)
+        return False
 
     def has_delete_permission(self, request, obj=None) -> bool:
         return False
@@ -92,7 +96,8 @@ class SpeechProviderConfigForm(forms.ModelForm):
 
 
 @admin.register(SpeechProviderConfig)
-class SpeechProviderConfigAdmin(admin.ModelAdmin):
+class SpeechProviderConfigAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
+    turing_capability = "manage_config"
     form = SpeechProviderConfigForm
     list_display = (
         "name",

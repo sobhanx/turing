@@ -88,10 +88,8 @@ class MediaAsset(UUIDModel):
     organization = models.ForeignKey(
         "turing.Organization",
         on_delete=models.PROTECT,
-        null=True,
-        blank=True,
         related_name="media_assets",
-        help_text="Owning organization (data boundary). Defaults to the seeded Default org.",
+        help_text="Owning organization (data boundary). Required.",
     )
     tenant_key = models.CharField(
         max_length=64,

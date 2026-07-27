@@ -67,10 +67,8 @@ class ProcessingJob(UUIDModel):
     organization = models.ForeignKey(
         "turing.Organization",
         on_delete=models.PROTECT,
-        null=True,
-        blank=True,
         related_name="jobs",
-        help_text="Copied from media at job creation.",
+        help_text="Copied from media at job creation. Required.",
     )
     tenant_key = models.CharField(max_length=64, blank=True, default="", db_index=True)
 
@@ -121,7 +119,12 @@ class ProcessingAttempt(UUIDModel):
 
     class Meta:
         ordering = ["attempt_number"]
-        unique_together = [("job", "attempt_number")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["job", "attempt_number"],
+                name="turing_attempt_job_number_uniq",
+            ),
+        ]
         verbose_name = "Processing attempt"
         verbose_name_plural = "Processing attempts"
 

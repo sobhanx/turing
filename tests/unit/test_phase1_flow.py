@@ -96,11 +96,20 @@ def test_media_upload_and_job_creation(settings):
 
 @pytest.mark.django_db
 def test_transcription_persist_and_human_edit(monkeypatch):
+    from turing.domain.enums import TuringRole
+    from turing.models import Organization, TuringMembership
+
     user = User.objects.create_user(username="editor", password="pass")
     media = MediaService().create_from_upload(
         uploaded_file=io.BytesIO(b"abc"),
         filename="meeting.wav",
         use_case=UseCase.MEETING,
+    )
+    TuringMembership.objects.create(
+        user=user,
+        organization=media.organization or Organization.get_default(),
+        role=TuringRole.EDITOR,
+        is_active=True,
     )
     job = JobOrchestrator().create_transcription_job(
         media=media,

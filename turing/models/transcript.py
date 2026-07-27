@@ -23,10 +23,8 @@ class Transcript(UUIDModel):
     organization = models.ForeignKey(
         "turing.Organization",
         on_delete=models.PROTECT,
-        null=True,
-        blank=True,
         related_name="transcripts",
-        help_text="Copied from job/media at persist time.",
+        help_text="Copied from job/media at persist time. Required.",
     )
     language_code = models.CharField(max_length=16, blank=True, default="")
     status = models.CharField(
@@ -97,7 +95,12 @@ class Speaker(UUIDModel):
 
     class Meta:
         ordering = ["label"]
-        unique_together = [("transcript", "label")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["transcript", "label"],
+                name="turing_speaker_transcript_label_uniq",
+            ),
+        ]
         verbose_name = "Speaker"
         verbose_name_plural = "Speakers"
 
@@ -147,7 +150,12 @@ class TranscriptSegment(UUIDModel):
 
     class Meta:
         ordering = ["sequence"]
-        unique_together = [("transcript", "sequence")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["transcript", "sequence"],
+                name="turing_segment_transcript_sequence_uniq",
+            ),
+        ]
         indexes = [
             models.Index(fields=["transcript", "start_ms"]),
             models.Index(fields=["speaker"]),
@@ -192,7 +200,12 @@ class TranscriptWord(UUIDModel):
 
     class Meta:
         ordering = ["sequence"]
-        unique_together = [("segment", "sequence")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["segment", "sequence"],
+                name="turing_word_segment_sequence_uniq",
+            ),
+        ]
         indexes = [
             models.Index(fields=["segment", "start_ms"]),
             models.Index(fields=["text"]),
@@ -234,7 +247,12 @@ class TranscriptRevision(UUIDModel):
 
     class Meta:
         ordering = ["-revision_number"]
-        unique_together = [("transcript", "revision_number")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["transcript", "revision_number"],
+                name="turing_revision_transcript_number_uniq",
+            ),
+        ]
         verbose_name = "Transcript revision"
         verbose_name_plural = "Transcript revisions"
 

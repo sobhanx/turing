@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from rest_framework.permissions import BasePermission, SAFE_METHODS
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from turing.auth.roles import user_has_capability
+from turing.auth.tenancy import user_is_global_bypass
 from turing.models import MediaAsset, ProcessingJob, Speaker, Transcript, TranscriptSegment
 
 
@@ -21,8 +22,8 @@ class HasTuringCapability(BasePermission):
             capability = getattr(view, "read_capability", "view_transcript")
         organization = _organization_from_obj(obj)
         if organization is None:
-            # Legacy rows without org: staff/superuser only (via role fallback).
-            return user_has_capability(request.user, capability)
+            # Defense in depth: org is required on owned models after Phase 2.9.2.
+            return user_is_global_bypass(request.user)
         return user_has_capability(
             request.user, capability, organization=organization
         )

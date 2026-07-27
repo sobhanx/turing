@@ -12,12 +12,14 @@ from turing.auth.tenancy import (
     organization_ids_for,
     resolve_organization,
     scope_by_organization,
+    user_is_global_bypass,
     user_sees_all_organizations,
 )
 
 __all__ = [
     "get_user_role",
     "user_has_capability",
+    "user_is_global_bypass",
     "user_sees_all_organizations",
     "organization_ids_for",
     "resolve_organization",

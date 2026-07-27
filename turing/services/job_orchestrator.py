@@ -44,7 +44,7 @@ class JobOrchestrator:
         if code not in ProviderRegistry.codes():
             raise ValidationError(f"Provider '{code}' is not registered.")
 
-        if created_by is not None and media.organization_id:
+        if created_by is not None:
             from turing.auth.tenancy import assert_organization_access
 
             assert_organization_access(

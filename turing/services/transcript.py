@@ -44,10 +44,15 @@ class TranscriptService:
             return existing
 
         try:
+            org = job.organization or job.media.organization
+            if org is None:
+                raise ValidationError(
+                    "Cannot persist transcript: job/media has no organization."
+                )
             transcript = Transcript.objects.create(
                 job=job,
                 media=job.media,
-                organization=job.organization or job.media.organization,
+                organization=org,
                 language_code=normalized.language_code or job.language_code,
                 status=TranscriptStatus.DRAFT,
                 full_text=normalized.full_text,
@@ -177,6 +182,14 @@ class TranscriptService:
     ) -> TranscriptSegment:
         transcript = segment.transcript
         assert_transcript_editable(transcript.status)
+        if edited_by is not None:
+            from turing.auth.tenancy import assert_organization_access
+
+            assert_organization_access(
+                edited_by,
+                transcript.organization,
+                capability="edit_transcript",
+            )
 
         if text is not None:
             segment.text = text
@@ -217,6 +230,14 @@ class TranscriptService:
     ) -> Speaker:
         transcript = speaker.transcript
         assert_transcript_editable(transcript.status)
+        if edited_by is not None:
+            from turing.auth.tenancy import assert_organization_access
+
+            assert_organization_access(
+                edited_by,
+                transcript.organization,
+                capability="edit_transcript",
+            )
         speaker.display_name = display_name
         speaker.save(update_fields=["display_name", "updated_at"])
         self.recompute_full_text(transcript)
@@ -255,6 +276,14 @@ class TranscriptService:
             assert_can_submit_for_review(transcript.status)
         except JobStateError as exc:
             raise ValidationError(str(exc)) from exc
+        if assigned_by is not None:
+            from turing.auth.tenancy import assert_organization_access
+
+            assert_organization_access(
+                assigned_by,
+                transcript.organization,
+                capability="edit_transcript",
+            )
         transcript.status = TranscriptStatus.IN_REVIEW
         transcript.save(update_fields=["status", "updated_at"])
         return ReviewAssignment.objects.create(
@@ -276,6 +305,14 @@ class TranscriptService:
             assert_can_approve(transcript.status)
         except JobStateError as exc:
             raise ValidationError(str(exc)) from exc
+        if approved_by is not None:
+            from turing.auth.tenancy import assert_organization_access
+
+            assert_organization_access(
+                approved_by,
+                transcript.organization,
+                capability="approve_transcript",
+            )
         transcript.status = TranscriptStatus.APPROVED
         transcript.approved_at = timezone.now()
         transcript.approved_by = approved_by
@@ -311,6 +348,21 @@ class TranscriptService:
     ) -> ReviewDecision:
         if decision not in ReviewDecisionType.values:
             raise ValidationError(f"Invalid decision '{decision}'.")
+
+        transcript = assignment.transcript
+        if decided_by is not None:
+            from turing.auth.tenancy import assert_organization_access
+
+            capability = (
+                "approve_transcript"
+                if decision == ReviewDecisionType.APPROVE
+                else "review_transcript"
+            )
+            assert_organization_access(
+                decided_by,
+                transcript.organization,
+                capability=capability,
+            )
 
         record = ReviewDecision.objects.create(
             assignment=assignment,

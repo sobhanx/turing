@@ -2,15 +2,25 @@ from __future__ import annotations
 
 from django.contrib import admin, messages
 
+from turing.admin.authz import (
+    CapabilityGatedAdminMixin,
+    admin_assert_capability,
+    admin_scope_queryset,
+)
 from turing.conf import clear_settings_cache, get_turing_settings
-from turing.domain.exceptions import TuringError, ValidationError
-from turing.models import MediaAsset
+from turing.domain.exceptions import PermissionDeniedError, TuringError, ValidationError
+from turing.models import MediaAsset, Organization
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
 
 
 @admin.register(MediaAsset)
-class MediaAssetAdmin(admin.ModelAdmin):
+class MediaAssetAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+    turing_view_capability = "view_transcript"
+    turing_change_capability = "upload_media"
+    turing_add_capability = "upload_media"
+    turing_delete_capability = "upload_media"
+
     list_display = (
         "id",
         "display_name",
@@ -50,14 +60,25 @@ class MediaAssetAdmin(admin.ModelAdmin):
     autocomplete_fields = ("organization",)
     actions = ("create_transcription_jobs",)
 
+    def get_queryset(self, request):
+        return admin_scope_queryset(super().get_queryset(request), request.user)
+
     def save_model(self, request, obj, form, change):
         if not obj.organization_id:
-            from turing.models import Organization
-
             obj.organization = Organization.get_default()
             if not obj.tenant_key:
                 obj.tenant_key = obj.organization.slug
-        super().save_model(request, obj, form, change)
+        try:
+            admin_assert_capability(
+                request.user,
+                organization=obj.organization,
+                capability="upload_media",
+            )
+        except PermissionDeniedError as exc:
+            self.message_user(request, str(exc), messages.ERROR)
+            return
+        # Bypass mixin save_model (already asserted) → ModelAdmin
+        admin.ModelAdmin.save_model(self, request, obj, form, change)
         if obj.file or obj.object_key:
             try:
                 if not obj.original_filename and obj.file:
@@ -100,11 +121,16 @@ class MediaAssetAdmin(admin.ModelAdmin):
         languages: set[str] = set()
         for media in queryset:
             try:
+                admin_assert_capability(
+                    request.user,
+                    organization=media.organization,
+                    capability="manage_jobs",
+                )
                 job = orchestrator.create_transcription_job(
                     media=media,
                     created_by=request.user,
                 )
-            except (ValidationError, TuringError) as exc:
+            except (PermissionDeniedError, ValidationError, TuringError) as exc:
                 self.message_user(
                     request,
                     f"Failed for media {media.id}: {exc}",

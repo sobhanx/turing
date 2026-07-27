@@ -103,14 +103,96 @@ def test_queryset_scoped_by_organization(orgs):
 
 
 @pytest.mark.django_db
-def test_staff_sees_all_organizations(orgs):
+def test_staff_without_membership_sees_no_organizations(orgs):
+    """is_staff alone does not grant cross-org visibility."""
     media_a = _media_in_org(orgs["alpha"], username="sa")
     media_b = _media_in_org(orgs["beta"], username="sb")
     staff = User.objects.create_user(username="staff", password="pass", is_staff=True)
 
     scoped = scope_by_organization(MediaAsset.objects.all(), staff)
+    assert scoped.count() == 0
+    assert media_a.id not in set(scoped.values_list("id", flat=True))
+    assert media_b.id not in set(scoped.values_list("id", flat=True))
+
+
+@pytest.mark.django_db
+def test_no_membership_has_no_capabilities(orgs):
+    user = User.objects.create_user(username="ghost", password="pass")
+    assert get_user_role(user) is None
+    assert get_user_role(user, organization=orgs["alpha"]) is None
+    assert not user_has_capability(user, "view_transcript")
+    assert not user_has_capability(
+        user, "view_transcript", organization=orgs["alpha"]
+    )
+    assert not user_has_capability(user, "upload_media")
+    assert not user_has_capability(user, "manage_jobs")
+    assert not user_has_capability(user, "approve_transcript")
+
+
+@pytest.mark.django_db
+def test_staff_without_membership_has_no_turing_permissions(orgs):
+    staff = User.objects.create_user(
+        username="staff_only", password="pass", is_staff=True
+    )
+    assert get_user_role(staff) is None
+    assert not user_has_capability(staff, "view_transcript")
+    assert not user_has_capability(
+        staff, "approve_transcript", organization=orgs["alpha"]
+    )
+    assert not user_has_capability(staff, "upload_media")
+    assert not user_has_capability(staff, "manage_jobs")
+
+
+@pytest.mark.django_db
+def test_superuser_has_full_access(orgs):
+    media_a = _media_in_org(orgs["alpha"], username="su_a")
+    media_b = _media_in_org(orgs["beta"], username="su_b")
+    su = User.objects.create_superuser("root", "root@example.com", "pass")
+
+    assert user_has_capability(su, "approve_transcript")
+    assert user_has_capability(
+        su, "approve_transcript", organization=orgs["beta"]
+    )
+    assert user_has_capability(su, "upload_media", organization=orgs["alpha"])
+    scoped = scope_by_organization(MediaAsset.objects.all(), su)
     ids = set(scoped.values_list("id", flat=True))
     assert media_a.id in ids and media_b.id in ids
+
+    # Explicit foreign org create allowed for superuser
+    org = resolve_organization(organization_id=orgs["beta"].id, user=su)
+    assert org.id == orgs["beta"].id
+
+
+@pytest.mark.django_db
+def test_membership_org_a_cannot_operate_in_org_b(orgs):
+    from turing.domain.exceptions import PermissionDeniedError
+
+    user = User.objects.create_user(username="a_only", password="pass")
+    _membership(user, orgs["alpha"], TuringRole.ADMIN)
+    assert user_has_capability(user, "manage_jobs", organization=orgs["alpha"])
+    assert not user_has_capability(user, "manage_jobs", organization=orgs["beta"])
+    with pytest.raises(PermissionDeniedError):
+        resolve_organization(
+            organization=orgs["beta"],
+            user=user,
+            capability="manage_jobs",
+        )
+
+
+@pytest.mark.django_db
+def test_multiple_memberships_evaluate_per_organization(orgs):
+    user = User.objects.create_user(username="multi_cap", password="pass")
+    _membership(user, orgs["alpha"], TuringRole.VIEWER)
+    _membership(user, orgs["beta"], TuringRole.REVIEWER)
+    assert not user_has_capability(
+        user, "approve_transcript", organization=orgs["alpha"]
+    )
+    assert user_has_capability(
+        user, "approve_transcript", organization=orgs["beta"]
+    )
+    assert user_has_capability(user, "view_transcript", organization=orgs["alpha"])
+    # Unscoped: any membership — Reviewer in B grants approve
+    assert user_has_capability(user, "approve_transcript")
 
 
 @pytest.mark.django_db
@@ -429,3 +511,188 @@ def test_get_user_role_uses_org_membership(orgs):
     assert get_user_role(user, organization=orgs["beta"]) == TuringRole.VIEWER
     # Global fallback: highest privilege
     assert get_user_role(user) == TuringRole.EDITOR
+
+
+# --- Phase 2.9.2 ---
+
+
+@pytest.mark.django_db
+def test_organization_fk_required_on_media(orgs):
+    from django.db import IntegrityError
+
+    with pytest.raises((IntegrityError, ValueError, TypeError)):
+        MediaAsset.objects.create(
+            source_type="upload",
+            organization=None,
+        )
+
+
+@pytest.mark.django_db
+def test_service_edit_denied_without_capability(orgs):
+    from turing.domain.exceptions import PermissionDeniedError
+
+    media = _media_in_org(orgs["alpha"], username="edit_deny_media")
+    job = JobOrchestrator().create_transcription_job(
+        media=media, language_code="en", auto_enqueue=False
+    )
+    transcript = TranscriptService().persist_from_provider(
+        job=job,
+        normalized=NormalizedTranscript(
+            full_text="Hi",
+            language_code="en",
+            confidence_avg=0.8,
+            segments=[
+                NormalizedSegment(
+                    sequence=0,
+                    start_ms=0,
+                    end_ms=100,
+                    text="Hi",
+                    confidence=0.8,
+                    words=[],
+                )
+            ],
+            speakers=[],
+            raw={},
+        ),
+    )
+    segment = transcript.segments.get()
+    viewer = User.objects.create_user(username="viewer_edit", password="pass")
+    _membership(viewer, orgs["alpha"], TuringRole.VIEWER)
+    with pytest.raises(PermissionDeniedError):
+        TranscriptService().update_segment(
+            segment=segment, text="Nope", edited_by=viewer
+        )
+    with pytest.raises(PermissionDeniedError):
+        TranscriptService().approve(transcript=transcript, approved_by=viewer)
+
+
+@pytest.mark.django_db
+def test_admin_staff_viewer_cannot_change_or_approve(orgs):
+    from django.contrib.admin.sites import AdminSite
+    from django.test import RequestFactory
+
+    from turing.admin.job import ProcessingJobAdmin
+    from turing.admin.media import MediaAssetAdmin
+    from turing.admin.transcript import TranscriptAdmin
+
+    media = _media_in_org(orgs["alpha"], username="adm_media")
+    job = JobOrchestrator().create_transcription_job(
+        media=media, language_code="en", auto_enqueue=False
+    )
+    transcript = TranscriptService().persist_from_provider(
+        job=job,
+        normalized=NormalizedTranscript(
+            full_text="Hi",
+            language_code="en",
+            confidence_avg=0.8,
+            segments=[
+                NormalizedSegment(
+                    sequence=0,
+                    start_ms=0,
+                    end_ms=100,
+                    text="Hi",
+                    confidence=0.8,
+                    words=[],
+                )
+            ],
+            speakers=[],
+            raw={},
+        ),
+    )
+    staff = User.objects.create_user(
+        username="staff_viewer", password="pass", is_staff=True
+    )
+    _membership(staff, orgs["alpha"], TuringRole.VIEWER)
+    request = RequestFactory().get("/")
+    request.user = staff
+    site = AdminSite()
+
+    t_admin = TranscriptAdmin(Transcript, site)
+    assert t_admin.has_view_permission(request, transcript)
+    assert not t_admin.has_change_permission(request, transcript)
+    assert not t_admin.has_delete_permission(request, transcript)
+
+    m_admin = MediaAssetAdmin(MediaAsset, site)
+    assert m_admin.has_view_permission(request, media)
+    assert not m_admin.has_change_permission(request, media)
+
+    j_admin = ProcessingJobAdmin(ProcessingJob, site)
+    assert j_admin.has_view_permission(request, job)
+    assert not j_admin.has_change_permission(request, job)
+
+
+@pytest.mark.django_db
+def test_admin_staff_without_membership_denied(orgs):
+    from django.contrib.admin.sites import AdminSite
+    from django.test import RequestFactory
+
+    from turing.admin.transcript import TranscriptAdmin
+
+    media = _media_in_org(orgs["alpha"], username="adm2_media")
+    job = JobOrchestrator().create_transcription_job(
+        media=media, language_code="en", auto_enqueue=False
+    )
+    transcript = TranscriptService().persist_from_provider(
+        job=job,
+        normalized=NormalizedTranscript(
+            full_text="Hi",
+            language_code="en",
+            confidence_avg=0.8,
+            segments=[
+                NormalizedSegment(
+                    sequence=0,
+                    start_ms=0,
+                    end_ms=100,
+                    text="Hi",
+                    confidence=0.8,
+                    words=[],
+                )
+            ],
+            speakers=[],
+            raw={},
+        ),
+    )
+    staff = User.objects.create_user(
+        username="staff_orphan", password="pass", is_staff=True
+    )
+    request = RequestFactory().get("/")
+    request.user = staff
+    t_admin = TranscriptAdmin(Transcript, AdminSite())
+    assert not t_admin.has_module_permission(request)
+    assert not t_admin.has_view_permission(request, transcript)
+    assert not t_admin.has_change_permission(request, transcript)
+
+
+@pytest.mark.django_db
+def test_unique_constraint_speaker_label(orgs):
+    from django.db import IntegrityError
+
+    from turing.models import Speaker
+
+    media = _media_in_org(orgs["alpha"], username="uniq_media")
+    job = JobOrchestrator().create_transcription_job(
+        media=media, language_code="en", auto_enqueue=False
+    )
+    transcript = TranscriptService().persist_from_provider(
+        job=job,
+        normalized=NormalizedTranscript(
+            full_text="Hi",
+            language_code="en",
+            confidence_avg=0.8,
+            segments=[
+                NormalizedSegment(
+                    sequence=0,
+                    start_ms=0,
+                    end_ms=100,
+                    text="Hi",
+                    confidence=0.8,
+                    words=[],
+                )
+            ],
+            speakers=[],
+            raw={},
+        ),
+    )
+    Speaker.objects.create(transcript=transcript, label="S1")
+    with pytest.raises(IntegrityError):
+        Speaker.objects.create(transcript=transcript, label="S1")
