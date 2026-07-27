@@ -52,3 +52,21 @@ def compute_submit_retry_countdown(
     """Backoff before starting a new submit attempt after a retryable failure."""
     delay = min(float(base_seconds) * (2 ** max(attempt_number - 1, 0)), float(max_seconds))
     return max(1.0, round(delay, 3))
+
+
+def compute_poll_timeout_seconds(
+    *,
+    base_timeout_seconds: int,
+    expected_duration_ms: int | None,
+    multiplier: float = 2.0,
+) -> int:
+    """
+    Duration-aware poll timeout.
+
+    timeout = max(base_timeout, duration_seconds * multiplier)
+    """
+    base = max(int(base_timeout_seconds), 1)
+    if not expected_duration_ms or expected_duration_ms <= 0:
+        return base
+    scaled = int((expected_duration_ms / 1000.0) * float(multiplier))
+    return max(base, scaled)

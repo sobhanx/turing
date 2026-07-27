@@ -64,3 +64,6 @@ exclude = ["config*", "tests*"]
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["test_*.py"]
 addopts = "-q"
+markers = [
+    "integration: tests requiring ffprobe/ffmpeg on the host",
+]

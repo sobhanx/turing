@@ -7,10 +7,12 @@ provider polling.
 
 ```text
 create job (auto_enqueue=True)
+  → prepare_media_for_transcription
   → submit_transcription_job
   → poll_transcription_job  (reschedules itself with exponential backoff)
   → fetch_and_persist_transcription
   → Transcript + Speakers + Segments + Revision #1
+  → generate_transcript_analysis (Phase 3.2, only on first persist)
 ```
 
 | Task | Responsibility |
@@ -18,6 +20,8 @@ create job (auto_enqueue=True)
 | `submit_transcription_job` | Idempotent provider submit; stores `external_job_id` |
 | `poll_transcription_job` | One status check; reschedule or hand off |
 | `fetch_and_persist_transcription` | Fetch + persist (idempotent) |
+| `prepare_media_for_transcription` | Inspect + normalize before STT submit |
+| `generate_transcript_analysis` | Default AI suite (summary, action items, topics) |
 
 Entry alias: `process_transcription_job` starts the same submit step (compat).
 
@@ -85,9 +89,12 @@ Enqueue/broker failures set `error_code=ENQUEUE_FAILED` and leave the job
 ## Webhook-ready polling
 
 `TranscriptionService.apply_provider_status(...)` is the shared transition
-used by polling. A future Speechmatics webhook can call the same method and
-then `fetch_and_persist_transcription.delay(job_id)` when status is success —
-without changing persist logic.
+used by polling. Speechmatics webhooks call the same method via
+`ingest_provider_notification`, then `fetch_and_persist_transcription.delay`
+when status is success.
+
+See [webhooks.md](webhooks.md) for configuration (`TURING_WEBHOOK_MODE=augment`,
+`TURING_WEBHOOK_BASE_URL`, `TURING_SPEECHMATICS_WEBHOOK_SECRET`) and security notes.
 
 ## Sync fallback
 

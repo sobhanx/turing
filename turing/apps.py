@@ -14,5 +14,8 @@ class TuringConfig(AppConfig):
 
         ProviderRegistry.register(SpeechmaticsAdapter)
 
+        from turing.ai.providers import fake as _ai_fake  # noqa: F401
+        from turing.ai.providers import openai as _ai_openai  # noqa: F401
+
         # Ensure default roles exist after migrate (idempotent signal hook).
         from turing.auth import signals  # noqa: F401

@@ -36,18 +36,25 @@ class MediaStorageService:
         content_type: str = "",
         key_prefix: str = "turing/media",
     ) -> str:
-        """
-        Persist upload under a dated key.
-
-        Accepts a file-like object and streams it to the backend — do not
-        require callers to load the full file into memory first.
-        """
         safe_name = get_valid_filename(filename) or "audio.bin"
         from django.utils import timezone
 
         stamp = timezone.now()
         key = f"{key_prefix}/{stamp:%Y/%m}/{safe_name}"
         return self.gateway.save(key, content, content_type=content_type)
+
+    def read_bytes_key(self, object_key: str) -> bytes:
+        if not object_key:
+            raise FileNotFoundError("Missing object key.")
+        return self.gateway.read_bytes(object_key)
+
+    def signed_url_key(self, object_key: str, *, expires_in: int | None = None) -> str:
+        if not object_key:
+            return ""
+        return self.gateway.signed_url(object_key, expires_in=expires_in)
+
+    def exists_key(self, object_key: str) -> bool:
+        return bool(object_key) and self.gateway.exists(object_key)
 
     def read_bytes(self, asset: MediaAsset) -> bytes:
         key = self._resolve_key(asset)

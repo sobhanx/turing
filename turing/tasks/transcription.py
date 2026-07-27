@@ -37,9 +37,11 @@ def _maybe_auto_retry(job_id: str, *, error_code: str) -> str:
 )
 def process_transcription_job(self, job_id: str) -> str:
     """
-    Backward-compatible entrypoint: start the async submit → poll → persist pipeline.
+    Backward-compatible entrypoint: start the async prepare → submit → poll → persist pipeline.
     """
-    return submit_transcription_job(job_id)
+    from turing.tasks.ingestion import prepare_media_for_transcription
+
+    return prepare_media_for_transcription(job_id)
 
 
 @shared_task(
@@ -171,7 +173,11 @@ def fetch_and_persist_transcription(self, job_id: str) -> str:
 
     service = TranscriptionService()
     try:
-        transcript = service.fetch_and_persist(job_id)
+        transcript, created = service._fetch_and_persist_with_created(job_id)
+        if created:
+            from turing.tasks.analysis import generate_transcript_analysis
+
+            generate_transcript_analysis.delay(str(transcript.id))
         return str(transcript.id)
     except TuringError as exc:
         logger.warning("Fetch/persist aborted for job %s: %s", job_id, exc)

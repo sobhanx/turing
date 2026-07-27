@@ -170,16 +170,16 @@ class JobOrchestrator:
             context={"countdown": countdown, "clear_external_job": clear_external_job},
         )
 
-        from turing.tasks.transcription import submit_transcription_job
+        from turing.tasks.ingestion import prepare_media_for_transcription
 
         try:
-            async_result = submit_transcription_job.apply_async(
+            async_result = prepare_media_for_transcription.apply_async(
                 args=[str(job.id)],
                 countdown=max(0.0, float(countdown)),
             )
             self.log(
                 job,
-                "Celery submit task scheduled.",
+                "Celery prepare task scheduled.",
                 context={"task_id": getattr(async_result, "id", None), "countdown": countdown},
             )
         except Exception as exc:  # noqa: BLE001

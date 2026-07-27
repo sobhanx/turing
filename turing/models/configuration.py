@@ -72,6 +72,35 @@ class PlatformConfiguration(TimeStampedModel):
         help_text="Require authentication for Turing REST API.",
     )
     api_page_size = models.PositiveSmallIntegerField(default=25)
+    webhook_mode = models.CharField(
+        max_length=16,
+        choices=[("off", "Off"), ("augment", "Augment (webhooks + polling)")],
+        default="augment",
+        help_text=(
+            "Augment: register provider webhooks while keeping poll-based status checks."
+        ),
+    )
+    webhook_base_url = models.URLField(
+        max_length=512,
+        blank=True,
+        default="",
+        help_text=(
+            "Public base URL for provider callbacks (e.g. https://turing.example.com). "
+            "Required for webhook registration when mode is augment."
+        ),
+    )
+    normalization_enabled = models.BooleanField(
+        default=True,
+        help_text="Inspect and normalize audio before STT when ffmpeg is available.",
+    )
+    max_duration_ms = models.PositiveIntegerField(
+        default=0,
+        help_text="Maximum allowed audio duration in ms (0 = no limit).",
+    )
+    poll_timeout_multiplier = models.FloatField(
+        default=2.0,
+        help_text="Poll timeout floor = max(base timeout, duration_seconds * multiplier).",
+    )
     notes = models.TextField(blank=True, default="")
 
     class Meta:

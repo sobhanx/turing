@@ -17,7 +17,7 @@ Phase 1 provides a shared transcription engine that host Django projects can ins
 
 **Phase 2.4** encrypts provider API keys at rest and masks them in Admin (DB secret → env fallback).
 
-**Phase 2.6** upgrades transcripts into structured intelligence (words, confidence, review workflow, search). See [docs/transcript-intelligence.md](docs/transcript-intelligence.md).
+**Phase 2.6** upgrades transcripts into structured intelligence (words, confidence, review workflow, search). **Phase 3.2** adds AI-derived analyses (summary, action items, topics) linked to transcripts without mutating raw content. See [docs/transcript-intelligence.md](docs/transcript-intelligence.md).
 
 **Phase 2.7** adds organization-based ownership, memberships, API queryset scoping, and correct approve/review capabilities. See [docs/authorization-tenancy.md](docs/authorization-tenancy.md).
 
@@ -130,7 +130,7 @@ celery -A config worker -l info -Q turing.default,turing.high,turing.export
 
 With `Platform configuration.auto_enqueue=True` (default), job creation schedules processing automatically — no manual `turing_process_job` in normal use.
 
-See [docs/async-pipeline.md](docs/async-pipeline.md) for task names, backoff settings, idempotency, and webhook-ready polling.
+See [docs/async-pipeline.md](docs/async-pipeline.md) for task names, backoff settings, and idempotency. Provider webhooks (Phase 3.1) are documented in [docs/webhooks.md](docs/webhooks.md).
 
 ### Sync fallback (debug only)
 
@@ -173,7 +173,7 @@ Use session auth or DRF Token authentication.
 
 ## Roadmap (later phases)
 
-- Provider webhooks (replace/augment poll tasks)
+- Transcript attachment parsing from webhook body (Phase 3.1b)
 - Export (TXT / DOCX / PDF)
 - CRM and meeting product integrations (host apps on top of the same engine)
 - Additional STT providers and AI capabilities (summarization, analytics, etc.)

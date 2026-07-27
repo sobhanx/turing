@@ -61,6 +61,14 @@ class RevisionSource(models.TextChoices):
     SYSTEM = "system", "System"
 
 
+class AnalysisType(models.TextChoices):
+    """Derived AI analysis attached to a transcript (never mutates raw content)."""
+
+    SUMMARY = "summary", "Summary"
+    ACTION_ITEMS = "action_items", "Action items"
+    TOPICS = "topics", "Topics"
+
+
 class LogLevel(models.TextChoices):
     DEBUG = "debug", "Debug"
     INFO = "info", "Info"
@@ -81,3 +89,23 @@ class StorageBackend(models.TextChoices):
     S3 = "s3", "AWS S3"
     AZURE = "azure", "Azure Blob Storage"
     GCS = "gcs", "Google Cloud Storage"
+
+
+class ArtifactKind(models.TextChoices):
+    NORMALIZED = "normalized", "Normalized audio"
+
+
+class ArtifactStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    READY = "ready", "Ready"
+    FAILED = "failed", "Failed"
+    SKIPPED = "skipped", "Skipped"
+
+
+class IngestStatus(models.TextChoices):
+    """Outcome of pre-STT media ingestion for a processing job."""
+
+    PENDING = "pending", "Pending"
+    SUCCEEDED = "succeeded", "Succeeded"
+    SKIPPED = "skipped", "Skipped"
+    FAILED = "failed", "Failed"

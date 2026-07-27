@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.conf import settings
 from django.db import models
 
-from turing.domain.enums import Capability, JobStatus, LogLevel
+from turing.domain.enums import Capability, IngestStatus, JobStatus, LogLevel
 from turing.models.media import UUIDModel
 
 
@@ -71,6 +71,30 @@ class ProcessingJob(UUIDModel):
         help_text="Copied from media at job creation. Required.",
     )
     tenant_key = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    expected_duration_ms = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Detected audio duration used for poll timeout scaling.",
+    )
+    ingest_artifact = models.ForeignKey(
+        "turing.MediaProcessingArtifact",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="jobs",
+        help_text="Normalized artifact used for STT submit, when available.",
+    )
+    ingest_status = models.CharField(
+        max_length=16,
+        choices=IngestStatus.choices,
+        default=IngestStatus.PENDING,
+        db_index=True,
+    )
+    ingest_error = models.TextField(
+        blank=True,
+        default="",
+        help_text="Ingestion failure reason when ingest_status is failed.",
+    )
 
     class Meta:
         ordering = ["-created_at"]

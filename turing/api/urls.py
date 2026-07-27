@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from turing.api.viewsets import (
@@ -10,6 +11,7 @@ from turing.api.viewsets import (
     TranscriptSegmentViewSet,
     TranscriptViewSet,
 )
+from turing.api.webhooks import speechmatics_webhook
 
 router = DefaultRouter()
 router.register(r"v1/media", MediaAssetViewSet, basename="turing-media")
@@ -19,4 +21,7 @@ router.register(r"v1/segments", TranscriptSegmentViewSet, basename="turing-segme
 router.register(r"v1/speakers", SpeakerViewSet, basename="turing-speakers")
 router.register(r"v1/providers", ProviderViewSet, basename="turing-providers")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("v1/webhooks/speechmatics/", speechmatics_webhook, name="turing-webhook-speechmatics"),
+    *router.urls,
+]

@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone as dt_timezone
 from typing import Any
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from turing.conf import get_turing_settings
-from turing.domain.enums import JobStatus, LogLevel, RevisionSource
+from turing.domain.enums import ArtifactStatus, JobStatus, LogLevel, RevisionSource
 from turing.domain.exceptions import ProviderError, TuringError
 from turing.domain.pipeline import (
     PollAction,
     PollOutcome,
     compute_poll_countdown,
+    compute_poll_timeout_seconds,
     compute_submit_retry_countdown,
 )
 from turing.models import MediaAsset, ProcessingAttempt, ProcessingJob, Transcript
@@ -23,6 +25,7 @@ from turing.providers.types import ProviderJobHandle, ProviderJobStatus, Transcr
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.transcript import TranscriptService
 
+logger = logging.getLogger(__name__)
 
 PIPELINE_META_KEY = "turing_pipeline"
 SUBMIT_CLAIM_STALE_SECONDS = 120
@@ -263,10 +266,23 @@ class TranscriptionService:
         attempt = self._latest_attempt(job)
         settings = get_turing_settings()
 
-        if self._is_poll_timed_out(job, attempt, settings.poll_timeout_seconds):
+        if self._is_poll_timed_out(
+            job,
+            attempt,
+            compute_poll_timeout_seconds(
+                base_timeout_seconds=settings.poll_timeout_seconds,
+                expected_duration_ms=job.expected_duration_ms,
+                multiplier=settings.poll_timeout_multiplier,
+            ),
+        ):
+            timeout_seconds = compute_poll_timeout_seconds(
+                base_timeout_seconds=settings.poll_timeout_seconds,
+                expected_duration_ms=job.expected_duration_ms,
+                multiplier=settings.poll_timeout_multiplier,
+            )
             message = (
                 f"Timed out waiting for provider after "
-                f"{settings.poll_timeout_seconds}s."
+                f"{timeout_seconds}s."
             )
             self.orchestrator.mark_failed(
                 job,
@@ -408,6 +424,11 @@ class TranscriptionService:
 
     def fetch_and_persist(self, job_id: str) -> Transcript:
         """Fetch normalized transcript from provider and persist (idempotent)."""
+        transcript, _created = self._fetch_and_persist_with_created(job_id)
+        return transcript
+
+    def _fetch_and_persist_with_created(self, job_id: str) -> tuple[Transcript, bool]:
+        """Internal helper exposing whether this call created a new transcript."""
         with transaction.atomic():
             job = (
                 ProcessingJob.objects.select_for_update()
@@ -421,7 +442,7 @@ class TranscriptionService:
                 attempt = self._latest_attempt(job)
                 if job.status != JobStatus.SUCCEEDED and attempt:
                     self.orchestrator.mark_succeeded(job, attempt)
-                return existing
+                return existing, False
             if not job.external_job_id:
                 raise ProviderError(
                     "Cannot fetch: missing external_job_id.",
@@ -473,9 +494,10 @@ class TranscriptionService:
                 attempt = self._latest_attempt(job)
                 if job.status != JobStatus.SUCCEEDED and attempt:
                     self.orchestrator.mark_succeeded(job, attempt)
-                return existing
+                return existing, False
             attempt = self._latest_attempt(job)
 
+        had_transcript = Transcript.objects.filter(job=job).exists()
         try:
             transcript = self.transcript_service.persist_from_provider(
                 job=job,
@@ -499,6 +521,8 @@ class TranscriptionService:
             )
             raise
 
+        created = not had_transcript
+
         with transaction.atomic():
             job = ProcessingJob.objects.select_for_update().get(pk=job_id)
             attempt = self._latest_attempt(job)
@@ -509,7 +533,7 @@ class TranscriptionService:
                     attempt=attempt,
                     level=LogLevel.WARNING,
                 )
-                return transcript
+                return transcript, created
             if attempt:
                 self._update_pipeline_meta(attempt, stage="persisted")
                 attempt.save(update_fields=["response_metadata", "updated_at"])
@@ -518,7 +542,7 @@ class TranscriptionService:
                 job.status = JobStatus.SUCCEEDED
                 job.finished_at = timezone.now()
                 job.save(update_fields=["status", "finished_at", "updated_at"])
-            return transcript
+            return transcript, created
 
     def should_automatic_retry(self, job: ProcessingJob, *, error_code: str) -> bool:
         retryable_codes = {
@@ -539,6 +563,120 @@ class TranscriptionService:
             base_seconds=settings.retry_backoff_base_seconds,
             max_seconds=settings.retry_backoff_max_seconds,
         )
+
+    def ingest_provider_notification(self, notification) -> str:
+        """
+        Process a provider webhook notification (Phase 3.1a).
+
+        Maps external job id → ProcessingJob, applies shared status transitions,
+        and schedules fetch/persist on success. Polling remains the safety net.
+        """
+        from turing.domain.pipeline import PollAction
+        from turing.models.webhook import ProviderWebhookDelivery, WebhookDeliveryOutcome
+        from turing.providers.types import ProviderJobStatus
+        from turing.tasks.transcription import fetch_and_persist_transcription
+
+        if ProviderWebhookDelivery.objects.filter(
+            provider_code=notification.provider_code,
+            dedupe_key=notification.dedupe_key,
+        ).exists():
+            return WebhookDeliveryOutcome.DUPLICATE
+
+        job = ProcessingJob.objects.filter(
+            provider_code=notification.provider_code,
+            external_job_id=notification.external_job_id,
+        ).first()
+
+        if job is None:
+            try:
+                ProviderWebhookDelivery.objects.create(
+                    provider_code=notification.provider_code,
+                    external_job_id=notification.external_job_id,
+                    status_param=notification.status_param,
+                    dedupe_key=notification.dedupe_key,
+                    payload_hash=notification.payload_hash,
+                    processing_job=None,
+                    outcome=WebhookDeliveryOutcome.UNKNOWN_JOB,
+                    raw_metadata=notification.raw_metadata,
+                )
+            except IntegrityError:
+                return WebhookDeliveryOutcome.DUPLICATE
+            logger.warning(
+                "Webhook for unknown provider job %s (%s)",
+                notification.external_job_id,
+                notification.provider_code,
+            )
+            return WebhookDeliveryOutcome.UNKNOWN_JOB
+
+        provider_status = ProviderJobStatus(
+            external_job_id=notification.external_job_id,
+            state=notification.provider_state,
+            message=notification.provider_message,
+            raw=notification.raw_metadata,
+        )
+
+        poll_outcome = None
+        with transaction.atomic():
+            job = ProcessingJob.objects.select_for_update().get(pk=job.pk)
+
+            if ProviderWebhookDelivery.objects.filter(
+                provider_code=notification.provider_code,
+                dedupe_key=notification.dedupe_key,
+            ).exists():
+                return WebhookDeliveryOutcome.DUPLICATE
+
+            if job.status in {
+                JobStatus.SUCCEEDED,
+                JobStatus.FAILED,
+                JobStatus.CANCELLED,
+            }:
+                try:
+                    ProviderWebhookDelivery.objects.create(
+                        provider_code=notification.provider_code,
+                        external_job_id=notification.external_job_id,
+                        status_param=notification.status_param,
+                        dedupe_key=notification.dedupe_key,
+                        payload_hash=notification.payload_hash,
+                        processing_job=job,
+                        outcome=WebhookDeliveryOutcome.IGNORED,
+                        raw_metadata=notification.raw_metadata,
+                    )
+                except IntegrityError:
+                    return WebhookDeliveryOutcome.DUPLICATE
+                return WebhookDeliveryOutcome.IGNORED
+
+            attempt = self._latest_attempt(job)
+            if attempt:
+                self._update_pipeline_meta(
+                    attempt,
+                    stage="webhook_received",
+                    webhook_status=notification.status_param,
+                )
+                attempt.save(update_fields=["response_metadata", "updated_at"])
+
+            poll_outcome = self.apply_provider_status(
+                job,
+                provider_status,
+                attempt=attempt,
+            )
+
+            try:
+                ProviderWebhookDelivery.objects.create(
+                    provider_code=notification.provider_code,
+                    external_job_id=notification.external_job_id,
+                    status_param=notification.status_param,
+                    dedupe_key=notification.dedupe_key,
+                    payload_hash=notification.payload_hash,
+                    processing_job=job,
+                    outcome=WebhookDeliveryOutcome.PROCESSED,
+                    raw_metadata=notification.raw_metadata,
+                )
+            except IntegrityError:
+                return WebhookDeliveryOutcome.DUPLICATE
+
+        if poll_outcome and poll_outcome.action == PollAction.READY:
+            fetch_and_persist_transcription.delay(str(job.id))
+        return WebhookDeliveryOutcome.PROCESSED
 
     # ------------------------------------------------------------------
     # Internals
@@ -630,22 +768,38 @@ class TranscriptionService:
             k: v for k, v in options.items() if k not in {"diarization", "operating_point"}
         }
 
+        artifact = job.ingest_artifact
+        use_artifact = (
+            artifact is not None
+            and artifact.status == ArtifactStatus.READY
+            and bool(artifact.object_key)
+        )
+
         request = TranscriptionRequest(
             language_code=job.language_code or "",
             diarization=diarization,
             operating_point=operating_point,
             extra_options=extra,
-            filename=media.original_filename or "audio",
-            content_type=media.content_type or "application/octet-stream",
+            filename=(
+                f"{media.id}-normalized.wav"
+                if use_artifact
+                else (media.original_filename or "audio")
+            ),
+            content_type=(
+                artifact.content_type if use_artifact else (media.content_type or "application/octet-stream")
+            ),
         )
 
-        if media.source_type == "url" and media.external_url:
+        if media.source_type == "url" and media.external_url and not use_artifact:
             request.media_url = media.external_url
             return request
 
         from turing.services.media import MediaService
 
         media_service = MediaService()
+        if use_artifact and artifact is not None:
+            return self._build_request_from_artifact(job, request, artifact, media_service)
+
         # Prefer signed/remote URL so STT providers fetch without loading bytes in-worker.
         if media_service.storage.supports_remote_fetch():
             try:
@@ -687,3 +841,37 @@ class TranscriptionService:
             code="UNSUPPORTED_MEDIA",
             retryable=False,
         )
+
+    def _build_request_from_artifact(
+        self,
+        job: ProcessingJob,
+        request: TranscriptionRequest,
+        artifact,
+        media_service,
+    ) -> TranscriptionRequest:
+        if media_service.storage.supports_remote_fetch():
+            try:
+                settings = get_turing_settings()
+                signed = media_service.storage.signed_url_key(
+                    artifact.object_key,
+                    expires_in=getattr(settings, "signed_url_ttl_seconds", 3600),
+                )
+                if signed and str(signed).startswith(("http://", "https://")):
+                    request.media_url = signed
+                    return request
+            except Exception as exc:  # noqa: BLE001
+                self.orchestrator.log(
+                    job,
+                    f"Artifact signed URL unavailable; falling back to bytes: {exc}",
+                    level=LogLevel.WARNING,
+                )
+
+        try:
+            request.media_bytes = media_service.storage.read_bytes_key(artifact.object_key)
+            return request
+        except FileNotFoundError as exc:
+            raise ProviderError(
+                "Normalized artifact file is missing.",
+                code="UNSUPPORTED_MEDIA",
+                retryable=False,
+            ) from exc

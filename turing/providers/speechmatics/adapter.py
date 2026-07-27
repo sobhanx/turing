@@ -129,4 +129,20 @@ class SpeechmaticsAdapter(STTProvider):
                 transcription_config["language"] = language
             else:
                 config[key] = value
+        self._maybe_add_notification_config(config)
         return config
+
+    def _maybe_add_notification_config(self, config: dict[str, Any]) -> None:
+        settings = get_turing_settings()
+        if settings.webhook_mode != "augment":
+            return
+        secret = (settings.speechmatics_webhook_secret or "").strip()
+        callback = (settings.webhook_callback_url or "").strip()
+        if not secret or not callback:
+            return
+        from turing.providers.speechmatics.webhook import notification_config_for_submit
+
+        config["notification_config"] = notification_config_for_submit(
+            callback_url=callback,
+            bearer_secret=secret,
+        )

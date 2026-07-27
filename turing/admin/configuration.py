@@ -38,6 +38,9 @@ class PlatformConfigurationAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
                     "default_max_attempts",
                     "poll_interval_seconds",
                     "poll_timeout_seconds",
+                    "poll_timeout_multiplier",
+                    "normalization_enabled",
+                    "max_duration_ms",
                     "max_upload_bytes",
                     "allowed_audio_extensions",
                     "allowed_audio_mime_types",
@@ -48,6 +51,17 @@ class PlatformConfigurationAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
         (
             "API",
             {"fields": ("api_require_auth", "api_page_size")},
+        ),
+        (
+            "Webhooks",
+            {
+                "fields": ("webhook_mode", "webhook_base_url"),
+                "description": (
+                    "Augment mode registers Speechmatics callbacks when "
+                    "TURING_SPEECHMATICS_WEBHOOK_SECRET and webhook base URL are set. "
+                    "Polling remains enabled as a safety net."
+                ),
+            },
         ),
         ("Notes", {"fields": ("notes",)}),
     )

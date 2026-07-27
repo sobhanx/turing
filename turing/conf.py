@@ -27,6 +27,16 @@ class TuringSettings:
     signed_url_ttl_seconds: int
     speechmatics_api_key: str
     speechmatics_base_url: str
+    speechmatics_webhook_secret: str
+    webhook_mode: str
+    webhook_base_url: str
+    webhook_callback_url: str
+    ai_provider: str
+    openai_api_key: str
+    openai_model: str
+    normalization_enabled: bool
+    max_duration_ms: int
+    poll_timeout_multiplier: float
     auto_enqueue: bool
     enable_diarization_default: bool
     default_language: str
@@ -34,6 +44,14 @@ class TuringSettings:
 
 def _env(name: str, default: Any) -> Any:
     return getattr(settings, name, default)
+
+
+def _as_bool(value, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return default
 
 
 def _load_from_django() -> TuringSettings:
@@ -63,6 +81,16 @@ def _load_from_django() -> TuringSettings:
             "TURING_SPEECHMATICS_BASE_URL",
             "https://asr.api.speechmatics.com/v2",
         ),
+        speechmatics_webhook_secret=_env("TURING_SPEECHMATICS_WEBHOOK_SECRET", ""),
+        webhook_mode=_env("TURING_WEBHOOK_MODE", "augment"),
+        webhook_base_url=_env("TURING_WEBHOOK_BASE_URL", ""),
+        webhook_callback_url="",
+        ai_provider=_env("TURING_AI_PROVIDER", "fake"),
+        openai_api_key=_env("TURING_OPENAI_API_KEY", ""),
+        openai_model=_env("TURING_OPENAI_MODEL", "gpt-4o-mini"),
+        normalization_enabled=_as_bool(_env("TURING_NORMALIZATION_ENABLED", True), True),
+        max_duration_ms=int(_env("TURING_MAX_DURATION_MS", 0)),
+        poll_timeout_multiplier=float(_env("TURING_POLL_TIMEOUT_MULTIPLIER", 2.0)),
         auto_enqueue=True,
         enable_diarization_default=True,
         default_language="",
@@ -115,6 +143,12 @@ def _cached_settings() -> TuringSettings:
         pass
 
     poll_interval = float(platform.poll_interval_seconds or base.poll_interval_seconds)
+    webhook_base = (getattr(platform, "webhook_base_url", None) or base.webhook_base_url or "").strip()
+    webhook_secret = (base.speechmatics_webhook_secret or "").strip()
+    from turing.providers.speechmatics.webhook import webhook_callback_url as build_callback_url
+
+    callback_url = build_callback_url(webhook_base) if webhook_base else ""
+    webhook_mode = getattr(platform, "webhook_mode", None) or base.webhook_mode or "augment"
     return TuringSettings(
         default_provider=default_provider,
         max_upload_bytes=platform.max_upload_bytes or base.max_upload_bytes,
@@ -138,6 +172,18 @@ def _cached_settings() -> TuringSettings:
         signed_url_ttl_seconds=base.signed_url_ttl_seconds,
         speechmatics_api_key=api_key,
         speechmatics_base_url=base_url,
+        speechmatics_webhook_secret=webhook_secret,
+        webhook_mode=webhook_mode,
+        webhook_base_url=webhook_base,
+        webhook_callback_url=callback_url,
+        ai_provider=base.ai_provider,
+        openai_api_key=base.openai_api_key,
+        openai_model=base.openai_model,
+        normalization_enabled=getattr(platform, "normalization_enabled", base.normalization_enabled),
+        max_duration_ms=getattr(platform, "max_duration_ms", base.max_duration_ms) or 0,
+        poll_timeout_multiplier=float(
+            getattr(platform, "poll_timeout_multiplier", None) or base.poll_timeout_multiplier
+        ),
         auto_enqueue=platform.auto_enqueue,
         enable_diarization_default=platform.enable_diarization_default,
         default_language=platform.default_language or base.default_language,

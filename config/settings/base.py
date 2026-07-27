@@ -180,6 +180,9 @@ CELERY_TASK_SOFT_TIME_LIMIT = 55 * 60
 CELERY_TASK_DEFAULT_QUEUE = "turing.default"
 CELERY_TASK_ROUTES = {
     "turing.tasks.transcription.*": {"queue": "turing.default"},
+    "turing.tasks.webhooks.*": {"queue": "turing.default"},
+    "turing.tasks.analysis.*": {"queue": "turing.default"},
+    "turing.tasks.ingestion.*": {"queue": "turing.default"},
     "turing.tasks.export.*": {"queue": "turing.export"},
 }
 
@@ -216,6 +219,19 @@ TURING_ALLOWED_AUDIO_EXTENSIONS = os.environ.get(
     "mp3,wav,m4a,webm,ogg",
 )
 TURING_ALLOWED_AUDIO_MIME_TYPES = os.environ.get("TURING_ALLOWED_AUDIO_MIME_TYPES", "")
+TURING_WEBHOOK_MODE = os.environ.get("TURING_WEBHOOK_MODE", "augment")
+TURING_WEBHOOK_BASE_URL = os.environ.get("TURING_WEBHOOK_BASE_URL", "")
+TURING_SPEECHMATICS_WEBHOOK_SECRET = os.environ.get("TURING_SPEECHMATICS_WEBHOOK_SECRET", "")
+TURING_AI_PROVIDER = os.environ.get("TURING_AI_PROVIDER", "fake")
+TURING_OPENAI_API_KEY = os.environ.get("TURING_OPENAI_API_KEY", "")
+TURING_OPENAI_MODEL = os.environ.get("TURING_OPENAI_MODEL", "gpt-4o-mini")
+TURING_NORMALIZATION_ENABLED = os.environ.get("TURING_NORMALIZATION_ENABLED", "true").lower() in {
+    "1",
+    "true",
+    "yes",
+}
+TURING_MAX_DURATION_MS = int(os.environ.get("TURING_MAX_DURATION_MS", "0"))
+TURING_POLL_TIMEOUT_MULTIPLIER = float(os.environ.get("TURING_POLL_TIMEOUT_MULTIPLIER", "2.0"))
 
 # Media storage (local by default; set TURING_STORAGE_BACKEND=s3 in production)
 from config.settings.storage import apply_media_storage  # noqa: E402

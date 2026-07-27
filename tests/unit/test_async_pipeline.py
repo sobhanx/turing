@@ -222,7 +222,7 @@ def test_enqueue_schedules_submit_task(monkeypatch, job):
         return MagicMock(id="task-1")
 
     monkeypatch.setattr(
-        "turing.tasks.transcription.submit_transcription_job.apply_async",
+        "turing.tasks.ingestion.prepare_media_for_transcription.apply_async",
         fake_apply_async,
     )
     JobOrchestrator().enqueue(job)

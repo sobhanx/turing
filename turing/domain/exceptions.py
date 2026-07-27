@@ -17,6 +17,12 @@ class ValidationError(TuringError):
     code = "validation_error"
 
 
+class IngestionError(ValidationError):
+    """Raised when media cannot be prepared for STT (fail-closed)."""
+
+    code = "ingestion_error"
+
+
 class NotFoundError(TuringError):
     code = "not_found"
 

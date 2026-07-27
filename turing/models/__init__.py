@@ -1,3 +1,5 @@
+from turing.models.analysis import TranscriptAnalysis
+from turing.models.media_artifact import MediaProcessingArtifact
 from turing.models.configuration import PlatformConfiguration, SpeechProviderConfig
 from turing.models.job import ProcessingAttempt, ProcessingJob, ProcessingLog
 from turing.models.media import MediaAsset
@@ -11,12 +13,14 @@ from turing.models.transcript import (
     TranscriptSegment,
     TranscriptWord,
 )
+from turing.models.webhook import ProviderWebhookDelivery, WebhookDeliveryOutcome
 
 __all__ = [
     "PlatformConfiguration",
     "SpeechProviderConfig",
     "Organization",
     "MediaAsset",
+    "MediaProcessingArtifact",
     "ProcessingJob",
     "ProcessingAttempt",
     "ProcessingLog",
@@ -25,7 +29,10 @@ __all__ = [
     "TranscriptSegment",
     "TranscriptWord",
     "TranscriptRevision",
+    "TranscriptAnalysis",
     "ReviewAssignment",
     "ReviewDecision",
     "TuringMembership",
+    "ProviderWebhookDelivery",
+    "WebhookDeliveryOutcome",
 ]
