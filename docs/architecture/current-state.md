@@ -76,7 +76,7 @@ Includes:
 
 ## Phase 4.3 status
 
-**Phase 4.3.1–4.3.8 connector framework through Teams are in place.**
+**Phase 4.3.1–4.3.9 connector framework through Google Meet are in place.**
 
 Includes:
 
@@ -86,14 +86,14 @@ Includes:
 - `OAuthStateService` (signed state, replay protection)
 - Derived installation health (`current_health`, last success/failure)
 - REST: catalog capabilities, authorize, OAuth callback, auth_status, health, sync
-- Zoom + Microsoft Teams OAuth2 connectors with automatic token refresh
+- Zoom, Microsoft Teams, and Google Meet OAuth2 connectors
 - Celery Beat scheduling + temporary sync retries
 
 
-## Current Limitations (post–Phase 4.3.8)
+## Current Limitations (post–Phase 4.3.9)
 
 - No marketplace / product UI for connector install
-- No Meet / CRM / telephony connectors yet
+- No CRM / telephony connectors yet
 - Permissions are organization-level (no record-level ACL)
 - Celery coupling exists inside services
 

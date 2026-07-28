@@ -246,6 +246,31 @@ TURING_TEAMS_OAUTH_SCOPES = os.environ.get(
     "openid offline_access User.Read OnlineMeetings.Read OnlineMeetingRecording.Read.All",
 )
 
+# Google Meet OAuth (Phase 4.3.9)
+TURING_GOOGLE_MEET_CLIENT_ID = os.environ.get("TURING_GOOGLE_MEET_CLIENT_ID", "")
+TURING_GOOGLE_MEET_CLIENT_SECRET = os.environ.get(
+    "TURING_GOOGLE_MEET_CLIENT_SECRET", ""
+)
+TURING_GOOGLE_MEET_OAUTH_REDIRECT_URI = os.environ.get(
+    "TURING_GOOGLE_MEET_OAUTH_REDIRECT_URI", ""
+)
+TURING_GOOGLE_MEET_OAUTH_AUTHORIZE_URL = os.environ.get(
+    "TURING_GOOGLE_MEET_OAUTH_AUTHORIZE_URL",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+)
+TURING_GOOGLE_MEET_OAUTH_TOKEN_URL = os.environ.get(
+    "TURING_GOOGLE_MEET_OAUTH_TOKEN_URL",
+    "https://oauth2.googleapis.com/token",
+)
+TURING_GOOGLE_MEET_OAUTH_REVOKE_URL = os.environ.get(
+    "TURING_GOOGLE_MEET_OAUTH_REVOKE_URL",
+    "https://oauth2.googleapis.com/revoke",
+)
+TURING_GOOGLE_MEET_OAUTH_SCOPES = os.environ.get(
+    "TURING_GOOGLE_MEET_OAUTH_SCOPES",
+    "openid email profile https://www.googleapis.com/auth/drive.readonly",
+)
+
 from turing.celery_schedule import build_celery_beat_schedule  # noqa: E402
 
 CELERY_BEAT_SCHEDULE = build_celery_beat_schedule()

@@ -23,6 +23,11 @@ turing/connectors/
     connector.py
     oauth.py
     serializers.py
+  google_meet/     Google Meet recordings via Drive (oauth2)
+    client.py
+    connector.py
+    oauth.py
+    serializers.py
   oauth_state.py   Shim → OAuthStateService
 ```
 
@@ -299,6 +304,47 @@ Mapping:
 | `external_type` | `meeting` |
 | `external_id` | Graph recording id |
 | `media_url` | `recordingContentUrl` |
+
+
+## Google Meet connector (Phase 4.3.9)
+
+Pulls Google Meet recordings (stored in Drive) into Turing via **OAuth2**.
+
+### App setup
+
+| Setting | Purpose |
+|---------|---------|
+| `TURING_GOOGLE_MEET_CLIENT_ID` | Google OAuth client id |
+| `TURING_GOOGLE_MEET_CLIENT_SECRET` | Google OAuth client secret |
+| `TURING_GOOGLE_MEET_OAUTH_REDIRECT_URI` | Must match Google redirect URI |
+| `TURING_GOOGLE_MEET_OAUTH_SCOPES` | Default includes Drive readonly + openid |
+
+Redirect URI example:
+
+`https://<host>/api/turing/v1/oauth/callback/google_meet/`
+
+### Flow
+
+```text
+POST /connector-installations/  (connector_type=google_meet) → pending
+GET  .../authorize/ → Google authorize URL (offline access + consent)
+GET  /oauth/callback/google_meet/?code=&state=
+  → exchange_code → store_credentials → activate
+GoogleMeetConnector.sync()
+  → ensure_fresh_credentials()
+  → GoogleMeetClient.list_recordings()  (Drive files.list)
+  → MediaService.create_from_url
+  → ExternalReference(google_meet / meeting / <file_id>)
+```
+
+Mapping:
+
+| Field | Value |
+|-------|--------|
+| `external_system` | `google_meet` |
+| `external_type` | `meeting` |
+| `external_id` | Drive file id |
+| `media_url` | Drive `webContentLink` |
 
 
 ## REST API (Phase 4.3.2 / 4.3.5 / 4.3.6)
