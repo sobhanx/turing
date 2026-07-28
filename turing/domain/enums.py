@@ -136,11 +136,20 @@ class OutboundWebhookDeliveryStatus(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
-class ConnectorInstallationStatus(models.TextChoices):
-    """Lifecycle status for an org connector installation (Phase 4.3.1)."""
+class ConnectorAuthType(models.TextChoices):
+    """How a connector authenticates to the remote system (Phase 4.3.5)."""
 
+    API_KEY = "api_key", "API Key"
+    OAUTH2 = "oauth2", "OAuth 2.0"
+
+
+class ConnectorInstallationStatus(models.TextChoices):
+    """Lifecycle status for an org connector installation (Phase 4.3.5)."""
+
+    PENDING = "pending", "Pending"
     ACTIVE = "active", "Active"
-    DISABLED = "disabled", "Disabled"
+    EXPIRED = "expired", "Expired"
+    REVOKED = "revoked", "Revoked"
     ERROR = "error", "Error"
 
 

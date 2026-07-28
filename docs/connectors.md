@@ -8,11 +8,12 @@ into Turing.
 
 ```text
 turing/connectors/
-  base.py          BaseConnector contract
+  base.py          BaseConnector contract (+ auth hooks)
   registry.py      ConnectorRegistry
   exceptions.py    Connector* errors
   builtins.py      register_builtin_connectors()
-  zoom/            Zoom Cloud Recording connector
+  mock_oauth.py    Test-only OAuth2 connector
+  zoom/            Zoom Cloud Recording connector (api_key)
     client.py
     connector.py
     serializers.py
@@ -23,10 +24,13 @@ turing/connectors/
 
 Every connector implements ``BaseConnector``:
 
-| Method | Purpose |
-|--------|---------|
-| `name` | Human-readable / registry label |
+| Method / attr | Purpose |
+|---------------|---------|
+| `auth_type` | `api_key` (default) or `oauth2` |
 | `validate_config()` | Fail closed on bad installation config |
+| `validate_credentials()` | Validate auth material (default: api_key→config; oauth2→token) |
+| `refresh_credentials()` | OAuth token refresh (no-op for api_key) |
+| `revoke_credentials()` | Optional remote revoke hook |
 | `health_check()` | Lightweight connectivity probe (no secrets in result) |
 | `pull_media()` | Discover remote media as ``MediaPullItem`` descriptors |
 | `sync()` | Full sync pass → ``ConnectorSyncResult`` (may create media) |
@@ -40,6 +44,7 @@ from turing.connectors import ConnectorRegistry, BaseConnector
 class ExampleConnector(BaseConnector):
     connector_type = "example"
     display_name = "Example"
+    auth_type = "api_key"
     ...
 ```
 
@@ -53,16 +58,55 @@ connector = ConnectorRegistry.create(installation)
 Core sync services never import vendor SDKs — only ``ConnectorRegistry`` + ``BaseConnector``.
 
 
+## Auth models: API key vs OAuth2
+
+| | `api_key` | `oauth2` |
+|--|-----------|----------|
+| Storage | Non-secret + key material in `installation.config` | Tokens on `ConnectorCredential` |
+| Encryption | Config JSON (redacted in API); prefer migrating secrets later | Fernet via `CredentialEncryptionService` before DB write |
+| Decrypt | N/A (config read) | Only inside connector execution |
+| Default create status | `active` | `pending` until authorized |
+
+### Credential lifecycle
+
+``ConnectorCredential`` (org-scoped, one row per installation):
+
+- `encrypted_access_token` / `encrypted_refresh_token` — ciphertext only
+- `expires_at`, `metadata` (non-secret)
+- Never serialized on API; Admin shows presence flags only
+
+``ConnectorInstallationService``:
+
+| Method | Effect |
+|--------|--------|
+| `store_credentials(...)` | Encrypt + upsert credential row |
+| `activate()` | status → `active` |
+| `expire()` | status → `expired` |
+| `revoke()` | clear tokens, status → `revoked`, call `revoke_credentials()` |
+| `auth_status()` | Public summary: auth_type, has_credentials, expires_at, is_expired |
+
+### Security rules
+
+- Never return tokens, ciphertext, or raw config secrets from the API
+- Never log access/refresh tokens
+- No token read endpoint
+- Decrypt only during connector execution (`BaseConnector._decrypt_*`)
+- Key material derived from Django ``SECRET_KEY`` (same Fernet scheme as provider API keys)
+
+
 ## Installation lifecycle
 
 ``ConnectorInstallation`` (org-scoped):
 
 - `connector_type` — registry key
 - `name` — unique per organization
-- `status` — `active` | `disabled` | `error`
+- `status` — `pending` \| `active` \| `expired` \| `revoked` \| `error`
 - `config` — JSON (secrets write-only / redacted in Admin)
 
-Disabled installations cannot start sync. Failed syncs may set status to `error`.
+Sync is allowed for `active` and recoverable `error` only. `pending` /
+`expired` / `revoked` cannot start sync. Failed syncs may set status to `error`.
+
+Legacy `disabled` rows are migrated to `revoked`.
 
 
 ## Sync lifecycle
@@ -73,7 +117,7 @@ ConnectorSyncService.start_sync(installation)   # manual / API
   → event connector.sync.started
   → Celery: sync_connector_installation
        → RUNNING
-       → connector.validate_config() + sync()
+       → connector.validate_credentials() + sync()
        → COMPLETED | FAILED
        → event connector.sync.completed | connector.sync.failed
 ```
@@ -87,7 +131,7 @@ Celery Beat entry ``turing-schedule-connector-syncs`` runs
 ``schedule_connector_syncs``, which:
 
 1. Discovers org-scoped installations with status ``active`` or ``error``
-   on active organizations (``disabled`` excluded)
+   on active organizations (`pending` / `expired` / `revoked` excluded)
 2. Calls ``start_sync_if_idle`` — skips when a ``PENDING``/``RUNNING`` job exists
 3. Enqueues through existing ``ConnectorSyncService`` / ``sync_connector_installation``
 
@@ -152,10 +196,13 @@ Mapping:
 | `media_url` | Zoom `download_url` |
 
 
-## REST API (Phase 4.3.2)
+## REST API (Phase 4.3.2 / 4.3.5)
 
-Requires capability `manage_config` (org Admin role). Config secrets are accepted on
-write but **never** returned in responses.
+Requires capability `manage_config` (org Admin role). Config secrets and OAuth
+tokens are accepted on write paths only and **never** returned in responses.
+GET returns ``auth_status`` (type, has_credentials, expires_at, is_expired) — not
+tokens. PATCH ``{"status": "revoked"}`` runs the revoke lifecycle (clears
+credentials). There is no token read endpoint.
 
 ### Catalog
 
@@ -165,7 +212,7 @@ GET /api/turing/v1/connectors/
 
 ```json
 [
-  {"type": "zoom", "name": "Zoom", "available": true}
+  {"type": "zoom", "name": "Zoom", "auth_type": "api_key", "available": true}
 ]
 ```
 

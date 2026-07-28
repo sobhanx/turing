@@ -108,7 +108,11 @@ def test_registry_resolve_and_list():
     assert ConnectorRegistry.types() == ["broken", "fake"]
     assert ConnectorRegistry.get("fake") is FakeConnector
     catalog = ConnectorRegistry.list_available()
-    assert {"connector_type": "fake", "display_name": "Fake Connector"} in catalog
+    assert any(
+        row["connector_type"] == "fake" and row["display_name"] == "Fake Connector"
+        for row in catalog
+    )
+    assert all("auth_type" in row for row in catalog)
     with pytest.raises(ConnectorNotFoundError):
         ConnectorRegistry.get("zoom")
 
@@ -176,8 +180,8 @@ def test_sync_lifecycle_failure(org, settings):
 
 
 @pytest.mark.django_db
-def test_disabled_installation_cannot_sync(org):
-    installation = _installation(org, status=ConnectorInstallationStatus.DISABLED)
+def test_revoked_installation_cannot_sync(org):
+    installation = _installation(org, status=ConnectorInstallationStatus.REVOKED)
     with pytest.raises(ValidationError):
         ConnectorSyncService().start_sync(installation, auto_enqueue=False)
 

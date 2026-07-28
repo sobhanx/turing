@@ -439,7 +439,9 @@ class WebhookDeliverySerializer(serializers.ModelSerializer):
 
 
 class ConnectorInstallationSerializer(serializers.ModelSerializer):
-    """Public connector installation (never includes raw config secrets)."""
+    """Public connector installation (never includes tokens or raw config)."""
+
+    auth_status = serializers.SerializerMethodField()
 
     class Meta:
         model = ConnectorInstallation
@@ -448,10 +450,25 @@ class ConnectorInstallationSerializer(serializers.ModelSerializer):
             "connector_type",
             "name",
             "status",
+            "auth_status",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
+
+    def get_auth_status(self, obj: ConnectorInstallation) -> dict:
+        from turing.services.connector_installation import ConnectorInstallationService
+
+        return ConnectorInstallationService().auth_status(obj)
+
+
+_INSTALLATION_STATUS_CHOICES = [
+    "pending",
+    "active",
+    "expired",
+    "revoked",
+    "error",
+]
 
 
 class ConnectorInstallationWriteSerializer(serializers.Serializer):
@@ -459,9 +476,8 @@ class ConnectorInstallationWriteSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=128)
     config = serializers.DictField(required=False, default=dict)
     status = serializers.ChoiceField(
-        choices=["active", "disabled", "error"],
+        choices=_INSTALLATION_STATUS_CHOICES,
         required=False,
-        default="active",
     )
     organization_id = serializers.IntegerField(required=False)
 
@@ -469,7 +485,7 @@ class ConnectorInstallationWriteSerializer(serializers.Serializer):
 class ConnectorInstallationUpdateSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=128, required=False)
     status = serializers.ChoiceField(
-        choices=["active", "disabled", "error"],
+        choices=_INSTALLATION_STATUS_CHOICES,
         required=False,
     )
     config = serializers.DictField(required=False)

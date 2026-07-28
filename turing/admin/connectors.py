@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.utils.html import format_html
 
 from turing.admin.authz import CapabilityGatedAdminMixin, admin_scope_queryset
-from turing.models import ConnectorInstallation, ConnectorSyncJob
+from turing.models import ConnectorCredential, ConnectorInstallation, ConnectorSyncJob
 from turing.models.connector import redact_connector_config
 
 
@@ -25,7 +25,7 @@ class ConnectorInstallationAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
     )
     list_filter = ("status", "connector_type", "organization", "created_at")
     search_fields = ("name", "connector_type", "organization__name", "organization__slug")
-    readonly_fields = ("config_public", "created_at", "updated_at")
+    readonly_fields = ("config_public", "credential_summary", "created_at", "updated_at")
     autocomplete_fields = ("organization",)
     fieldsets = (
         (
@@ -42,10 +42,11 @@ class ConnectorInstallationAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
         (
             "Configuration",
             {
-                "fields": ("config_public", "config"),
+                "fields": ("config_public", "config", "credential_summary"),
                 "description": (
                     "Secrets in config are masked in the public view. "
-                    "Prefer storing credentials via encrypted secrets later."
+                    "OAuth tokens are stored encrypted on ConnectorCredential "
+                    "and are never shown here."
                 ),
             },
         ),
@@ -58,6 +59,23 @@ class ConnectorInstallationAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
             return "(none)"
         return str(redact_connector_config(obj.config))
 
+    @admin.display(description="Credential")
+    def credential_summary(self, obj: ConnectorInstallation) -> str:
+        if not obj or not obj.pk:
+            return "(none)"
+        try:
+            cred = obj.credential
+        except ConnectorCredential.DoesNotExist:
+            return "(none)"
+        parts = [
+            cred.auth_type,
+            "access=yes" if cred.has_access_token() else "access=no",
+            "refresh=yes" if cred.has_refresh_token() else "refresh=no",
+        ]
+        if cred.expires_at:
+            parts.append(f"expires={cred.expires_at.isoformat()}")
+        return ", ".join(parts)
+
     @admin.display(description="Last sync")
     def last_sync_display(self, obj: ConnectorInstallation) -> str:
         job = obj.sync_jobs.order_by("-created_at").first()
@@ -68,6 +86,67 @@ class ConnectorInstallationAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
 
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related("organization")
+        return admin_scope_queryset(qs, request.user, field="organization_id")
+
+
+@admin.register(ConnectorCredential)
+class ConnectorCredentialAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+    """Read-only credential metadata — never display decrypted tokens."""
+
+    turing_view_capability = "manage_config"
+    turing_change_capability = "manage_config"
+    turing_add_capability = "manage_config"
+    turing_delete_capability = "manage_config"
+
+    list_display = (
+        "id",
+        "organization",
+        "connector_installation",
+        "auth_type",
+        "has_access",
+        "has_refresh",
+        "expires_at",
+        "updated_at",
+    )
+    list_filter = ("auth_type", "organization", "expires_at")
+    search_fields = (
+        "id",
+        "connector_installation__name",
+        "connector_installation__connector_type",
+        "organization__name",
+    )
+    readonly_fields = (
+        "organization",
+        "connector_installation",
+        "auth_type",
+        "has_access",
+        "has_refresh",
+        "expires_at",
+        "metadata",
+        "created_at",
+        "updated_at",
+    )
+    exclude = ("encrypted_access_token", "encrypted_refresh_token")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @admin.display(boolean=True, description="Access token")
+    def has_access(self, obj: ConnectorCredential) -> bool:
+        return obj.has_access_token()
+
+    @admin.display(boolean=True, description="Refresh token")
+    def has_refresh(self, obj: ConnectorCredential) -> bool:
+        return obj.has_refresh_token()
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request).select_related(
+            "organization",
+            "connector_installation",
+        )
         return admin_scope_queryset(qs, request.user, field="organization_id")
 
 

@@ -3,7 +3,11 @@ from __future__ import annotations
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from turing.domain.enums import ConnectorInstallationStatus, ConnectorSyncJobStatus
+from turing.domain.enums import (
+    ConnectorAuthType,
+    ConnectorInstallationStatus,
+    ConnectorSyncJobStatus,
+)
 from turing.models.media import UUIDModel
 
 # Config keys (case-insensitive substring) redacted in Admin / public views.
@@ -37,7 +41,8 @@ class ConnectorInstallation(UUIDModel):
     """
     Org-scoped installation of a registered connector type.
 
-    ``config`` may hold credentials; never expose unfiltered in API/Admin.
+    ``config`` may hold non-secret settings and api_key material; OAuth tokens
+    belong on ``ConnectorCredential``. Never expose unfiltered secrets in API.
     """
 
     organization = models.ForeignKey(
@@ -55,7 +60,7 @@ class ConnectorInstallation(UUIDModel):
     status = models.CharField(
         max_length=16,
         choices=ConnectorInstallationStatus.choices,
-        default=ConnectorInstallationStatus.ACTIVE,
+        default=ConnectorInstallationStatus.PENDING,
         db_index=True,
     )
     config = models.JSONField(
@@ -103,6 +108,76 @@ class ConnectorInstallation(UUIDModel):
             self.config = {}
         if not isinstance(self.config, dict):
             raise ValidationError({"config": "Config must be a JSON object."})
+
+
+class ConnectorCredential(UUIDModel):
+    """
+    Org-scoped encrypted credentials for a connector installation.
+
+    One credential row per installation. Token fields store ciphertext only;
+    decrypt via ``CredentialEncryptionService`` during connector execution.
+    """
+
+    organization = models.ForeignKey(
+        "turing.Organization",
+        on_delete=models.PROTECT,
+        related_name="connector_credentials",
+        db_index=True,
+    )
+    connector_installation = models.OneToOneField(
+        ConnectorInstallation,
+        on_delete=models.CASCADE,
+        related_name="credential",
+    )
+    auth_type = models.CharField(
+        max_length=16,
+        choices=ConnectorAuthType.choices,
+        default=ConnectorAuthType.OAUTH2,
+        db_index=True,
+    )
+    # Ciphertext (Fernet). Never serialize or log plaintext.
+    encrypted_access_token = models.TextField(blank=True, default="")
+    encrypted_refresh_token = models.TextField(blank=True, default="")
+    expires_at = models.DateTimeField(null=True, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Connector credential"
+        verbose_name_plural = "Connector credentials"
+        indexes = [
+            models.Index(
+                fields=["organization", "auth_type"],
+                name="turing_conncred_org_auth",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"ConnectorCredential({self.auth_type} "
+            f"installation={self.connector_installation_id})"
+        )
+
+    def has_access_token(self) -> bool:
+        return bool(self.encrypted_access_token)
+
+    def has_refresh_token(self) -> bool:
+        return bool(self.encrypted_refresh_token)
+
+    def clean(self) -> None:
+        super().clean()
+        if self.metadata is None:
+            self.metadata = {}
+        if not isinstance(self.metadata, dict):
+            raise ValidationError({"metadata": "Metadata must be a JSON object."})
+        if (
+            self.connector_installation_id
+            and self.organization_id
+            and self.connector_installation.organization_id != self.organization_id
+        ):
+            raise ValidationError(
+                {"organization": "Must match the installation organization."}
+            )
 
 
 class ConnectorSyncJob(UUIDModel):

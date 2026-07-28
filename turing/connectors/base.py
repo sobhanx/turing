@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
+from turing.domain.enums import ConnectorAuthType
+
 
 @dataclass(frozen=True)
 class MediaPullItem:
@@ -35,10 +37,15 @@ class BaseConnector(ABC):
 
     Implementations register with ``ConnectorRegistry`` under ``connector_type``.
     Core sync services depend only on this interface.
+
+    Auth:
+    - ``api_key`` — credentials live in installation ``config`` (existing)
+    - ``oauth2`` — tokens live in org-scoped ``ConnectorCredential`` (encrypted)
     """
 
     connector_type: str = ""
     display_name: str = ""
+    auth_type: str = ConnectorAuthType.API_KEY
 
     def __init__(self, installation) -> None:
         self.installation = installation
@@ -52,6 +59,79 @@ class BaseConnector(ABC):
     @abstractmethod
     def validate_config(self) -> None:
         """Raise ``ConnectorConfigurationError`` if installation config is invalid."""
+
+    def validate_credentials(self) -> None:
+        """
+        Validate auth material for this installation.
+
+        Default: ``api_key`` → ``validate_config()``; ``oauth2`` → require a
+        decryptable access token on the linked credential. Must not log secrets.
+        """
+        from turing.connectors.exceptions import ConnectorConfigurationError
+
+        if self.auth_type == ConnectorAuthType.API_KEY:
+            self.validate_config()
+            return
+
+        token = self._decrypt_access_token()
+        if not token:
+            raise ConnectorConfigurationError(
+                "OAuth access token is missing. Complete authorization first."
+            )
+
+    def refresh_credentials(self) -> None:
+        """
+        Refresh OAuth tokens (or no-op for api_key).
+
+        Override on oauth2 connectors. Default raises for oauth2.
+        """
+        from turing.connectors.exceptions import ConnectorError
+
+        if self.auth_type == ConnectorAuthType.API_KEY:
+            return
+        raise ConnectorError(
+            f"Credential refresh is not implemented for '{self.connector_type}'.",
+            code="connector_refresh_unsupported",
+        )
+
+    def revoke_credentials(self) -> None:
+        """
+        Provider-side revoke hook (optional).
+
+        Token clearing is handled by ``ConnectorInstallationService.revoke``.
+        Override to call remote revoke APIs. Must not log secrets.
+        """
+        return None
+
+    def _credential(self):
+        """Return the linked ``ConnectorCredential`` or None (no decrypt)."""
+        from turing.models import ConnectorCredential
+
+        pk = getattr(self.installation, "pk", None)
+        if not pk:
+            return None
+        # Always query — avoid stale reverse OneToOne cache after token rotation.
+        return ConnectorCredential.objects.filter(
+            connector_installation_id=pk
+        ).first()
+
+    def _decrypt_access_token(self) -> str:
+        """Decrypt access token for connector execution only. Never log."""
+        from turing.services.credential_encryption import CredentialEncryptionService
+
+        cred = self._credential()
+        if cred is None or not cred.encrypted_access_token:
+            return ""
+        return CredentialEncryptionService().decrypt(cred.encrypted_access_token)
+
+    def _decrypt_refresh_token(self) -> str:
+        """Decrypt refresh token for connector execution only. Never log."""
+        from turing.services.credential_encryption import CredentialEncryptionService
+
+        cred = self._credential()
+        if cred is None or not cred.encrypted_refresh_token:
+            return ""
+        return CredentialEncryptionService().decrypt(cred.encrypted_refresh_token)
 
     @abstractmethod
     def health_check(self) -> dict[str, Any]:

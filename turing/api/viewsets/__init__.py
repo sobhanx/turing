@@ -751,6 +751,7 @@ class ConnectorCatalogViewSet(viewsets.ViewSet):
             {
                 "type": row["connector_type"],
                 "name": row["display_name"],
+                "auth_type": row.get("auth_type", "api_key"),
                 "available": True,
             }
             for row in ConnectorRegistry.list_available()
@@ -788,7 +789,8 @@ class ConnectorInstallationViewSet(
     def create(self, request, *args, **kwargs):
         from django.db import IntegrityError
 
-        from turing.domain.enums import ConnectorInstallationStatus
+        from turing.connectors.registry import ConnectorRegistry
+        from turing.domain.enums import ConnectorAuthType, ConnectorInstallationStatus
 
         serializer = ConnectorInstallationWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -807,11 +809,24 @@ class ConnectorInstallationViewSet(
         except TuringError as exc:
             return _error_response(exc)
 
+        try:
+            connector_cls = ConnectorRegistry.get(data["connector_type"].strip())
+            auth_type = getattr(connector_cls, "auth_type", ConnectorAuthType.API_KEY)
+        except Exception:  # noqa: BLE001
+            auth_type = ConnectorAuthType.API_KEY
+
+        if data.get("status"):
+            initial_status = data["status"]
+        elif auth_type == ConnectorAuthType.OAUTH2:
+            initial_status = ConnectorInstallationStatus.PENDING
+        else:
+            initial_status = ConnectorInstallationStatus.ACTIVE
+
         installation = ConnectorInstallation(
             organization=organization,
             connector_type=data["connector_type"].strip(),
             name=data["name"].strip(),
-            status=data.get("status") or ConnectorInstallationStatus.ACTIVE,
+            status=initial_status,
             config=dict(data.get("config") or {}),
         )
         try:
@@ -843,6 +858,9 @@ class ConnectorInstallationViewSet(
     def partial_update(self, request, *args, **kwargs):
         from django.db import IntegrityError
 
+        from turing.domain.enums import ConnectorInstallationStatus
+        from turing.services.connector_installation import ConnectorInstallationService
+
         installation = self.get_object()
         serializer = ConnectorInstallationUpdateSerializer(
             data=request.data,
@@ -852,8 +870,6 @@ class ConnectorInstallationViewSet(
         data = serializer.validated_data
         if "name" in data:
             installation.name = data["name"].strip()
-        if "status" in data:
-            installation.status = data["status"]
         if "config" in data:
             installation.config = dict(data["config"] or {})
             try:
@@ -864,9 +880,34 @@ class ConnectorInstallationViewSet(
                 )
             except TuringError as exc:
                 return _error_response(exc)
+
+        lifecycle = ConnectorInstallationService()
+        new_status = data.get("status")
         try:
-            installation.full_clean()
-            installation.save()
+            if new_status == ConnectorInstallationStatus.REVOKED:
+                installation = lifecycle.revoke(installation)
+                if "name" in data or "config" in data:
+                    if "name" in data:
+                        installation.name = data["name"].strip()
+                    if "config" in data:
+                        installation.config = dict(data["config"] or {})
+                    installation.full_clean()
+                    installation.save()
+            elif new_status == ConnectorInstallationStatus.ACTIVE:
+                installation.full_clean()
+                installation.save()
+                installation = lifecycle.activate(installation)
+            elif new_status == ConnectorInstallationStatus.EXPIRED:
+                installation.full_clean()
+                installation.save()
+                installation = lifecycle.expire(installation)
+            else:
+                if new_status is not None:
+                    installation.status = new_status
+                installation.full_clean()
+                installation.save()
+        except TuringError as exc:
+            return _error_response(exc)
         except IntegrityError:
             return Response(
                 {
@@ -875,6 +916,7 @@ class ConnectorInstallationViewSet(
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        installation.refresh_from_db()
         return Response(ConnectorInstallationSerializer(installation).data)
 
     def destroy(self, request, *args, **kwargs):

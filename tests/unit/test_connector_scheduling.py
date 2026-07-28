@@ -89,7 +89,7 @@ def test_discover_active_installations_only(org):
     _installation(
         org,
         name="disabled",
-        status=ConnectorInstallationStatus.DISABLED,
+        status=ConnectorInstallationStatus.REVOKED,
     )
     error = _installation(
         org,

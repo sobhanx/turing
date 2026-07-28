@@ -76,24 +76,26 @@ Includes:
 
 ## Phase 4.3 status
 
-**Phase 4.3.1–4.3.4 connector framework, Zoom adapter, and sync scheduling are in place.**
+**Phase 4.3.1–4.3.5 connector framework, Zoom adapter, sync scheduling, and OAuth credential foundation are in place.**
 
 Includes:
 
-- `BaseConnector` contract + `ConnectorRegistry`
-- `ConnectorInstallation` / `ConnectorSyncJob` models + Admin
+- `BaseConnector` contract + `ConnectorRegistry` (+ auth_type / credential hooks)
+- `ConnectorInstallation` / `ConnectorSyncJob` / `ConnectorCredential` + Admin
+- `CredentialEncryptionService` + `ConnectorInstallationService` lifecycle
 - `ConnectorSyncService` + Celery `sync_connector_installation`
 - Events: `connector.sync.started` / `.completed` / `.failed`
-- REST: catalog, installation CRUD, sync trigger, sync job status
+- REST: catalog, installation CRUD, auth_status, revoke via PATCH, sync trigger
 - Zoom connector: recording discovery → `MediaService.create_from_url` + ExternalReference
 - Celery Beat `schedule_connector_syncs` with in-flight lock + config toggles
+- Mock OAuth connector for tests (`mock_oauth`)
 
 
-## Current Limitations (post–Phase 4.3.4)
+## Current Limitations (post–Phase 4.3.5)
 
-- No OAuth / marketplace installation (Zoom uses account_id + api_token config)
+- No marketplace / product UI for connector install
+- Zoom still uses api_key config (no Zoom OAuth authorize flow yet)
 - No Teams / Meet / CRM / telephony connectors yet
-- UI is not productized
 - Permissions are organization-level (no record-level ACL)
 - Celery coupling exists inside services
 

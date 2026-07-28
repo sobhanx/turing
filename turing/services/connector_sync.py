@@ -29,8 +29,13 @@ class ConnectorSyncService:
         *,
         auto_enqueue: bool = True,
     ) -> ConnectorSyncJob:
-        if installation.status == ConnectorInstallationStatus.DISABLED:
-            raise ValidationError("Cannot sync a disabled connector installation.")
+        from turing.services.connector_installation import ConnectorInstallationService
+
+        if not ConnectorInstallationService.is_syncable(installation):
+            raise ValidationError(
+                f"Cannot sync a connector installation in status "
+                f"'{installation.status}'."
+            )
 
         job = ConnectorSyncJob.objects.create(
             installation=installation,
@@ -78,8 +83,10 @@ class ConnectorSyncService:
         Start a sync only when no PENDING/RUNNING job exists for the installation.
 
         Uses a row lock so Beat and concurrent schedulers cannot double-enqueue.
-        Failed jobs do not block; DISABLED installations are skipped.
+        Failed jobs do not block; PENDING/EXPIRED/REVOKED installations are skipped.
         """
+        from turing.services.connector_installation import ConnectorInstallationService
+
         with transaction.atomic():
             locked = (
                 ConnectorInstallation.objects.select_for_update()
@@ -89,11 +96,13 @@ class ConnectorSyncService:
             )
             if locked is None:
                 return None
-            if locked.status == ConnectorInstallationStatus.DISABLED:
+            if not ConnectorInstallationService.is_syncable(locked):
                 logger.info(
-                    "Skipping disabled connector installation_id=%s connector_type=%s",
+                    "Skipping non-syncable connector installation_id=%s "
+                    "connector_type=%s status=%s",
                     locked.id,
                     locked.connector_type,
+                    locked.status,
                 )
                 return None
             if self.has_in_flight_sync(locked):
@@ -110,8 +119,8 @@ class ConnectorSyncService:
         """
         Active (and recoverable ERROR) installations on active organizations.
 
-        DISABLED is excluded. ERROR is included so a failed sync does not block
-        the next scheduled run.
+        PENDING/EXPIRED/REVOKED are excluded. ERROR is included so a failed sync
+        does not block the next scheduled run.
         """
         return (
             ConnectorInstallation.objects.filter(
@@ -176,9 +185,11 @@ class ConnectorSyncService:
                 return job
 
             installation = job.installation
-            if installation.status == ConnectorInstallationStatus.DISABLED:
+            from turing.services.connector_installation import ConnectorInstallationService
+
+            if not ConnectorInstallationService.is_syncable(installation):
                 job.status = ConnectorSyncJobStatus.FAILED
-                job.error = "Installation is disabled."
+                job.error = f"Installation is not syncable (status={installation.status})."
                 job.started_at = timezone.now()
                 job.finished_at = timezone.now()
                 job.save(
@@ -201,7 +212,7 @@ class ConnectorSyncService:
         installation = job.installation
         try:
             connector = ConnectorRegistry.create(installation)
-            connector.validate_config()
+            connector.validate_credentials()
             result = connector.sync()
         except ConnectorError as exc:
             return self._fail(job, installation, str(exc))

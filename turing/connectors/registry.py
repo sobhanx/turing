@@ -41,6 +41,8 @@ class ConnectorRegistry:
     @classmethod
     def list_available(cls) -> list[dict[str, str]]:
         """Catalog of registered connector types for Admin / future APIs."""
+        from turing.domain.enums import ConnectorAuthType
+
         rows: list[dict[str, str]] = []
         for code in cls.types():
             connector_cls = cls._connectors[code]
@@ -48,6 +50,10 @@ class ConnectorRegistry:
                 {
                     "connector_type": code,
                     "display_name": getattr(connector_cls, "display_name", "") or code,
+                    "auth_type": getattr(
+                        connector_cls, "auth_type", ConnectorAuthType.API_KEY
+                    )
+                    or ConnectorAuthType.API_KEY,
                 }
             )
         return rows

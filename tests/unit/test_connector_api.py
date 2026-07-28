@@ -91,7 +91,12 @@ def test_connector_catalog_listing(client_admin):
     response = client_admin.get("/api/turing/v1/connectors/")
     assert response.status_code == 200
     assert response.data == [
-        {"type": "api-fake", "name": "API Fake", "available": True}
+        {
+            "type": "api-fake",
+            "name": "API Fake",
+            "auth_type": "api_key",
+            "available": True,
+        }
     ]
 
 
@@ -119,14 +124,17 @@ def test_installation_crud_hides_config(client_admin):
     detail = client_admin.get(f"/api/turing/v1/connector-installations/{inst_id}/")
     assert detail.status_code == 200
     assert "config" not in detail.data
+    assert "auth_status" in detail.data
+    assert detail.data["auth_status"]["auth_type"] == "api_key"
+    assert detail.data["auth_status"]["has_credentials"] is True
 
     patched = client_admin.patch(
         f"/api/turing/v1/connector-installations/{inst_id}/",
-        {"status": ConnectorInstallationStatus.DISABLED, "name": "Paused"},
+        {"status": ConnectorInstallationStatus.REVOKED, "name": "Paused"},
         format="json",
     )
     assert patched.status_code == 200
-    assert patched.data["status"] == ConnectorInstallationStatus.DISABLED
+    assert patched.data["status"] == ConnectorInstallationStatus.REVOKED
     assert patched.data["name"] == "Paused"
     assert "config" not in patched.data
 

@@ -32,6 +32,7 @@ class ZoomConnector(BaseConnector):
 
     connector_type = "zoom"
     display_name = "Zoom"
+    auth_type = "api_key"
 
     def __init__(self, installation, *, client: ZoomClient | None = None) -> None:
         super().__init__(installation)
