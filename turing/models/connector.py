@@ -96,6 +96,64 @@ class ConnectorInstallation(UUIDModel):
     def public_config(self) -> dict:
         return redact_connector_config(self.config)
 
+    def last_successful_sync(self):
+        """Most recent COMPLETED sync job, or None (derived, not duplicated state)."""
+        return (
+            self.sync_jobs.filter(status=ConnectorSyncJobStatus.COMPLETED)
+            .order_by("-finished_at", "-created_at")
+            .first()
+        )
+
+    def last_failed_sync(self):
+        """Most recent FAILED sync job, or None (derived, not duplicated state)."""
+        return (
+            self.sync_jobs.filter(status=ConnectorSyncJobStatus.FAILED)
+            .order_by("-finished_at", "-created_at")
+            .first()
+        )
+
+    def current_health(self) -> str:
+        """
+        Derived health label from installation status + recent sync outcomes.
+
+        Values: pending | healthy | degraded | unhealthy | expired | revoked
+        """
+        if self.status == ConnectorInstallationStatus.REVOKED:
+            return "revoked"
+        if self.status == ConnectorInstallationStatus.EXPIRED:
+            return "expired"
+        if self.status == ConnectorInstallationStatus.PENDING:
+            return "pending"
+        if self.status == ConnectorInstallationStatus.ERROR:
+            return "unhealthy"
+
+        last_ok = self.last_successful_sync()
+        last_fail = self.last_failed_sync()
+        ok_at = last_ok.finished_at or last_ok.created_at if last_ok else None
+        fail_at = last_fail.finished_at or last_fail.created_at if last_fail else None
+        if fail_at and (ok_at is None or fail_at >= ok_at):
+            return "degraded"
+        return "healthy"
+
+    def health_summary(self) -> dict:
+        """Public health payload for API (no secrets)."""
+        last_ok = self.last_successful_sync()
+        last_fail = self.last_failed_sync()
+        return {
+            "current_health": self.current_health(),
+            "last_successful_sync_at": (
+                (last_ok.finished_at or last_ok.created_at).isoformat()
+                if last_ok
+                else None
+            ),
+            "last_failed_sync_at": (
+                (last_fail.finished_at or last_fail.created_at).isoformat()
+                if last_fail
+                else None
+            ),
+            "last_failed_sync_error": (last_fail.error[:500] if last_fail else ""),
+        }
+
     def clean(self) -> None:
         super().clean()
         if not (self.connector_type or "").strip():
@@ -139,6 +197,8 @@ class ConnectorCredential(UUIDModel):
     encrypted_access_token = models.TextField(blank=True, default="")
     encrypted_refresh_token = models.TextField(blank=True, default="")
     expires_at = models.DateTimeField(null=True, blank=True)
+    last_refreshed_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:

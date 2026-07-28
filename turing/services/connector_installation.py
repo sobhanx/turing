@@ -86,14 +86,16 @@ class ConnectorInstallationService:
                 cred.encrypted_access_token = ""
                 cred.encrypted_refresh_token = ""
                 cred.expires_at = None
+                cred.revoked_at = timezone.now()
                 meta = dict(cred.metadata or {})
-                meta["revoked_at"] = timezone.now().isoformat()
+                meta["revoked_at"] = cred.revoked_at.isoformat()
                 cred.metadata = meta
                 cred.save(
                     update_fields=[
                         "encrypted_access_token",
                         "encrypted_refresh_token",
                         "expires_at",
+                        "revoked_at",
                         "metadata",
                         "updated_at",
                     ]
@@ -130,6 +132,7 @@ class ConnectorInstallationService:
         enc_access = self._encryption.encrypt(access_token.strip())
         enc_refresh = self._encryption.encrypt((refresh_token or "").strip())
         meta = dict(metadata or {})
+        now = timezone.now()
 
         with transaction.atomic():
             cred, _created = ConnectorCredential.objects.update_or_create(
@@ -140,6 +143,8 @@ class ConnectorInstallationService:
                     "encrypted_access_token": enc_access,
                     "encrypted_refresh_token": enc_refresh,
                     "expires_at": expires_at,
+                    "last_refreshed_at": now,
+                    "revoked_at": None,
                     "metadata": meta,
                 },
             )

@@ -753,6 +753,10 @@ class ConnectorCatalogViewSet(viewsets.ViewSet):
                 "type": row["connector_type"],
                 "name": row["display_name"],
                 "auth_type": row.get("auth_type", "api_key"),
+                "supports_oauth": bool(row.get("supports_oauth")),
+                "supports_refresh": bool(row.get("supports_refresh")),
+                "supports_revoke": bool(row.get("supports_revoke")),
+                "supported_sync_types": list(row.get("supported_sync_types") or []),
                 "available": True,
             }
             for row in ConnectorRegistry.list_available()
@@ -950,9 +954,9 @@ class ConnectorInstallationViewSet(
     def authorize(self, request, pk=None):
         """Return the provider OAuth authorization URL for this installation."""
         from turing.connectors.exceptions import ConnectorError
-        from turing.connectors.oauth_state import build_oauth_state
         from turing.connectors.registry import ConnectorRegistry
         from turing.domain.enums import ConnectorAuthType, ConnectorInstallationStatus
+        from turing.services.oauth_state import OAuthStateService
 
         installation = self.get_object()
         try:
@@ -969,9 +973,10 @@ class ConnectorInstallationViewSet(
                     "Cannot authorize a revoked connector installation.",
                     code="validation_error",
                 )
-            state = build_oauth_state(
+            state = OAuthStateService().generate(
                 installation_id=str(installation.id),
                 organization_id=installation.organization_id,
+                connector_type=installation.connector_type,
             )
             redirect_uri = request.query_params.get("redirect_uri") or None
             url = connector.authorization_url(
@@ -1011,10 +1016,10 @@ class ConnectorOAuthCallbackView(APIView):
 
     def get(self, request, connector: str):
         from turing.connectors.exceptions import ConnectorError
-        from turing.connectors.oauth_state import parse_oauth_state
         from turing.connectors.registry import ConnectorRegistry
         from turing.domain.enums import ConnectorAuthType, ConnectorInstallationStatus
         from turing.services.connector_installation import ConnectorInstallationService
+        from turing.services.oauth_state import OAuthStateService
 
         connector_type = (connector or "").strip()
         code = (request.query_params.get("code") or "").strip()
@@ -1039,10 +1044,16 @@ class ConnectorOAuthCallbackView(APIView):
             )
 
         try:
-            installation_id, organization_id = parse_oauth_state(state)
+            claims = OAuthStateService().validate(
+                state,
+                expected_connector_type=connector_type,
+            )
             installation = ConnectorInstallation.objects.select_related(
                 "organization"
-            ).get(pk=installation_id, organization_id=organization_id)
+            ).get(
+                pk=claims.installation_id,
+                organization_id=claims.organization_id,
+            )
         except ConnectorInstallation.DoesNotExist:
             return Response(
                 {"detail": "Connector installation not found.", "code": "not_found"},

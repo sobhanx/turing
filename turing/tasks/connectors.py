@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from celery import shared_task
+from celery.exceptions import MaxRetriesExceededError
 
 logger = logging.getLogger(__name__)
 
@@ -11,16 +12,27 @@ logger = logging.getLogger(__name__)
     bind=True,
     name="turing.tasks.connectors.sync_connector_installation",
     acks_late=True,
-    max_retries=0,
+    max_retries=3,
+    default_retry_delay=30,
 )
 def sync_connector_installation(self, sync_job_id: str) -> str:
     """Execute a pending ``ConnectorSyncJob`` via ``ConnectorSyncService``."""
+    from turing.connectors.exceptions import TemporaryConnectorError
     from turing.domain.exceptions import NotFoundError, TuringError
     from turing.services.connector_sync import ConnectorSyncService
 
     service = ConnectorSyncService()
     try:
         job = service.run_sync(sync_job_id)
+    except TemporaryConnectorError as exc:
+        try:
+            raise self.retry(exc=exc)
+        except MaxRetriesExceededError:
+            logger.exception(
+                "Connector sync retries exhausted for job %s", sync_job_id
+            )
+            job = service.fail_exhausted_retries(sync_job_id, str(exc))
+            return f"{job.status}:{job.records_processed}"
     except NotFoundError:
         logger.warning("Connector sync job %s not found", sync_job_id)
         raise

@@ -95,6 +95,10 @@ def test_connector_catalog_listing(client_admin):
             "type": "api-fake",
             "name": "API Fake",
             "auth_type": "api_key",
+            "supports_oauth": False,
+            "supports_refresh": False,
+            "supports_revoke": False,
+            "supported_sync_types": ["media"],
             "available": True,
         }
     ]

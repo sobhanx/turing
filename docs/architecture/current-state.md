@@ -76,22 +76,21 @@ Includes:
 
 ## Phase 4.3 status
 
-**Phase 4.3.1–4.3.6 connector framework through Zoom OAuth are in place.**
+**Phase 4.3.1–4.3.7 connector framework through hardening are in place.**
 
 Includes:
 
-- `BaseConnector` contract + `ConnectorRegistry` (+ auth_type / credential hooks)
+- `BaseConnector` capabilities + auth hooks + classified sync errors
 - `ConnectorInstallation` / `ConnectorSyncJob` / `ConnectorCredential` + Admin
 - `CredentialEncryptionService` + `ConnectorInstallationService` lifecycle
-- `ConnectorSyncService` + Celery `sync_connector_installation`
-- Events: `connector.sync.started` / `.completed` / `.failed`
-- REST: catalog, installation CRUD, auth_status, authorize, OAuth callback, revoke, sync
-- Zoom OAuth2: authorize → callback → encrypted tokens → refresh on sync
-- Celery Beat `schedule_connector_syncs` with in-flight lock + config toggles
-- Mock OAuth connector for tests (`mock_oauth`)
+- `OAuthStateService` (signed state, replay protection)
+- Derived installation health (`current_health`, last success/failure)
+- REST: catalog capabilities, authorize, OAuth callback, auth_status, health, sync
+- Zoom OAuth2 with automatic token refresh
+- Celery Beat scheduling + temporary sync retries
 
 
-## Current Limitations (post–Phase 4.3.6)
+## Current Limitations (post–Phase 4.3.7)
 
 - No marketplace / product UI for connector install
 - No Teams / Meet / CRM / telephony connectors yet

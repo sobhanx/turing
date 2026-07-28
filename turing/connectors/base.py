@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar, Sequence
 
 from turing.domain.enums import ConnectorAuthType
 
@@ -47,6 +47,12 @@ class BaseConnector(ABC):
     display_name: str = ""
     auth_type: str = ConnectorAuthType.API_KEY
 
+    # Capability metadata (catalog / hosts) — no secrets.
+    supports_oauth: bool = False
+    supports_refresh: bool = False
+    supports_revoke: bool = False
+    supported_sync_types: ClassVar[Sequence[str]] = ("media",)
+
     def __init__(self, installation) -> None:
         self.installation = installation
         self.config: dict[str, Any] = dict(installation.config or {})
@@ -55,6 +61,21 @@ class BaseConnector(ABC):
     def name(self) -> str:
         """Human-readable connector name (defaults to display_name / type)."""
         return self.display_name or self.connector_type or self.installation.name
+
+    @classmethod
+    def capability_metadata(cls) -> dict[str, Any]:
+        """Public capability summary for catalog APIs (never includes secrets)."""
+        auth_type = getattr(cls, "auth_type", ConnectorAuthType.API_KEY) or (
+            ConnectorAuthType.API_KEY
+        )
+        supports_oauth = bool(cls.supports_oauth) or auth_type == ConnectorAuthType.OAUTH2
+        return {
+            "auth_type": auth_type,
+            "supports_oauth": supports_oauth,
+            "supports_refresh": bool(cls.supports_refresh) or supports_oauth,
+            "supports_revoke": bool(cls.supports_revoke) or supports_oauth,
+            "supported_sync_types": list(cls.supported_sync_types or ()),
+        }
 
     @abstractmethod
     def validate_config(self) -> None:

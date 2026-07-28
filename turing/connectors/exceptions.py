@@ -23,3 +23,33 @@ class ConnectorHealthError(ConnectorError):
 
 class ConnectorSyncError(ConnectorError):
     code = "connector_sync_error"
+
+
+class AuthenticationError(ConnectorError):
+    """
+    Auth material is invalid or cannot be refreshed.
+
+    Sync mapping: expire the installation (do not retry as-is).
+    """
+
+    code = "connector_authentication_error"
+
+
+class TemporaryConnectorError(ConnectorError):
+    """
+    Transient remote / network failure.
+
+    Sync mapping: retry the sync job.
+    """
+
+    code = "connector_temporary_error"
+
+
+class PermanentConnectorError(ConnectorError):
+    """
+    Non-retryable connector failure.
+
+    Sync mapping: mark sync job failed.
+    """
+
+    code = "connector_permanent_error"

@@ -6,7 +6,12 @@ from urllib.parse import urljoin
 
 import requests
 
-from turing.connectors.exceptions import ConnectorConfigurationError, ConnectorHealthError
+from turing.connectors.exceptions import (
+    AuthenticationError,
+    ConnectorConfigurationError,
+    ConnectorHealthError,
+    TemporaryConnectorError,
+)
 from turing.connectors.zoom.serializers import (
     ZoomRecording,
     normalize_meeting_recordings,
@@ -71,6 +76,14 @@ class ZoomClient:
                 response.status_code,
                 path,
             )
+            if response.status_code in {401, 403}:
+                raise AuthenticationError(
+                    f"Zoom API authentication failed (HTTP {response.status_code})."
+                )
+            if response.status_code == 429 or response.status_code >= 500:
+                raise TemporaryConnectorError(
+                    f"Zoom API temporary error (HTTP {response.status_code})."
+                )
             raise ConnectorHealthError(
                 f"Zoom API returned HTTP {response.status_code} for {path}."
             )

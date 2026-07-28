@@ -106,6 +106,8 @@ class ConnectorCredentialAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
         "has_access",
         "has_refresh",
         "expires_at",
+        "last_refreshed_at",
+        "revoked_at",
         "updated_at",
     )
     list_filter = ("auth_type", "organization", "expires_at")
@@ -122,6 +124,8 @@ class ConnectorCredentialAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
         "has_access",
         "has_refresh",
         "expires_at",
+        "last_refreshed_at",
+        "revoked_at",
         "metadata",
         "created_at",
         "updated_at",

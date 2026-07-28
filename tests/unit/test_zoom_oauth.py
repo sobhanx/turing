@@ -12,7 +12,6 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from turing.connectors.exceptions import ConnectorConfigurationError, ConnectorError
-from turing.connectors.oauth_state import build_oauth_state, parse_oauth_state
 from turing.connectors.zoom.connector import ZoomConnector
 from turing.connectors.zoom.oauth import ZoomOAuthClient
 from turing.domain.enums import (
@@ -26,6 +25,7 @@ from turing.models import ConnectorCredential, ConnectorInstallation, Organizati
 from turing.security.secrets import is_encrypted
 from turing.services.connector_installation import ConnectorInstallationService
 from turing.services.connector_sync import ConnectorSyncService
+from turing.services.oauth_state import OAuthStateService, parse_oauth_state
 
 User = get_user_model()
 
@@ -90,7 +90,7 @@ def test_authorization_url_generation(org, zoom_oauth_settings):
     assert qs["client_id"] == ["zoom-client-id"]
     assert qs["redirect_uri"] == [REDIRECT]
     assert "state" in qs
-    inst_id, org_id = parse_oauth_state(qs["state"][0])
+    inst_id, org_id = parse_oauth_state(qs["state"][0], consume=False)
     assert inst_id == str(installation.id)
     assert org_id == str(org.id)
 
@@ -113,9 +113,10 @@ def test_authorize_api_returns_url(client_admin, org, zoom_oauth_settings):
 @pytest.mark.django_db
 def test_callback_success_stores_encrypted_tokens(org, zoom_oauth_settings):
     installation = _pending_installation(org)
-    state = build_oauth_state(
+    state = OAuthStateService().generate(
         installation_id=str(installation.id),
         organization_id=org.id,
+        connector_type="zoom",
     )
     responses.add(
         responses.POST,
@@ -284,9 +285,10 @@ def test_oauth_client_rejects_missing_app_credentials():
 @pytest.mark.django_db
 def test_callback_rejects_mismatched_connector(org, zoom_oauth_settings):
     installation = _pending_installation(org)
-    state = build_oauth_state(
+    state = OAuthStateService().generate(
         installation_id=str(installation.id),
         organization_id=org.id,
+        connector_type="zoom",
     )
     client = APIClient()
     response = client.get(

@@ -9,15 +9,19 @@ and sync workflows without coupling core services to a specific vendor.
 
 from turing.connectors.base import BaseConnector, ConnectorSyncResult, MediaPullItem
 from turing.connectors.exceptions import (
+    AuthenticationError,
     ConnectorConfigurationError,
     ConnectorError,
     ConnectorHealthError,
     ConnectorNotFoundError,
     ConnectorSyncError,
+    PermanentConnectorError,
+    TemporaryConnectorError,
 )
 from turing.connectors.registry import ConnectorRegistry
 
 __all__ = [
+    "AuthenticationError",
     "BaseConnector",
     "ConnectorConfigurationError",
     "ConnectorError",
@@ -27,4 +31,6 @@ __all__ = [
     "ConnectorSyncError",
     "ConnectorSyncResult",
     "MediaPullItem",
+    "PermanentConnectorError",
+    "TemporaryConnectorError",
 ]

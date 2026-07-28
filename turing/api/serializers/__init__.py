@@ -442,6 +442,7 @@ class ConnectorInstallationSerializer(serializers.ModelSerializer):
     """Public connector installation (never includes tokens or raw config)."""
 
     auth_status = serializers.SerializerMethodField()
+    health = serializers.SerializerMethodField()
 
     class Meta:
         model = ConnectorInstallation
@@ -451,6 +452,7 @@ class ConnectorInstallationSerializer(serializers.ModelSerializer):
             "name",
             "status",
             "auth_status",
+            "health",
             "created_at",
             "updated_at",
         ]
@@ -460,6 +462,9 @@ class ConnectorInstallationSerializer(serializers.ModelSerializer):
         from turing.services.connector_installation import ConnectorInstallationService
 
         return ConnectorInstallationService().auth_status(obj)
+
+    def get_health(self, obj: ConnectorInstallation) -> dict:
+        return obj.health_summary()
 
 
 _INSTALLATION_STATUS_CHOICES = [

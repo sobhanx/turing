@@ -24,6 +24,10 @@ class MockOAuthConnector(BaseConnector):
     connector_type = "mock_oauth"
     display_name = "Mock OAuth"
     auth_type = ConnectorAuthType.OAUTH2
+    supports_oauth = True
+    supports_refresh = True
+    supports_revoke = True
+    supported_sync_types = ("media",)
 
     def validate_config(self) -> None:
         # Non-secret client metadata may live in config; tokens do not.

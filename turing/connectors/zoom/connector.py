@@ -9,12 +9,12 @@ from django.utils import timezone
 
 from turing.connectors.base import BaseConnector, ConnectorSyncResult, MediaPullItem
 from turing.connectors.exceptions import (
+    AuthenticationError,
     ConnectorConfigurationError,
     ConnectorError,
     ConnectorHealthError,
     ConnectorSyncError,
 )
-from turing.connectors.oauth_state import build_oauth_state
 from turing.connectors.zoom.client import ZoomClient
 from turing.connectors.zoom.oauth import DEFAULT_SCOPES, ZoomOAuthClient
 from turing.connectors.zoom.serializers import pick_primary_recording
@@ -22,6 +22,7 @@ from turing.domain.enums import ConnectorAuthType, UseCase
 from turing.services.connector_installation import ConnectorInstallationService
 from turing.services.external_reference import ExternalReferenceService
 from turing.services.media import MediaService
+from turing.services.oauth_state import OAuthStateService
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,10 @@ class ZoomConnector(BaseConnector):
     connector_type = "zoom"
     display_name = "Zoom"
     auth_type = ConnectorAuthType.OAUTH2
+    supports_oauth = True
+    supports_refresh = True
+    supports_revoke = True
+    supported_sync_types = ("media",)
 
     def __init__(
         self,
@@ -116,9 +121,10 @@ class ZoomConnector(BaseConnector):
         """Build the Zoom authorize URL for this installation."""
         self.validate_config()
         redirect = self._redirect_uri(redirect_uri)
-        state_value = state or build_oauth_state(
+        state_value = state or OAuthStateService().generate(
             installation_id=str(self.installation.id),
             organization_id=self.installation.organization_id,
+            connector_type=self.connector_type,
         )
         scopes = _zoom_oauth_settings()["scopes"]
         return self._oauth().build_authorization_url(
@@ -144,15 +150,16 @@ class ZoomConnector(BaseConnector):
         self.validate_config()
         refresh = self._decrypt_refresh_token()
         if not refresh:
-            raise ConnectorError(
-                "Zoom refresh token is missing.",
-                code="zoom_oauth_refresh_failed",
-            )
+            ConnectorInstallationService().expire(self.installation)
+            raise AuthenticationError("Zoom refresh token is missing.")
         try:
             payload = self._oauth().refresh_token(refresh)
-        except ConnectorError:
+        except ConnectorError as exc:
             ConnectorInstallationService().expire(self.installation)
-            raise
+            raise AuthenticationError(
+                "Zoom OAuth token refresh failed.",
+                code=getattr(exc, "code", "zoom_oauth_refresh_failed"),
+            ) from exc
         self._persist_token_payload(payload)
 
     def revoke_credentials(self) -> None:
@@ -187,9 +194,11 @@ class ZoomConnector(BaseConnector):
             )
             try:
                 self.refresh_credentials()
+            except AuthenticationError:
+                raise
             except ConnectorError as exc:
-                # refresh_credentials already expires the installation.
-                raise ConnectorError(
+                ConnectorInstallationService().expire(self.installation)
+                raise AuthenticationError(
                     "Zoom OAuth token refresh failed.",
                     code=getattr(exc, "code", "zoom_oauth_refresh_failed"),
                 ) from exc

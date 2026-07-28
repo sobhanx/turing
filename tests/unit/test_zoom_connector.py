@@ -10,7 +10,11 @@ from django.utils import timezone
 
 from turing.connectors import ConnectorConfigurationError, ConnectorRegistry
 from turing.connectors.builtins import register_builtin_connectors
-from turing.connectors.exceptions import ConnectorHealthError, ConnectorSyncError
+from turing.connectors.exceptions import (
+    AuthenticationError,
+    ConnectorHealthError,
+    ConnectorSyncError,
+)
 from turing.connectors.zoom.client import ZoomClient
 from turing.connectors.zoom.connector import ZoomConnector
 from turing.connectors.zoom.serializers import (
@@ -162,7 +166,7 @@ def test_zoom_client_list_and_health():
         json={"message": "Unauthorized"},
         status=401,
     )
-    with pytest.raises(ConnectorHealthError, match="401"):
+    with pytest.raises(AuthenticationError, match="401"):
         client.fetch_recording_metadata("111")
 
 

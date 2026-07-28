@@ -5,7 +5,12 @@ import logging
 from django.db import transaction
 from django.utils import timezone
 
-from turing.connectors.exceptions import ConnectorError
+from turing.connectors.exceptions import (
+    AuthenticationError,
+    ConnectorError,
+    PermanentConnectorError,
+    TemporaryConnectorError,
+)
 from turing.connectors.registry import ConnectorRegistry
 from turing.domain.enums import ConnectorInstallationStatus, ConnectorSyncJobStatus
 from turing.domain.events import (
@@ -214,6 +219,28 @@ class ConnectorSyncService:
             connector = ConnectorRegistry.create(installation)
             connector.validate_credentials()
             result = connector.sync()
+        except AuthenticationError as exc:
+            from turing.services.connector_installation import ConnectorInstallationService
+
+            if installation.status not in (
+                ConnectorInstallationStatus.EXPIRED,
+                ConnectorInstallationStatus.REVOKED,
+            ):
+                try:
+                    ConnectorInstallationService().expire(installation)
+                    installation.refresh_from_db()
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "Failed to expire installation after auth error "
+                        "installation_id=%s",
+                        installation.id,
+                    )
+            return self._fail(job, installation, str(exc))
+        except TemporaryConnectorError as exc:
+            self._mark_retryable(job, str(exc))
+            raise
+        except PermanentConnectorError as exc:
+            return self._fail(job, installation, str(exc))
         except ConnectorError as exc:
             return self._fail(job, installation, str(exc))
         except Exception as exc:  # noqa: BLE001
@@ -257,6 +284,32 @@ class ConnectorSyncService:
             job.records_processed,
         )
         return job
+
+    def fail_exhausted_retries(self, job_id: str, message: str) -> ConnectorSyncJob:
+        """Mark a job failed after Celery temporary retries are exhausted."""
+        try:
+            job = ConnectorSyncJob.objects.select_related(
+                "installation", "installation__organization"
+            ).get(pk=job_id)
+        except ConnectorSyncJob.DoesNotExist as exc:
+            raise NotFoundError(f"Connector sync job '{job_id}' not found.") from exc
+        return self._fail(job, job.installation, message or "Retries exhausted.")
+
+    def _mark_retryable(self, job: ConnectorSyncJob, message: str) -> None:
+        """Reset job to PENDING so Celery / Beat can retry a temporary failure."""
+        with transaction.atomic():
+            job = ConnectorSyncJob.objects.select_for_update().get(pk=job.pk)
+            job.status = ConnectorSyncJobStatus.PENDING
+            job.error = (message or "")[:4000]
+            job.finished_at = None
+            job.save(update_fields=["status", "error", "finished_at", "updated_at"])
+        logger.warning(
+            "Connector sync temporary failure (will retry) installation_id=%s "
+            "sync_job_id=%s reason=%s",
+            job.installation_id,
+            job.id,
+            (message or "")[:500],
+        )
 
     def _fail(
         self,

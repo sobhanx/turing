@@ -18,7 +18,7 @@ turing/connectors/
     connector.py
     oauth.py
     serializers.py
-  oauth_state.py   Signed OAuth state helper
+  oauth_state.py   Shim → OAuthStateService
 ```
 
 
@@ -29,6 +29,8 @@ Every connector implements ``BaseConnector``:
 | Method / attr | Purpose |
 |---------------|---------|
 | `auth_type` | `api_key` (default) or `oauth2` |
+| `supports_oauth` / `supports_refresh` / `supports_revoke` | Capability flags |
+| `supported_sync_types` | e.g. `("media",)` |
 | `validate_config()` | Fail closed on bad installation config |
 | `validate_credentials()` | Validate auth material (default: api_key→config; oauth2→token) |
 | `refresh_credentials()` | OAuth token refresh (no-op for api_key) |
@@ -36,6 +38,8 @@ Every connector implements ``BaseConnector``:
 | `health_check()` | Lightweight connectivity probe (no secrets in result) |
 | `pull_media()` | Discover remote media as ``MediaPullItem`` descriptors |
 | `sync()` | Full sync pass → ``ConnectorSyncResult`` (may create media) |
+
+Catalog capabilities (no secrets) come from ``BaseConnector.capability_metadata()``.
 
 Register with:
 
@@ -81,11 +85,36 @@ Core sync services never import vendor SDKs — only ``ConnectorRegistry`` + ``B
 
 | Method | Effect |
 |--------|--------|
-| `store_credentials(...)` | Encrypt + upsert credential row |
+| `store_credentials(...)` | Encrypt + upsert; sets `last_refreshed_at`, clears `revoked_at` |
 | `activate()` | status → `active` |
 | `expire()` | status → `expired` |
-| `revoke()` | clear tokens, status → `revoked`, call `revoke_credentials()` |
+| `revoke()` | clear tokens, set `revoked_at`, status → `revoked` |
 | `auth_status()` | Public summary: auth_type, has_credentials, expires_at, is_expired |
+
+### Sync health (derived)
+
+Installation helpers (not duplicated status columns):
+
+| Helper | Meaning |
+|--------|---------|
+| `last_successful_sync()` | Latest COMPLETED `ConnectorSyncJob` |
+| `last_failed_sync()` | Latest FAILED job |
+| `current_health()` | `pending` / `healthy` / `degraded` / `unhealthy` / `expired` / `revoked` |
+
+API exposes `health` on installation GET (timestamps + truncated last error; no secrets).
+
+### Error classification (Phase 4.3.7)
+
+| Exception | Sync behavior |
+|-----------|----------------|
+| `AuthenticationError` | Expire installation + fail job |
+| `TemporaryConnectorError` | Reset job to PENDING + Celery retry |
+| `PermanentConnectorError` | Fail job (installation → `error` unless already expired/revoked) |
+
+### OAuth state (`OAuthStateService`)
+
+Shared signed state binds `organization` + `installation` + `connector` + nonce.
+Callback validation consumes the nonce (cache) to prevent replay.
 
 ### Security rules
 
@@ -242,7 +271,16 @@ GET /api/turing/v1/connectors/
 
 ```json
 [
-  {"type": "zoom", "name": "Zoom", "auth_type": "oauth2", "available": true}
+  {
+    "type": "zoom",
+    "name": "Zoom",
+    "auth_type": "oauth2",
+    "supports_oauth": true,
+    "supports_refresh": true,
+    "supports_revoke": true,
+    "supported_sync_types": ["media"],
+    "available": true
+  }
 ]
 ```
 
