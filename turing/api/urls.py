@@ -6,6 +6,7 @@ from rest_framework.routers import DefaultRouter
 from turing.api.viewsets import (
     ConnectorCatalogViewSet,
     ConnectorInstallationViewSet,
+    ConnectorOAuthCallbackView,
     ConnectorSyncJobViewSet,
     ExternalReferenceViewSet,
     MediaAssetViewSet,
@@ -52,5 +53,10 @@ router.register(
 urlpatterns = [
     # Inbound provider callback — must stay before the webhooks detail route.
     path("v1/webhooks/speechmatics/", speechmatics_webhook, name="turing-webhook-speechmatics"),
+    path(
+        "v1/oauth/callback/<slug:connector>/",
+        ConnectorOAuthCallbackView.as_view(),
+        name="turing-oauth-callback",
+    ),
     *router.urls,
 ]

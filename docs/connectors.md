@@ -13,10 +13,12 @@ turing/connectors/
   exceptions.py    Connector* errors
   builtins.py      register_builtin_connectors()
   mock_oauth.py    Test-only OAuth2 connector
-  zoom/            Zoom Cloud Recording connector (api_key)
+  zoom/            Zoom Cloud Recording connector (oauth2)
     client.py
     connector.py
+    oauth.py
     serializers.py
+  oauth_state.py   Signed OAuth state helper
 ```
 
 
@@ -153,37 +155,65 @@ Logs include installation id, connector type, sync job id, start/end, and
 failure reason. Config secrets are never logged.
 
 
-## Zoom connector (Phase 4.3.3)
+## Zoom connector (Phase 4.3.3 / 4.3.6)
 
-First concrete connector. Pulls Zoom cloud recordings and registers them as
-Turing media via the existing pipeline.
+Pulls Zoom cloud recordings into Turing via **OAuth2** (not static api_token).
 
-### Required config
+### App setup
 
-```json
-{
-  "account_id": "...",
-  "api_token": "..."
-}
+Configure the Zoom OAuth app and Turing env:
+
+| Setting | Purpose |
+|---------|---------|
+| `TURING_ZOOM_CLIENT_ID` | Zoom app client id |
+| `TURING_ZOOM_CLIENT_SECRET` | Zoom app client secret |
+| `TURING_ZOOM_OAUTH_REDIRECT_URI` | Must match Zoom app redirect URL |
+| `TURING_ZOOM_OAUTH_SCOPES` | Default `recording:read user:read:user` |
+
+Redirect URI example:
+
+`https://<host>/api/turing/v1/oauth/callback/zoom/`
+
+Optional installation `config`: `account_id`, `base_url` (metadata / API base only).
+
+### OAuth lifecycle
+
+```text
+POST /connector-installations/  (connector_type=zoom) → status pending
+GET  /connector-installations/{id}/authorize/ → authorization_url (+ signed state)
+  → user consents at Zoom
+GET  /oauth/callback/zoom/?code=&state=
+  → exchange_code() → CredentialEncryptionService / store_credentials()
+  → ConnectorInstallationService.activate() → status active
 ```
 
-Optional: `base_url` (default `https://api.zoom.us/v2/`).
+Authorize requires `manage_config` and org-scoped installation access.
+Callback is unauthenticated; ownership is enforced by signed `state`
+(`installation_id` + `organization_id`). Tokens are never returned.
 
-Credentials are write-only (never returned by the installation API, never logged
-or included in events).
+Revoke: `PATCH ... {"status": "revoked"}` → Zoom revoke API (best effort) + clear ciphertext.
+
+### Token refresh during sync
+
+Before pull/sync, `ensure_fresh_credentials()`:
+
+1. If access token expires within 60s → `refresh_credentials()`
+2. Persist new tokens via `store_credentials()`
+3. On refresh failure → `expire()` installation + raise → sync job `FAILED`
+   (`connector.sync.failed`); status stays `expired` (not overwritten to `error`)
 
 ### Sync flow
 
 ```text
 ZoomConnector.pull_media()
-  → ZoomClient.list_recordings()  (normalized recording files)
+  → ensure_fresh_credentials()
+  → ZoomClient.list_recordings()  (Bearer access token)
   → prefer M4A/MP3 over MP4; skip chat/transcript artifacts
 
 ZoomConnector.sync()
   → skip if ExternalReference(zoom/meeting/<recording_id>) already exists
   → MediaService.create_from_url(media_url, use_case=meeting)
   → ExternalReference attach (zoom / meeting / recording_id)
-  → existing media.created event + STT pipeline when jobs are created
 ```
 
 Mapping:
@@ -196,7 +226,7 @@ Mapping:
 | `media_url` | Zoom `download_url` |
 
 
-## REST API (Phase 4.3.2 / 4.3.5)
+## REST API (Phase 4.3.2 / 4.3.5 / 4.3.6)
 
 Requires capability `manage_config` (org Admin role). Config secrets and OAuth
 tokens are accepted on write paths only and **never** returned in responses.
@@ -212,7 +242,7 @@ GET /api/turing/v1/connectors/
 
 ```json
 [
-  {"type": "zoom", "name": "Zoom", "auth_type": "api_key", "available": true}
+  {"type": "zoom", "name": "Zoom", "auth_type": "oauth2", "available": true}
 ]
 ```
 
@@ -224,9 +254,11 @@ Source: ``ConnectorRegistry`` (no hardcoded vendor list).
 |--------|------|
 | `GET`/`POST` | `/api/turing/v1/connector-installations/` |
 | `GET`/`PATCH`/`DELETE` | `/api/turing/v1/connector-installations/{id}/` |
+| `GET` | `/api/turing/v1/connector-installations/{id}/authorize/` |
 | `POST` | `/api/turing/v1/connector-installations/{id}/sync/` → `202` |
+| `GET` | `/api/turing/v1/oauth/callback/{connector}/` |
 
-Create:
+Create (Zoom → `pending` until OAuth completes):
 
 ```http
 POST /api/turing/v1/connector-installations/
@@ -235,10 +267,17 @@ Content-Type: application/json
 {
   "connector_type": "zoom",
   "name": "Company Zoom",
-  "config": {
-    "account_id": "...",
-    "api_token": "..."
-  }
+  "config": {}
+}
+```
+
+Authorize response:
+
+```json
+{
+  "authorization_url": "https://zoom.us/oauth/authorize?...",
+  "installation_id": "<uuid>",
+  "connector_type": "zoom"
 }
 ```
 

@@ -207,6 +207,24 @@ TURING_CONNECTOR_SYNC_INTERVAL_SECONDS = float(
     os.environ.get("TURING_CONNECTOR_SYNC_INTERVAL_SECONDS", "3600")
 )
 
+# Zoom OAuth (Phase 4.3.6)
+TURING_ZOOM_CLIENT_ID = os.environ.get("TURING_ZOOM_CLIENT_ID", "")
+TURING_ZOOM_CLIENT_SECRET = os.environ.get("TURING_ZOOM_CLIENT_SECRET", "")
+TURING_ZOOM_OAUTH_REDIRECT_URI = os.environ.get("TURING_ZOOM_OAUTH_REDIRECT_URI", "")
+TURING_ZOOM_OAUTH_AUTHORIZE_URL = os.environ.get(
+    "TURING_ZOOM_OAUTH_AUTHORIZE_URL", "https://zoom.us/oauth/authorize"
+)
+TURING_ZOOM_OAUTH_TOKEN_URL = os.environ.get(
+    "TURING_ZOOM_OAUTH_TOKEN_URL", "https://zoom.us/oauth/token"
+)
+TURING_ZOOM_OAUTH_REVOKE_URL = os.environ.get(
+    "TURING_ZOOM_OAUTH_REVOKE_URL", "https://zoom.us/oauth/revoke"
+)
+TURING_ZOOM_OAUTH_SCOPES = os.environ.get(
+    "TURING_ZOOM_OAUTH_SCOPES",
+    "recording:read user:read:user",
+)
+
 from turing.celery_schedule import build_celery_beat_schedule  # noqa: E402
 
 CELERY_BEAT_SCHEDULE = build_celery_beat_schedule()

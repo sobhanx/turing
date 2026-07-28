@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 import responses
+from django.utils import timezone
 
 from turing.connectors import ConnectorConfigurationError, ConnectorRegistry
 from turing.connectors.builtins import register_builtin_connectors
@@ -20,11 +22,17 @@ from turing.domain.enums import ConnectorInstallationStatus, UseCase
 from turing.domain.events import DomainEvent, EventName
 from turing.events.bus import EventBus
 from turing.models import ConnectorInstallation, ExternalReference, MediaAsset, Organization
+from turing.services.connector_installation import ConnectorInstallationService
 from turing.services.connector_sync import ConnectorSyncService
 
 
 @pytest.fixture(autouse=True)
-def _zoom_registry():
+def _zoom_registry(settings):
+    settings.TURING_ZOOM_CLIENT_ID = "test-client"
+    settings.TURING_ZOOM_CLIENT_SECRET = "test-secret"
+    settings.TURING_ZOOM_OAUTH_REDIRECT_URI = (
+        "http://testserver/api/turing/v1/oauth/callback/zoom/"
+    )
     ConnectorRegistry.clear()
     register_builtin_connectors()
     EventBus.clear()
@@ -44,11 +52,22 @@ def _installation(org, **kwargs) -> ConnectorInstallation:
         "organization": org,
         "connector_type": "zoom",
         "name": "Company Zoom",
-        "status": ConnectorInstallationStatus.ACTIVE,
-        "config": {"account_id": "acc-1", "api_token": "zoom-secret-token"},
+        "status": ConnectorInstallationStatus.PENDING,
+        "config": {},
     }
+    store_tokens = kwargs.pop("store_tokens", True)
     defaults.update(kwargs)
-    return ConnectorInstallation.objects.create(**defaults)
+    installation = ConnectorInstallation.objects.create(**defaults)
+    if store_tokens:
+        ConnectorInstallationService().store_credentials(
+            installation,
+            access_token="zoom-access-token",
+            refresh_token="zoom-refresh-token",
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        ConnectorInstallationService().activate(installation)
+        installation.refresh_from_db()
+    return installation
 
 
 def _meeting_payload() -> dict[str, Any]:
@@ -86,19 +105,19 @@ def _meeting_payload() -> dict[str, Any]:
 
 
 @pytest.mark.django_db
-def test_config_validation(org):
-    installation = _installation(org, config={})
-    connector = ZoomConnector(installation)
-    with pytest.raises(ConnectorConfigurationError, match="account_id"):
-        connector.validate_config()
+def test_config_validation(org, settings):
+    installation = _installation(org, store_tokens=False)
+    settings.TURING_ZOOM_CLIENT_ID = ""
+    settings.TURING_ZOOM_CLIENT_SECRET = ""
+    with pytest.raises(ConnectorConfigurationError, match="TURING_ZOOM_CLIENT_ID"):
+        ZoomConnector(installation).validate_config()
 
-    installation.config = {"account_id": "a"}
-    connector = ZoomConnector(installation)
-    with pytest.raises(ConnectorConfigurationError, match="api_token"):
-        connector.validate_config()
-
-    installation.config = {"account_id": "a", "api_token": "t"}
+    settings.TURING_ZOOM_CLIENT_ID = "cid"
+    settings.TURING_ZOOM_CLIENT_SECRET = "csecret"
     ZoomConnector(installation).validate_config()
+
+    with pytest.raises(ConnectorConfigurationError, match="access token"):
+        ZoomConnector(installation).validate_credentials()
 
 
 def test_recording_normalization_and_primary():
@@ -117,8 +136,8 @@ def test_recording_normalization_and_primary():
 def test_zoom_client_list_and_health():
     responses.add(
         responses.GET,
-        "https://api.zoom.us/v2/accounts/acc-1",
-        json={"account_name": "Acme", "id": "acc-1"},
+        "https://api.zoom.us/v2/users/me",
+        json={"display_name": "Acme User", "id": "u1"},
         status=200,
     )
     responses.add(
@@ -127,17 +146,16 @@ def test_zoom_client_list_and_health():
         json={"meetings": [_meeting_payload()]},
         status=200,
     )
-    client = ZoomClient(account_id="acc-1", api_token="secret")
+    client = ZoomClient(api_token="secret")
     health = client.health_check()
     assert health["ok"] is True
-    assert health["account_name"] == "Acme"
+    assert health["account_name"] == "Acme User"
     assert "secret" not in str(health)
 
     recordings = client.list_recordings()
     assert len(recordings) == 2
     assert any(r.recording_id == "rec-audio-1" for r in recordings)
 
-    # Authorization header present on requests but not in raised messages for 401
     responses.add(
         responses.GET,
         "https://api.zoom.us/v2/meetings/111/recordings",
@@ -178,7 +196,7 @@ def test_sync_creates_media_and_external_ref(org, monkeypatch):
         created_urls.append(kwargs["url"])
         assert kwargs["organization"] == org
         assert kwargs["use_case"] == UseCase.MEETING
-        assert "zoom-secret-token" not in str(kwargs)
+        assert "zoom-access-token" not in str(kwargs)
         return real_create(self, **kwargs)
 
     monkeypatch.setattr(
@@ -204,7 +222,6 @@ def test_sync_creates_media_and_external_ref(org, monkeypatch):
     )
     assert ref.media_id == asset.id
 
-    # Idempotent second sync skips existing.
     result2 = connector.sync()
     assert result2.records_processed == 0
     assert result2.details["skipped"] == 1
@@ -238,7 +255,7 @@ def test_sync_success_via_service_emits_events(org, settings, monkeypatch):
     assert EventName.CONNECTOR_SYNC_STARTED in names
     assert EventName.CONNECTOR_SYNC_COMPLETED in names
     assert EventName.MEDIA_CREATED in names
-    assert "zoom-secret-token" not in str([e.payload for e in seen])
+    assert "zoom-access-token" not in str([e.payload for e in seen])
 
 
 @pytest.mark.django_db
@@ -260,3 +277,4 @@ def test_sync_failure_when_media_create_fails(org, monkeypatch):
 def test_registry_includes_zoom():
     assert "zoom" in ConnectorRegistry.types()
     assert ConnectorRegistry.get("zoom") is ZoomConnector
+    assert ConnectorRegistry.get("zoom").auth_type == "oauth2"

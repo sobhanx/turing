@@ -280,8 +280,12 @@ class ConnectorSyncService:
                     "updated_at",
                 ]
             )
-            installation.status = ConnectorInstallationStatus.ERROR
-            installation.save(update_fields=["status", "updated_at"])
+            if installation.status not in (
+                ConnectorInstallationStatus.EXPIRED,
+                ConnectorInstallationStatus.REVOKED,
+            ):
+                installation.status = ConnectorInstallationStatus.ERROR
+                installation.save(update_fields=["status", "updated_at"])
         self._emit_failed(job, installation)
         logger.warning(
             "Connector sync failed installation_id=%s connector_type=%s "

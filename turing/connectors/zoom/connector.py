@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
+
+from django.conf import settings
+from django.utils import timezone
 
 from turing.connectors.base import BaseConnector, ConnectorSyncResult, MediaPullItem
 from turing.connectors.exceptions import (
@@ -10,9 +14,12 @@ from turing.connectors.exceptions import (
     ConnectorHealthError,
     ConnectorSyncError,
 )
+from turing.connectors.oauth_state import build_oauth_state
 from turing.connectors.zoom.client import ZoomClient
+from turing.connectors.zoom.oauth import DEFAULT_SCOPES, ZoomOAuthClient
 from turing.connectors.zoom.serializers import pick_primary_recording
-from turing.domain.enums import UseCase
+from turing.domain.enums import ConnectorAuthType, UseCase
+from turing.services.connector_installation import ConnectorInstallationService
 from turing.services.external_reference import ExternalReferenceService
 from turing.services.media import MediaService
 
@@ -20,68 +27,236 @@ logger = logging.getLogger(__name__)
 
 EXTERNAL_SYSTEM = "zoom"
 EXTERNAL_TYPE = "meeting"
+_TOKEN_SKEW = timedelta(seconds=60)
+
+
+def _zoom_oauth_settings() -> dict[str, str]:
+    return {
+        "client_id": str(getattr(settings, "TURING_ZOOM_CLIENT_ID", "") or ""),
+        "client_secret": str(getattr(settings, "TURING_ZOOM_CLIENT_SECRET", "") or ""),
+        "authorize_url": str(
+            getattr(settings, "TURING_ZOOM_OAUTH_AUTHORIZE_URL", "") or ""
+        ),
+        "token_url": str(getattr(settings, "TURING_ZOOM_OAUTH_TOKEN_URL", "") or ""),
+        "revoke_url": str(getattr(settings, "TURING_ZOOM_OAUTH_REVOKE_URL", "") or ""),
+        "redirect_uri": str(
+            getattr(settings, "TURING_ZOOM_OAUTH_REDIRECT_URI", "") or ""
+        ),
+        "scopes": str(getattr(settings, "TURING_ZOOM_OAUTH_SCOPES", "") or "")
+        or DEFAULT_SCOPES,
+    }
 
 
 class ZoomConnector(BaseConnector):
     """
-    Zoom Cloud Recording → Turing media connector.
+    Zoom Cloud Recording → Turing media connector (OAuth2).
 
-    Sync creates media via ``MediaService.create_from_url`` and links
-    ``ExternalReference(zoom/meeting/<recording_id>)`` for idempotency.
+    Tokens live on ``ConnectorCredential`` (encrypted). Sync refreshes expired
+    access tokens automatically via the refresh token.
     """
 
     connector_type = "zoom"
     display_name = "Zoom"
-    auth_type = "api_key"
+    auth_type = ConnectorAuthType.OAUTH2
 
-    def __init__(self, installation, *, client: ZoomClient | None = None) -> None:
+    def __init__(
+        self,
+        installation,
+        *,
+        client: ZoomClient | None = None,
+        oauth_client: ZoomOAuthClient | None = None,
+    ) -> None:
         super().__init__(installation)
         self._client = client
+        self._oauth_client = oauth_client
 
     @property
     def name(self) -> str:
         return "zoom"
 
+    def _oauth(self) -> ZoomOAuthClient:
+        if self._oauth_client is not None:
+            return self._oauth_client
+        cfg = _zoom_oauth_settings()
+        kwargs: dict[str, Any] = {
+            "client_id": cfg["client_id"],
+            "client_secret": cfg["client_secret"],
+        }
+        if cfg["authorize_url"]:
+            kwargs["authorize_url"] = cfg["authorize_url"]
+        if cfg["token_url"]:
+            kwargs["token_url"] = cfg["token_url"]
+        if cfg["revoke_url"]:
+            kwargs["revoke_url"] = cfg["revoke_url"]
+        return ZoomOAuthClient(**kwargs)
+
+    def _redirect_uri(self, redirect_uri: str | None = None) -> str:
+        uri = (redirect_uri or "").strip() or _zoom_oauth_settings()["redirect_uri"]
+        if not uri:
+            raise ConnectorConfigurationError(
+                "Zoom OAuth redirect URI is not configured. "
+                "Set TURING_ZOOM_OAUTH_REDIRECT_URI."
+            )
+        return uri
+
+    def validate_config(self) -> None:
+        """Require Zoom OAuth app settings (not per-installation api_token)."""
+        cfg = _zoom_oauth_settings()
+        if not cfg["client_id"] or not cfg["client_secret"]:
+            raise ConnectorConfigurationError(
+                "Zoom OAuth is not configured. Set TURING_ZOOM_CLIENT_ID and "
+                "TURING_ZOOM_CLIENT_SECRET."
+            )
+
+    def validate_credentials(self) -> None:
+        self.validate_config()
+        super().validate_credentials()
+
+    def authorization_url(self, *, redirect_uri: str | None = None, state: str | None = None) -> str:
+        """Build the Zoom authorize URL for this installation."""
+        self.validate_config()
+        redirect = self._redirect_uri(redirect_uri)
+        state_value = state or build_oauth_state(
+            installation_id=str(self.installation.id),
+            organization_id=self.installation.organization_id,
+        )
+        scopes = _zoom_oauth_settings()["scopes"]
+        return self._oauth().build_authorization_url(
+            redirect_uri=redirect,
+            state=state_value,
+            scopes=scopes,
+        )
+
+    def exchange_code(self, code: str, *, redirect_uri: str | None = None) -> None:
+        """
+        Exchange an authorization code, encrypt tokens, and store credentials.
+
+        Does not activate the installation — caller should use
+        ``ConnectorInstallationService.activate()``.
+        """
+        self.validate_config()
+        redirect = self._redirect_uri(redirect_uri)
+        payload = self._oauth().exchange_code(code, redirect_uri=redirect)
+        self._persist_token_payload(payload)
+
+    def refresh_credentials(self) -> None:
+        """Refresh access token using the stored refresh token."""
+        self.validate_config()
+        refresh = self._decrypt_refresh_token()
+        if not refresh:
+            raise ConnectorError(
+                "Zoom refresh token is missing.",
+                code="zoom_oauth_refresh_failed",
+            )
+        try:
+            payload = self._oauth().refresh_token(refresh)
+        except ConnectorError:
+            ConnectorInstallationService().expire(self.installation)
+            raise
+        self._persist_token_payload(payload)
+
+    def revoke_credentials(self) -> None:
+        """Best-effort Zoom token revoke (local clear handled by installation service)."""
+        try:
+            token = self._decrypt_access_token() or self._decrypt_refresh_token()
+            if token:
+                self._oauth().revoke_token(token)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "Zoom revoke_credentials failed installation_id=%s",
+                getattr(self.installation, "id", None),
+            )
+
+    def ensure_fresh_credentials(self) -> None:
+        """
+        Refresh access token when expired (or within skew), then validate.
+
+        On refresh failure the installation is marked expired.
+        """
+        self.validate_config()
+        cred = self._credential()
+        if cred is None or not cred.has_access_token():
+            raise ConnectorConfigurationError(
+                "OAuth access token is missing. Complete authorization first."
+            )
+        expires_at = cred.expires_at
+        if expires_at is not None and expires_at <= timezone.now() + _TOKEN_SKEW:
+            logger.info(
+                "Refreshing Zoom OAuth token installation_id=%s",
+                self.installation.id,
+            )
+            try:
+                self.refresh_credentials()
+            except ConnectorError as exc:
+                # refresh_credentials already expires the installation.
+                raise ConnectorError(
+                    "Zoom OAuth token refresh failed.",
+                    code=getattr(exc, "code", "zoom_oauth_refresh_failed"),
+                ) from exc
+        self.validate_credentials()
+
+    def _persist_token_payload(self, payload: dict[str, Any]) -> None:
+        access = str(payload.get("access_token") or "")
+        refresh = str(payload.get("refresh_token") or "") or self._decrypt_refresh_token()
+        expires_in = payload.get("expires_in")
+        expires_at = None
+        try:
+            if expires_in is not None:
+                expires_at = timezone.now() + timedelta(seconds=int(expires_in))
+        except (TypeError, ValueError):
+            expires_at = None
+
+        meta = {
+            "scope": str(payload.get("scope") or ""),
+            "token_type": str(payload.get("token_type") or ""),
+        }
+        # Drop empty metadata keys; never store raw token fields.
+        meta = {k: v for k, v in meta.items() if v}
+
+        ConnectorInstallationService().store_credentials(
+            self.installation,
+            access_token=access,
+            refresh_token=refresh,
+            expires_at=expires_at,
+            auth_type=ConnectorAuthType.OAUTH2,
+            metadata=meta,
+        )
+
     def _build_client(self) -> ZoomClient:
         if self._client is not None:
             return self._client
+        token = self._decrypt_access_token()
+        if not token:
+            raise ConnectorConfigurationError(
+                "OAuth access token is missing. Complete authorization first."
+            )
         return ZoomClient(
+            api_token=token,
             account_id=str(self.config.get("account_id") or ""),
-            api_token=str(self.config.get("api_token") or ""),
             base_url=str(self.config.get("base_url") or "") or "https://api.zoom.us/v2/",
         )
 
-    def validate_config(self) -> None:
-        account_id = str(self.config.get("account_id") or "").strip()
-        api_token = str(self.config.get("api_token") or "").strip()
-        if not account_id:
-            raise ConnectorConfigurationError("account_id is required.")
-        if not api_token:
-            raise ConnectorConfigurationError("api_token is required.")
-
     def health_check(self) -> dict[str, Any]:
-        self.validate_config()
+        self.ensure_fresh_credentials()
         try:
             result = self._build_client().health_check()
         except ConnectorError:
             raise
         except Exception as exc:  # noqa: BLE001
             raise ConnectorHealthError(f"Zoom health check failed: {exc}") from exc
-        # Never leak credentials.
         return {
             "ok": bool(result.get("ok")),
-            "account_id": self.config.get("account_id"),
+            "account_id": self.config.get("account_id") or "",
             "account_name": result.get("account_name") or "",
         }
 
     def pull_media(self, **kwargs: Any) -> list[MediaPullItem]:
-        self.validate_config()
+        self.ensure_fresh_credentials()
         client = self._build_client()
         recordings = client.list_recordings(
             from_date=kwargs.get("from_date"),
             to_date=kwargs.get("to_date"),
         )
-        # One primary file per meeting_id.
         by_meeting: dict[str, list] = {}
         for recording in recordings:
             by_meeting.setdefault(recording.meeting_id, []).append(recording)
@@ -116,7 +291,6 @@ class ZoomConnector(BaseConnector):
         return items
 
     def sync(self) -> ConnectorSyncResult:
-        self.validate_config()
         try:
             items = self.pull_media()
         except ConnectorError:
@@ -155,7 +329,14 @@ class ZoomConnector(BaseConnector):
                         "zoom": {
                             k: v
                             for k, v in (item.metadata or {}).items()
-                            if k not in {"api_token", "token", "secret"}
+                            if k
+                            not in {
+                                "api_token",
+                                "token",
+                                "secret",
+                                "access_token",
+                                "refresh_token",
+                            }
                         },
                     },
                 )

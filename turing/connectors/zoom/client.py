@@ -22,25 +22,23 @@ class ZoomClient:
     """
     Isolated Zoom HTTP client.
 
-    Does not create MediaAssets. Never logs api_token / Authorization headers.
+    Authenticates with a Bearer access token (OAuth). Does not create MediaAssets.
+    Never logs access tokens / Authorization headers.
     """
 
     def __init__(
         self,
         *,
-        account_id: str,
         api_token: str,
+        account_id: str = "",
         base_url: str = DEFAULT_ZOOM_API_BASE,
         timeout_seconds: float = 30.0,
         session: requests.Session | None = None,
     ) -> None:
-        account_id = (account_id or "").strip()
         api_token = (api_token or "").strip()
-        if not account_id:
-            raise ConnectorConfigurationError("account_id is required.")
         if not api_token:
-            raise ConnectorConfigurationError("api_token is required.")
-        self.account_id = account_id
+            raise ConnectorConfigurationError("Zoom access token is required.")
+        self.account_id = (account_id or "").strip()
         self._api_token = api_token
         self.base_url = base_url if base_url.endswith("/") else f"{base_url}/"
         self.timeout_seconds = timeout_seconds
@@ -84,16 +82,23 @@ class ZoomClient:
             raise ConnectorHealthError("Zoom API returned invalid JSON.") from exc
 
     def authenticate(self) -> dict[str, Any]:
-        """Validate credentials with a lightweight account probe."""
-        # Account-level probe; does not return or log the token.
-        return self._request("GET", f"accounts/{self.account_id}")
+        """Validate credentials with a lightweight probe (never returns the token)."""
+        if self.account_id:
+            return self._request("GET", f"accounts/{self.account_id}")
+        return self._request("GET", "users/me")
 
     def health_check(self) -> dict[str, Any]:
         payload = self.authenticate()
         return {
             "ok": True,
             "account_id": self.account_id,
-            "account_name": str(payload.get("account_name") or payload.get("name") or ""),
+            "account_name": str(
+                payload.get("account_name")
+                or payload.get("display_name")
+                or payload.get("first_name")
+                or payload.get("name")
+                or ""
+            ),
         }
 
     def list_recordings(
@@ -103,7 +108,7 @@ class ZoomClient:
         to_date: str | None = None,
         page_size: int = 30,
     ) -> list[ZoomRecording]:
-        """List cloud recordings for the configured account owner (``/users/me/recordings``)."""
+        """List cloud recordings for the authorized user (``/users/me/recordings``)."""
         params: dict[str, Any] = {"page_size": page_size}
         if from_date:
             params["from"] = from_date

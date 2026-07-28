@@ -5,6 +5,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from turing.api.filters import (
     MediaAssetFilter,
@@ -782,7 +783,14 @@ class ConnectorInstallationViewSet(
         return scope_by_organization(super().get_queryset(), self.request.user)
 
     def get_permissions(self):
-        if self.action in {"create", "partial_update", "update", "destroy", "sync"}:
+        if self.action in {
+            "create",
+            "partial_update",
+            "update",
+            "destroy",
+            "sync",
+            "authorize",
+        }:
             return [IsAuthenticated(), CanManageConfig()]
         return super().get_permissions()
 
@@ -936,6 +944,158 @@ class ConnectorInstallationViewSet(
         return Response(
             {"sync_job_id": str(job.id)},
             status=status.HTTP_202_ACCEPTED,
+        )
+
+    @action(detail=True, methods=["get"], url_path="authorize")
+    def authorize(self, request, pk=None):
+        """Return the provider OAuth authorization URL for this installation."""
+        from turing.connectors.exceptions import ConnectorError
+        from turing.connectors.oauth_state import build_oauth_state
+        from turing.connectors.registry import ConnectorRegistry
+        from turing.domain.enums import ConnectorAuthType, ConnectorInstallationStatus
+
+        installation = self.get_object()
+        try:
+            connector = ConnectorRegistry.create(installation)
+            if getattr(connector, "auth_type", ConnectorAuthType.API_KEY) != (
+                ConnectorAuthType.OAUTH2
+            ):
+                raise TuringError(
+                    "This connector does not support OAuth authorization.",
+                    code="oauth_unsupported",
+                )
+            if installation.status == ConnectorInstallationStatus.REVOKED:
+                raise TuringError(
+                    "Cannot authorize a revoked connector installation.",
+                    code="validation_error",
+                )
+            state = build_oauth_state(
+                installation_id=str(installation.id),
+                organization_id=installation.organization_id,
+            )
+            redirect_uri = request.query_params.get("redirect_uri") or None
+            url = connector.authorization_url(
+                redirect_uri=redirect_uri,
+                state=state,
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+        except ConnectorError as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                    "code": getattr(exc, "code", "connector_error"),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            {
+                "authorization_url": url,
+                "installation_id": str(installation.id),
+                "connector_type": installation.connector_type,
+            }
+        )
+
+
+class ConnectorOAuthCallbackView(APIView):
+    """
+    OAuth redirect callback (Phase 4.3.6).
+
+    Public GET — ownership is enforced via signed ``state``, not session auth.
+    Never returns tokens.
+    """
+
+    authentication_classes = []
+    permission_classes = []
+    http_method_names = ["get", "head", "options"]
+
+    def get(self, request, connector: str):
+        from turing.connectors.exceptions import ConnectorError
+        from turing.connectors.oauth_state import parse_oauth_state
+        from turing.connectors.registry import ConnectorRegistry
+        from turing.domain.enums import ConnectorAuthType, ConnectorInstallationStatus
+        from turing.services.connector_installation import ConnectorInstallationService
+
+        connector_type = (connector or "").strip()
+        code = (request.query_params.get("code") or "").strip()
+        state = (request.query_params.get("state") or "").strip()
+        error = (request.query_params.get("error") or "").strip()
+
+        if error:
+            return Response(
+                {
+                    "detail": "OAuth authorization was denied or failed.",
+                    "code": "oauth_denied",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not code or not state:
+            return Response(
+                {
+                    "detail": "OAuth callback requires code and state.",
+                    "code": "validation_error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            installation_id, organization_id = parse_oauth_state(state)
+            installation = ConnectorInstallation.objects.select_related(
+                "organization"
+            ).get(pk=installation_id, organization_id=organization_id)
+        except ConnectorInstallation.DoesNotExist:
+            return Response(
+                {"detail": "Connector installation not found.", "code": "not_found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+
+        if installation.connector_type != connector_type:
+            return Response(
+                {
+                    "detail": "OAuth connector type does not match installation.",
+                    "code": "validation_error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if installation.status == ConnectorInstallationStatus.REVOKED:
+            return Response(
+                {
+                    "detail": "Cannot authorize a revoked connector installation.",
+                    "code": "validation_error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            connector_obj = ConnectorRegistry.create(installation)
+            if getattr(connector_obj, "auth_type", None) != ConnectorAuthType.OAUTH2:
+                raise TuringError(
+                    "This connector does not support OAuth authorization.",
+                    code="oauth_unsupported",
+                )
+            redirect_uri = request.query_params.get("redirect_uri") or None
+            connector_obj.exchange_code(code, redirect_uri=redirect_uri)
+            installation = ConnectorInstallationService().activate(installation)
+        except TuringError as exc:
+            return _error_response(exc)
+        except ConnectorError as exc:
+            return Response(
+                {
+                    "detail": str(exc),
+                    "code": getattr(exc, "code", "connector_error"),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            {
+                "installation_id": str(installation.id),
+                "connector_type": installation.connector_type,
+                "status": installation.status,
+                "auth_status": ConnectorInstallationService().auth_status(installation),
+            }
         )
 
 
