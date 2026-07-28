@@ -6,6 +6,7 @@ from turing.connectors.google_meet.connector import GoogleMeetConnector
 from turing.connectors.registry import ConnectorRegistry
 from turing.connectors.salesforce.connector import SalesforceConnector
 from turing.connectors.teams.connector import TeamsConnector
+from turing.connectors.twilio.connector import TwilioConnector
 from turing.connectors.zoom.connector import ZoomConnector
 
 
@@ -19,3 +20,5 @@ def register_builtin_connectors() -> None:
         ConnectorRegistry.register(GoogleMeetConnector)
     if "salesforce" not in ConnectorRegistry.types():
         ConnectorRegistry.register(SalesforceConnector)
+    if "twilio" not in ConnectorRegistry.types():
+        ConnectorRegistry.register(TwilioConnector)

@@ -92,8 +92,8 @@ Includes:
 
 ## Phase 4.4 status
 
-**Phase 4.4.1–4.4.3 installation API, marketplace catalog, and telephony
-foundation are in place.**
+**Phase 4.4.1–4.4.4 installation API, marketplace catalog, telephony foundation,
+and Twilio connector are in place.**
 
 Includes:
 
@@ -106,14 +106,15 @@ Includes:
   scopes, structured install requirements)
 - Registry `get_definition` / `validate_installation_requirements`
 - `TelephonyConnector` + `TelephonyCall` normalization / MediaService ingest path
+- Twilio call-recording connector (`api_key`, `ExternalReference(twilio/call/…)`)
 
 
-## Current Limitations (post–Phase 4.4.3)
+## Current Limitations (post–Phase 4.4.4)
 
 - No marketplace / product UI for connector install
 - No billing / entitlement / payments / app publishing
 - No CRM write-back / action-item sync
-- No enterprise CTI provider adapters yet (telephony foundation only)
+- No additional enterprise CTI adapters beyond Twilio
 - No real-time streaming / agent desktop / QA scoring
 - Permissions are organization-level (no record-level ACL)
 - Celery coupling exists inside services

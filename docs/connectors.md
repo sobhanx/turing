@@ -36,6 +36,10 @@ turing/connectors/
   telephony/       Generic telephony / CTI call-recording foundation
     connector.py   TelephonyConnector abstract base
     serializers.py TelephonyCall + normalize_call()
+  twilio/          Twilio call recordings (api_key)
+    client.py
+    connector.py
+    serializers.py
   oauth_state.py   Shim → OAuthStateService
 ```
 
@@ -457,6 +461,56 @@ Out of scope for this foundation: real-time streaming, agent desktop UI, QA
 scoring, and specific enterprise CTI providers.
 
 
+## Twilio connector (Phase 4.4.4)
+
+First concrete telephony connector. Discovers Twilio call recordings and
+ingests them via **Account SID + Auth Token** (`auth_type=api_key`).
+
+### App setup
+
+| Setting | Purpose |
+|---------|---------|
+| `TURING_TWILIO_ACCOUNT_SID` | Twilio Account SID (host default) |
+| `TURING_TWILIO_AUTH_TOKEN` | Twilio Auth Token (host default, secret) |
+| `TURING_TWILIO_API_BASE` | Optional API host (default `https://api.twilio.com`) |
+
+Per-installation overrides (write-only, never returned by GET serializers):
+
+```json
+{
+  "account_sid": "AC…",
+  "auth_token": "…"
+}
+```
+
+Secrets are never logged and never included in catalog / installation responses.
+
+### Flow
+
+```text
+POST /connector-installations/  (connector_type=twilio) → active (api_key)
+TwilioConnector.sync()
+  → validate_credentials()  (Account API probe)
+  → TwilioClient.list_calls_with_recordings()
+  → TelephonyCall normalization
+  → MediaService.create_from_url (crm_call)
+  → ExternalReference(twilio / call / <CallSid>)
+  → existing STT pipeline
+```
+
+Mapping:
+
+| Field | Value |
+|-------|--------|
+| `external_system` | `twilio` |
+| `external_type` | `call` |
+| `external_id` | Twilio Call SID (`CA…`) |
+| `recording_url` | Recording media URL (`.mp3`) |
+
+Marketplace: `provider=Twilio`, `category=telephony`,
+`supported_sync_types=["calls"]`.
+
+
 ## REST API (Phase 4.3.2 / 4.3.5 / 4.3.6 / 4.4.1 / 4.4.2)
 
 Requires capability `manage_config` (org Admin role). Config secrets and OAuth
@@ -652,10 +706,11 @@ Emitted via existing ``EventBus`` + durable outbox.
 
 Still planned (not in this phase):
 
-- Enterprise CTI providers (Genesys, Twilio, etc.) on ``TelephonyConnector``
+- Additional enterprise CTI providers on ``TelephonyConnector``
 - Marketplace / product UI (consumes Phase 4.4 catalog contracts)
 - Billing / entitlements / app publishing
 - CRM write-back / action-item sync
+- Real-time streaming / agent desktop / QA scoring
 
 Each adapter lives under ``turing/connectors/<vendor>/`` and registers via
 ``register_builtin_connectors()`` without changing ``ConnectorSyncService``.

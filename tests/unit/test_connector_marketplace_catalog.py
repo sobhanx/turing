@@ -187,7 +187,7 @@ def test_builtin_connector_regression():
     ConnectorRegistry.clear()
     register_builtin_connectors()
     types = ConnectorRegistry.types()
-    assert types == ["google_meet", "salesforce", "teams", "zoom"]
+    assert types == ["google_meet", "salesforce", "teams", "twilio", "zoom"]
 
     catalog = ConnectorRegistry.list_available()
     by_type = {row["connector_type"]: row for row in catalog}
@@ -198,6 +198,9 @@ def test_builtin_connector_regression():
     assert by_type["google_meet"]["provider"] == "Google"
     assert by_type["salesforce"]["category"] == "crm"
     assert by_type["salesforce"]["capabilities"]["oauth"] is True
+    assert by_type["twilio"]["provider"] == "Twilio"
+    assert by_type["twilio"]["category"] == "telephony"
+    assert by_type["twilio"]["supported_sync_types"] == ["calls"]
 
     for row in catalog:
         assert "client_secret" not in str(row).lower()

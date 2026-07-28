@@ -296,6 +296,14 @@ TURING_SALESFORCE_OAUTH_SCOPES = os.environ.get(
     "api refresh_token offline_access",
 )
 
+# Twilio telephony (Phase 4.4.4) — Account SID + Auth Token (never log)
+TURING_TWILIO_ACCOUNT_SID = os.environ.get("TURING_TWILIO_ACCOUNT_SID", "")
+TURING_TWILIO_AUTH_TOKEN = os.environ.get("TURING_TWILIO_AUTH_TOKEN", "")
+TURING_TWILIO_API_BASE = os.environ.get(
+    "TURING_TWILIO_API_BASE",
+    "https://api.twilio.com",
+)
+
 from turing.celery_schedule import build_celery_beat_schedule  # noqa: E402
 
 CELERY_BEAT_SCHEDULE = build_celery_beat_schedule()
