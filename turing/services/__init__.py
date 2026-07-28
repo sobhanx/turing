@@ -1,3 +1,4 @@
+from turing.services.external_reference import ExternalReferenceService
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
 from turing.services.transcript import TranscriptService
@@ -8,4 +9,5 @@ __all__ = [
     "JobOrchestrator",
     "TranscriptionService",
     "TranscriptService",
+    "ExternalReferenceService",
 ]

@@ -1,37 +1,28 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any
+# Re-export event helpers for ``from turing.domain import DomainEvent``.
+from turing.domain.events import (  # noqa: F401
+    DomainEvent,
+    EventName,
+    analysis_completed,
+    job_completed,
+    job_failed,
+    job_queued,
+    job_succeeded,
+    media_created,
+    transcript_created,
+    transcript_revised,
+)
 
-
-@dataclass(frozen=True)
-class DomainEvent:
-    name: str
-    payload: dict[str, Any] = field(default_factory=dict)
-    occurred_at: datetime | None = None
-
-
-def job_queued(job_id: str) -> DomainEvent:
-    return DomainEvent(name="processing_job.queued", payload={"job_id": job_id})
-
-
-def job_succeeded(job_id: str, transcript_id: str) -> DomainEvent:
-    return DomainEvent(
-        name="processing_job.succeeded",
-        payload={"job_id": job_id, "transcript_id": transcript_id},
-    )
-
-
-def job_failed(job_id: str, error_code: str, message: str) -> DomainEvent:
-    return DomainEvent(
-        name="processing_job.failed",
-        payload={"job_id": job_id, "error_code": error_code, "message": message},
-    )
-
-
-def transcript_revised(transcript_id: str, revision_number: int) -> DomainEvent:
-    return DomainEvent(
-        name="transcript.revised",
-        payload={"transcript_id": transcript_id, "revision_number": revision_number},
-    )
+__all__ = [
+    "DomainEvent",
+    "EventName",
+    "media_created",
+    "job_completed",
+    "transcript_created",
+    "analysis_completed",
+    "job_queued",
+    "job_succeeded",
+    "job_failed",
+    "transcript_revised",
+]

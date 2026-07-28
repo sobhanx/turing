@@ -6,9 +6,16 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from turing.api.filters import MediaAssetFilter, ProcessingJobFilter, TranscriptFilter
+from turing.api.filters import (
+    MediaAssetFilter,
+    ProcessingJobFilter,
+    TranscriptAnalysisFilter,
+    TranscriptFilter,
+)
 from turing.api.serializers import (
     CreateTranscriptionJobSerializer,
+    ExternalReferenceCreateSerializer,
+    ExternalReferenceSerializer,
     MediaAssetSerializer,
     MediaUploadSerializer,
     ProcessingJobSerializer,
@@ -16,6 +23,7 @@ from turing.api.serializers import (
     SegmentUpdateSerializer,
     SpeakerRenameSerializer,
     SpeakerSerializer,
+    TranscriptAnalysisSerializer,
     TranscriptListSerializer,
     TranscriptRevisionSerializer,
     TranscriptSegmentSerializer,
@@ -30,10 +38,20 @@ from turing.auth.permissions import (
 )
 from turing.auth.tenancy import scope_by_organization
 from turing.domain.exceptions import PermissionDeniedError, TuringError
-from turing.models import MediaAsset, ProcessingJob, Speaker, Transcript, TranscriptSegment
+from turing.models import (
+    ExternalReference,
+    MediaAsset,
+    ProcessingJob,
+    Speaker,
+    Transcript,
+    TranscriptAnalysis,
+    TranscriptSegment,
+)
+from turing.services.external_reference import ExternalReferenceService
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
 from turing.services.transcript import TranscriptService
+from turing.services.transcript_analysis import TranscriptAnalysisService
 
 
 def _error_response(exc: TuringError):
@@ -63,10 +81,18 @@ class MediaAssetViewSet(
     permission_classes = [IsAuthenticated, HasTuringCapability]
 
     def get_queryset(self):
-        return scope_by_organization(super().get_queryset(), self.request.user)
+        qs = scope_by_organization(super().get_queryset(), self.request.user)
+        if any(
+            key in self.request.query_params
+            for key in ("external_system", "external_type", "external_id")
+        ):
+            qs = qs.distinct()
+        return qs.prefetch_related("external_references")
 
     def get_permissions(self):
         if self.action == "create":
+            return [IsAuthenticated(), CanUploadMedia()]
+        if self.action == "external_references" and self.request.method == "POST":
             return [IsAuthenticated(), CanUploadMedia()]
         return super().get_permissions()
 
@@ -97,9 +123,51 @@ class MediaAssetViewSet(
                     organization_id=data.get("organization_id"),
                     metadata=data.get("metadata") or {},
                 )
+            for ref_data in data.get("external_references") or []:
+                ExternalReferenceService().attach_to_media(
+                    asset,
+                    external_system=ref_data["external_system"],
+                    external_type=ref_data["external_type"],
+                    external_id=ref_data["external_id"],
+                    user=request.user,
+                    metadata=ref_data.get("metadata"),
+                )
         except TuringError as exc:
             return _error_response(exc)
+        asset = MediaAsset.objects.prefetch_related("external_references").get(pk=asset.pk)
         return Response(MediaAssetSerializer(asset).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get", "post"], url_path="external-references")
+    def external_references(self, request, pk=None):
+        media = self.get_object()
+        service = ExternalReferenceService()
+        if request.method == "GET":
+            refs = service.list_for_media(media, user=request.user)
+            page = self.paginate_queryset(refs)
+            if page is not None:
+                return self.get_paginated_response(
+                    ExternalReferenceSerializer(page, many=True).data
+                )
+            return Response(ExternalReferenceSerializer(refs, many=True).data)
+
+        serializer = ExternalReferenceCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            ref, created = service.attach_to_media(
+                media,
+                external_system=data["external_system"],
+                external_type=data["external_type"],
+                external_id=data["external_id"],
+                user=request.user,
+                metadata=data.get("metadata"),
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+        return Response(
+            ExternalReferenceSerializer(ref).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 class ProcessingJobViewSet(
@@ -194,9 +262,18 @@ class TranscriptViewSet(
 
     def get_queryset(self):
         qs = scope_by_organization(super().get_queryset(), self.request.user)
+        if any(
+            key in self.request.query_params
+            for key in ("external_system", "external_type", "external_id")
+        ):
+            qs = qs.distinct()
         if self.action == "retrieve":
-            return qs.prefetch_related("speakers", "segments__speaker")
-        return qs
+            return qs.prefetch_related(
+                "speakers",
+                "segments__speaker",
+                "external_references",
+            )
+        return qs.prefetch_related("external_references")
 
     def get_permissions(self):
         if self.action == "submit_review":
@@ -204,6 +281,8 @@ class TranscriptViewSet(
             return [IsAuthenticated(), CanEditTranscript()]
         if self.action == "approve":
             return [IsAuthenticated(), CanApproveTranscript()]
+        if self.action == "external_references" and self.request.method == "POST":
+            return [IsAuthenticated(), CanEditTranscript()]
         return super().get_permissions()
 
     @action(detail=True, methods=["get"])
@@ -212,6 +291,72 @@ class TranscriptViewSet(
         return Response(
             TranscriptRevisionSerializer(transcript.revisions.all(), many=True).data
         )
+
+    @action(detail=True, methods=["get", "post"], url_path="external-references")
+    def external_references(self, request, pk=None):
+        transcript = self.get_object()
+        service = ExternalReferenceService()
+        if request.method == "GET":
+            refs = service.list_for_transcript(transcript, user=request.user)
+            page = self.paginate_queryset(refs)
+            if page is not None:
+                return self.get_paginated_response(
+                    ExternalReferenceSerializer(page, many=True).data
+                )
+            return Response(ExternalReferenceSerializer(refs, many=True).data)
+
+        serializer = ExternalReferenceCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            ref, created = service.attach_to_transcript(
+                transcript,
+                external_system=data["external_system"],
+                external_type=data["external_type"],
+                external_id=data["external_id"],
+                user=request.user,
+                metadata=data.get("metadata"),
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+        return Response(
+            ExternalReferenceSerializer(ref).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["get"])
+    def analyses(self, request, pk=None):
+        """List derived AI analyses for a transcript (newest first)."""
+        transcript = self.get_object()
+        analysis_type = request.query_params.get("analysis_type") or None
+        queryset = TranscriptAnalysisService().list_for_transcript(
+            transcript,
+            user=request.user,
+            analysis_type=analysis_type,
+        )
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            return self.get_paginated_response(
+                TranscriptAnalysisSerializer(page, many=True).data
+            )
+        return Response(TranscriptAnalysisSerializer(queryset, many=True).data)
+
+    @action(detail=True, methods=["get"], url_path="analyses/latest")
+    def analyses_latest(self, request, pk=None):
+        """Return the newest analysis row for ``?type=`` (append-only history)."""
+        transcript = self.get_object()
+        analysis_type = request.query_params.get("type") or request.query_params.get(
+            "analysis_type"
+        )
+        try:
+            analysis = TranscriptAnalysisService().latest_by_type(
+                transcript,
+                analysis_type=analysis_type or "",
+                user=request.user,
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+        return Response(TranscriptAnalysisSerializer(analysis).data)
 
     @action(detail=True, methods=["post"])
     def submit_review(self, request, pk=None):
@@ -335,6 +480,83 @@ class SpeakerViewSet(
         except TuringError as exc:
             return Response({"detail": exc.message, "code": exc.code}, status=400)
         return Response(SpeakerSerializer(updated).data)
+
+
+class TranscriptAnalysisViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Read-only access to append-only transcript intelligence rows."""
+
+    queryset = TranscriptAnalysis.objects.all().select_related(
+        "transcript",
+        "organization",
+    )
+    serializer_class = TranscriptAnalysisSerializer
+    filterset_class = TranscriptAnalysisFilter
+    search_fields = ("id", "provider", "model_name")
+    ordering_fields = ("created_at", "analysis_type")
+    read_capability = "view_transcript"
+    permission_classes = [IsAuthenticated, HasTuringCapability]
+    http_method_names = ["get", "head", "options"]
+
+    def get_queryset(self):
+        return TranscriptAnalysisService().scope_queryset(
+            super().get_queryset(),
+            self.request.user,
+        )
+
+
+class ExternalReferenceViewSet(
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Retrieve/delete host object links (create via media/transcript nested routes)."""
+
+    queryset = ExternalReference.objects.all().select_related(
+        "organization",
+        "media",
+        "transcript",
+    )
+    serializer_class = ExternalReferenceSerializer
+    read_capability = "view_transcript"
+    permission_classes = [IsAuthenticated, HasTuringCapability]
+    http_method_names = ["get", "delete", "head", "options"]
+
+    def get_queryset(self):
+        return ExternalReferenceService().scope_queryset(
+            super().get_queryset(),
+            self.request.user,
+        )
+
+    def get_permissions(self):
+        if self.action == "destroy":
+            # Object-level capability chosen in destroy based on target kind.
+            return [IsAuthenticated(), HasTuringCapability()]
+        return super().get_permissions()
+
+    def destroy(self, request, *args, **kwargs):
+        reference = self.get_object()
+        # Enforce write capability for the target type before delete.
+        from turing.auth.roles import user_has_capability
+
+        capability = "upload_media" if reference.media_id else "edit_transcript"
+        if not user_has_capability(
+            request.user,
+            capability,
+            organization=reference.organization,
+        ):
+            return Response(
+                {"detail": f"Missing capability '{capability}'.", "code": "permission_denied"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            ExternalReferenceService().detach(reference, user=request.user)
+        except TuringError as exc:
+            return _error_response(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ProviderViewSet(viewsets.ViewSet):

@@ -92,6 +92,21 @@ Local development and tests use the **fake** provider (no network).
   future trigger if needed).
 - Stale analyses after edits are acceptable for Phase 3.2.
 
+## Phase 4.1.2 — Public Analysis API
+
+Read-only REST access for host applications:
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/api/turing/v1/transcripts/{id}/analyses/` | Newest first; optional `?analysis_type=` |
+| `GET` | `/api/turing/v1/transcripts/{id}/analyses/latest/?type=summary` | Latest row for one type |
+| `GET` | `/api/turing/v1/analyses/{id}/` | Single analysis retrieve |
+| `GET` | `/api/turing/v1/analyses/` | Org-scoped list + filters |
+
+Permission: `view_transcript` (existing). Querysets are organization-scoped.
+Responses include `analysis_type`, `content`, `provider`, `model_name`, timestamps.
+AI rows remain append-only derived data — the API does not mutate transcripts.
+
 ---
 
 ## Data model (Phase 2.6)

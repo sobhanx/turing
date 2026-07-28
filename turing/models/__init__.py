@@ -1,6 +1,7 @@
 from turing.models.analysis import TranscriptAnalysis
 from turing.models.media_artifact import MediaProcessingArtifact
 from turing.models.configuration import PlatformConfiguration, SpeechProviderConfig
+from turing.models.external_reference import ExternalReference
 from turing.models.job import ProcessingAttempt, ProcessingJob, ProcessingLog
 from turing.models.media import MediaAsset
 from turing.models.membership import TuringMembership
@@ -30,6 +31,7 @@ __all__ = [
     "TranscriptWord",
     "TranscriptRevision",
     "TranscriptAnalysis",
+    "ExternalReference",
     "ReviewAssignment",
     "ReviewDecision",
     "TuringMembership",

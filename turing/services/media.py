@@ -10,7 +10,10 @@ from django.db import transaction
 from turing.auth.tenancy import resolve_organization
 from turing.conf import get_turing_settings
 from turing.domain.enums import SourceType, StorageBackend, UseCase
+from turing.domain.events import media_created
 from turing.domain.exceptions import ValidationError
+from turing.events.bus import emit_after_commit
+from turing.events.payloads import snapshot_external_references
 from turing.media.metadata import extract_audio_metadata_from_path
 from turing.media.validation import validate_audio_upload
 from turing.models import MediaAsset, Organization
@@ -103,6 +106,7 @@ class MediaService:
         # Keep FileField in sync for Admin/Django compatibility (same storage backend).
         asset.file.name = object_key
         asset.save()
+        self._emit_media_created(asset)
         return asset
 
     def create_from_url(
@@ -127,7 +131,7 @@ class MediaService:
             user=uploaded_by,
             capability="upload_media",
         )
-        return MediaAsset.objects.create(
+        asset = MediaAsset.objects.create(
             source_type=SourceType.URL,
             use_case=use_case,
             storage_backend=settings.storage_backend or StorageBackend.LOCAL,
@@ -137,6 +141,20 @@ class MediaService:
             organization=org,
             tenant_key=(tenant_key or "").strip() or org.slug or "",
             metadata=metadata or {},
+        )
+        self._emit_media_created(asset)
+        return asset
+
+    def _emit_media_created(self, asset: MediaAsset) -> None:
+        emit_after_commit(
+            media_created(
+                media_id=str(asset.id),
+                organization_id=asset.organization_id,
+                external_references=snapshot_external_references(
+                    organization_id=asset.organization_id,
+                    media_id=asset.id,
+                ),
+            )
         )
 
     def ensure_organization(self, asset: MediaAsset) -> MediaAsset:

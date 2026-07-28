@@ -109,3 +109,10 @@ class IngestStatus(models.TextChoices):
     SUCCEEDED = "succeeded", "Succeeded"
     SKIPPED = "skipped", "Skipped"
     FAILED = "failed", "Failed"
+
+
+class ExternalReferenceTarget(models.TextChoices):
+    """Turing object kinds that can be linked to a host external reference."""
+
+    MEDIA = "media", "Media asset"
+    TRANSCRIPT = "transcript", "Transcript"

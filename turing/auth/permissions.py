@@ -4,7 +4,8 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from turing.auth.roles import user_has_capability
 from turing.auth.tenancy import user_is_global_bypass
-from turing.models import MediaAsset, ProcessingJob, Speaker, Transcript, TranscriptSegment
+from turing.models import MediaAsset, ProcessingJob, Speaker, Transcript, TranscriptAnalysis, TranscriptSegment
+from turing.models.external_reference import ExternalReference
 
 
 class HasTuringCapability(BasePermission):
@@ -67,7 +68,10 @@ class CanApproveTranscript(HasTuringCapability):
 def _organization_from_obj(obj):
     if obj is None:
         return None
-    if isinstance(obj, (MediaAsset, ProcessingJob, Transcript)):
+    if isinstance(
+        obj,
+        (MediaAsset, ProcessingJob, Transcript, TranscriptAnalysis, ExternalReference),
+    ):
         return getattr(obj, "organization", None)
     if isinstance(obj, TranscriptSegment):
         transcript = getattr(obj, "transcript", None)

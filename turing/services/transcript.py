@@ -6,6 +6,7 @@ from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
 from turing.domain.enums import RevisionSource, ReviewDecisionType, ReviewStatus, TranscriptStatus
+from turing.domain.events import transcript_created
 from turing.domain.exceptions import JobStateError, NotFoundError, ValidationError
 from turing.domain.policies import (
     assert_can_approve,
@@ -13,6 +14,8 @@ from turing.domain.policies import (
     assert_transcript_editable,
 )
 from turing.domain.transcript_schema import count_words_in_segments, words_to_json_list
+from turing.events.bus import emit_after_commit
+from turing.events.payloads import snapshot_external_references
 from turing.models import (
     ProcessingJob,
     ReviewAssignment,
@@ -115,6 +118,22 @@ class TranscriptService:
             source=source,
             change_summary="Initial provider transcript",
             created_by=created_by,
+        )
+        emit_after_commit(
+            transcript_created(
+                transcript_id=str(transcript.id),
+                organization_id=transcript.organization_id,
+                media_id=str(transcript.media_id) if transcript.media_id else None,
+                job_id=str(transcript.job_id) if transcript.job_id else None,
+                external_references=snapshot_external_references(
+                    organization_id=transcript.organization_id,
+                    media_id=transcript.media_id,
+                )
+                + snapshot_external_references(
+                    organization_id=transcript.organization_id,
+                    transcript_id=transcript.id,
+                ),
+            )
         )
         return transcript
 

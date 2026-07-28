@@ -4,18 +4,49 @@ from rest_framework import serializers
 
 from turing.domain.enums import UseCase
 from turing.models import (
+    ExternalReference,
     MediaAsset,
     ProcessingJob,
     ProcessingLog,
     Speaker,
     Transcript,
+    TranscriptAnalysis,
     TranscriptRevision,
     TranscriptSegment,
 )
 
 
+class ExternalReferenceSerializer(serializers.ModelSerializer):
+    target_kind = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = ExternalReference
+        fields = [
+            "id",
+            "organization",
+            "external_system",
+            "external_type",
+            "external_id",
+            "media",
+            "transcript",
+            "target_kind",
+            "metadata",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class ExternalReferenceCreateSerializer(serializers.Serializer):
+    external_system = serializers.CharField(max_length=64)
+    external_type = serializers.CharField(max_length=64)
+    external_id = serializers.CharField(max_length=255)
+    metadata = serializers.JSONField(required=False)
+
+
 class MediaAssetSerializer(serializers.ModelSerializer):
     display_name = serializers.CharField(read_only=True)
+    external_references = serializers.SerializerMethodField()
 
     class Meta:
         model = MediaAsset
@@ -38,6 +69,7 @@ class MediaAssetSerializer(serializers.ModelSerializer):
             "organization",
             "tenant_key",
             "metadata",
+            "external_references",
             "display_name",
             "uploaded_by",
             "created_at",
@@ -59,6 +91,12 @@ class MediaAssetSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def get_external_references(self, obj):
+        refs = getattr(obj, "_prefetched_objects_cache", {}).get("external_references")
+        if refs is None:
+            refs = obj.external_references.all()
+        return ExternalReferenceSerializer(refs, many=True).data
+
 
 class MediaUploadSerializer(serializers.Serializer):
     file = serializers.FileField(required=False)
@@ -67,6 +105,7 @@ class MediaUploadSerializer(serializers.Serializer):
     tenant_key = serializers.CharField(required=False, allow_blank=True, default="")
     organization_id = serializers.IntegerField(required=False, allow_null=True)
     metadata = serializers.JSONField(required=False)
+    external_references = ExternalReferenceCreateSerializer(many=True, required=False)
 
     def validate(self, attrs):
         if not attrs.get("file") and not attrs.get("external_url"):
@@ -186,6 +225,7 @@ class TranscriptRevisionSerializer(serializers.ModelSerializer):
 class TranscriptSerializer(serializers.ModelSerializer):
     speakers = SpeakerSerializer(many=True, read_only=True)
     segments = TranscriptSegmentSerializer(many=True, read_only=True)
+    external_references = serializers.SerializerMethodField()
 
     class Meta:
         model = Transcript
@@ -205,6 +245,7 @@ class TranscriptSerializer(serializers.ModelSerializer):
             "approved_by",
             "speakers",
             "segments",
+            "external_references",
             "created_at",
             "updated_at",
         ]
@@ -223,8 +264,16 @@ class TranscriptSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    def get_external_references(self, obj):
+        refs = getattr(obj, "_prefetched_objects_cache", {}).get("external_references")
+        if refs is None:
+            refs = obj.external_references.all()
+        return ExternalReferenceSerializer(refs, many=True).data
+
 
 class TranscriptListSerializer(serializers.ModelSerializer):
+    external_references = serializers.SerializerMethodField()
+
     class Meta:
         model = Transcript
         fields = [
@@ -238,9 +287,16 @@ class TranscriptListSerializer(serializers.ModelSerializer):
             "is_primary",
             "confidence_avg",
             "word_count",
+            "external_references",
             "created_at",
             "updated_at",
         ]
+
+    def get_external_references(self, obj):
+        refs = getattr(obj, "_prefetched_objects_cache", {}).get("external_references")
+        if refs is None:
+            refs = obj.external_references.all()
+        return ExternalReferenceSerializer(refs, many=True).data
 
 
 class SegmentUpdateSerializer(serializers.Serializer):
@@ -252,3 +308,22 @@ class SegmentUpdateSerializer(serializers.Serializer):
 
 class SpeakerRenameSerializer(serializers.Serializer):
     display_name = serializers.CharField(max_length=128)
+
+
+class TranscriptAnalysisSerializer(serializers.ModelSerializer):
+    """Read-only derived AI analysis (append-only; never mutates transcript)."""
+
+    class Meta:
+        model = TranscriptAnalysis
+        fields = [
+            "id",
+            "transcript",
+            "organization",
+            "analysis_type",
+            "content",
+            "provider",
+            "model_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields

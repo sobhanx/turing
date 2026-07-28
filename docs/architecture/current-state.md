@@ -27,6 +27,9 @@ AI Analysis
 - Transcript management
 - Review workflow
 - AI analysis
+- External object references (host linking)
+- Public analysis API (including latest-per-type)
+- Internal event foundation
 - Multi-organization support
 - Admin panel
 - REST API
@@ -42,14 +45,24 @@ AI Analysis
 - Organizations isolate customer data
 
 
-## Current Limitations
+## Phase 4.1 status
 
-- No public analysis API
-- No external object linking
-- No event system
-- No connector framework
+**Phase 4.1 host integration foundation is complete.**
+
+Includes:
+
+- `ExternalReference` model, service, REST, Admin, and media-create convenience
+- Public Analysis API (`/analyses/`, nested list, latest-per-type)
+- Internal event bus (`media.created`, `job.completed`, `transcript.created`, `analysis.completed`)
+- Host-key filters on media/transcripts
+
+
+## Current Limitations (post–Phase 4.1)
+
+- No connector framework (Zoom / CRM / telephony)
+- No outbound webhook / event outbox delivery
 - UI is not productized
-- Permissions are organization-level
+- Permissions are organization-level (no record-level ACL)
 - Celery coupling exists inside services
 
 
@@ -64,4 +77,6 @@ It can power:
 - Meeting intelligence
 - Call center QA
 
-But host applications still need custom integration layers.
+Host applications can link objects, read analyses, and subscribe in-process to
+domain events. Custom glue is still needed for out-of-process callbacks and
+connectors (Phase 4.2+).

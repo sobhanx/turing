@@ -4,10 +4,12 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from turing.api.viewsets import (
+    ExternalReferenceViewSet,
     MediaAssetViewSet,
     ProcessingJobViewSet,
     ProviderViewSet,
     SpeakerViewSet,
+    TranscriptAnalysisViewSet,
     TranscriptSegmentViewSet,
     TranscriptViewSet,
 )
@@ -19,6 +21,12 @@ router.register(r"v1/jobs", ProcessingJobViewSet, basename="turing-jobs")
 router.register(r"v1/transcripts", TranscriptViewSet, basename="turing-transcripts")
 router.register(r"v1/segments", TranscriptSegmentViewSet, basename="turing-segments")
 router.register(r"v1/speakers", SpeakerViewSet, basename="turing-speakers")
+router.register(r"v1/analyses", TranscriptAnalysisViewSet, basename="turing-analyses")
+router.register(
+    r"v1/external-references",
+    ExternalReferenceViewSet,
+    basename="turing-external-references",
+)
 router.register(r"v1/providers", ProviderViewSet, basename="turing-providers")
 
 urlpatterns = [

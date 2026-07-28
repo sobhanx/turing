@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from turing.conf import get_turing_settings
 from turing.domain.enums import Capability, JobStatus, LogLevel
+from turing.domain.events import job_completed
 from turing.domain.exceptions import JobStateError, NotFoundError, ValidationError
 from turing.domain.policies import (
     assert_job_can_cancel,
@@ -17,6 +18,8 @@ from turing.domain.policies import (
     assert_job_can_succeed,
     assert_job_transition,
 )
+from turing.events.bus import emit_after_commit
+from turing.events.payloads import snapshot_external_references
 from turing.models import MediaAsset, ProcessingAttempt, ProcessingJob, ProcessingLog
 from turing.providers.registry import ProviderRegistry
 from turing.providers.types import ProviderJobHandle
@@ -306,9 +309,16 @@ class JobOrchestrator:
         self.log(job, f"Attempt #{attempt.attempt_number} started.", attempt=attempt)
         return attempt
 
-    def mark_succeeded(self, job: ProcessingJob, attempt: ProcessingAttempt) -> bool:
+    def mark_succeeded(
+        self,
+        job: ProcessingJob,
+        attempt: ProcessingAttempt | None = None,
+    ) -> bool:
         """
         Mark job succeeded. Returns False if skipped (e.g. already cancelled).
+
+        Emits ``job.completed`` exactly once when transitioning into SUCCEEDED.
+        ``attempt`` may be None for edge paths that succeed without an attempt row.
         """
         job.refresh_from_db()
         if job.status == JobStatus.CANCELLED:
@@ -333,9 +343,10 @@ class JobOrchestrator:
             return True
 
         now = timezone.now()
-        attempt.status = JobStatus.SUCCEEDED
-        attempt.finished_at = now
-        attempt.save(update_fields=["status", "finished_at", "updated_at"])
+        if attempt is not None:
+            attempt.status = JobStatus.SUCCEEDED
+            attempt.finished_at = now
+            attempt.save(update_fields=["status", "finished_at", "updated_at"])
         job.status = JobStatus.SUCCEEDED
         job.finished_at = now
         job.error_code = ""
@@ -350,7 +361,30 @@ class JobOrchestrator:
             ]
         )
         self.log(job, "Job succeeded.", attempt=attempt, level=LogLevel.INFO)
+        self._emit_job_completed(job)
         return True
+
+    def _emit_job_completed(self, job: ProcessingJob) -> None:
+        from turing.models import Transcript
+
+        transcript_id = (
+            Transcript.objects.filter(job_id=job.id)
+            .values_list("id", flat=True)
+            .first()
+        )
+        media_id = job.media_id
+        emit_after_commit(
+            job_completed(
+                job_id=str(job.id),
+                organization_id=job.organization_id,
+                media_id=str(media_id) if media_id else None,
+                transcript_id=str(transcript_id) if transcript_id else None,
+                external_references=snapshot_external_references(
+                    organization_id=job.organization_id,
+                    media_id=media_id,
+                ),
+            )
+        )
 
     def mark_failed(
         self,

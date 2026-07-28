@@ -11,7 +11,10 @@ from turing.ai.types import TranscriptInput, TranscriptSegmentInput
 from turing.auth.tenancy import assert_organization_access, scope_by_organization
 from turing.conf import get_turing_settings
 from turing.domain.enums import AnalysisType
+from turing.domain.events import analysis_completed
 from turing.domain.exceptions import ProviderError, ValidationError
+from turing.events.bus import emit_after_commit
+from turing.events.payloads import snapshot_external_references
 from turing.models import Transcript, TranscriptAnalysis
 from turing.services.transcript import TranscriptService
 
@@ -88,6 +91,25 @@ class TranscriptAnalysisService:
             )
             created.append(analysis)
 
+        if created:
+            emit_after_commit(
+                analysis_completed(
+                    transcript_id=str(transcript.id),
+                    organization_id=transcript.organization_id,
+                    analysis_ids=[str(row.id) for row in created],
+                    analysis_types=[row.analysis_type for row in created],
+                    provider=provider_code,
+                    external_references=snapshot_external_references(
+                        organization_id=transcript.organization_id,
+                        media_id=transcript.media_id,
+                    )
+                    + snapshot_external_references(
+                        organization_id=transcript.organization_id,
+                        transcript_id=transcript.id,
+                    ),
+                )
+            )
+
         return created
 
     def list_for_transcript(
@@ -107,6 +129,63 @@ class TranscriptAnalysisService:
         if analysis_type:
             qs = qs.filter(analysis_type=analysis_type)
         return qs.order_by("-created_at")
+
+    def latest_by_type(
+        self,
+        transcript: Transcript,
+        *,
+        analysis_type: str,
+        user: AbstractBaseUser | None = None,
+    ) -> TranscriptAnalysis:
+        """
+        Return the newest analysis row for ``analysis_type`` (append-only history).
+
+        Raises ``NotFoundError`` when no row exists for that type.
+        """
+        from turing.domain.exceptions import NotFoundError
+
+        if user is not None:
+            assert_organization_access(
+                user,
+                transcript.organization,
+                capability="view_transcript",
+            )
+        type_key = (analysis_type or "").strip()
+        if not type_key:
+            raise ValidationError("analysis type is required.")
+        allowed = {choice.value for choice in AnalysisType}
+        if type_key not in allowed:
+            raise ValidationError(f"Unsupported analysis type: {type_key}")
+
+        analysis = (
+            TranscriptAnalysis.objects.filter(
+                transcript=transcript,
+                analysis_type=type_key,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if analysis is None:
+            raise NotFoundError(
+                f"No '{type_key}' analysis found for transcript '{transcript.id}'."
+            )
+        return analysis
+
+    def get(
+        self,
+        analysis_id: str,
+        *,
+        user: AbstractBaseUser | None = None,
+    ) -> TranscriptAnalysis:
+        from turing.domain.exceptions import NotFoundError
+
+        qs = TranscriptAnalysis.objects.select_related("transcript", "organization")
+        if user is not None:
+            qs = self.scope_queryset(qs, user)
+        try:
+            return qs.get(pk=analysis_id)
+        except TranscriptAnalysis.DoesNotExist as exc:
+            raise NotFoundError(f"TranscriptAnalysis '{analysis_id}' not found.") from exc
 
     def scope_queryset(self, queryset, user):
         return scope_by_organization(queryset, user, field="organization_id")

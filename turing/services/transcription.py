@@ -103,9 +103,7 @@ class TranscriptionService:
                 if attempt and attempt.status != JobStatus.SUCCEEDED:
                     self.orchestrator.mark_succeeded(job, attempt)
                 elif not attempt:
-                    job.status = JobStatus.SUCCEEDED
-                    job.finished_at = timezone.now()
-                    job.save(update_fields=["status", "finished_at", "updated_at"])
+                    self.orchestrator.mark_succeeded(job, None)
                 return "already_succeeded"
 
             # Resume: provider job already created — do not re-submit
@@ -539,9 +537,7 @@ class TranscriptionService:
                 attempt.save(update_fields=["response_metadata", "updated_at"])
                 self.orchestrator.mark_succeeded(job, attempt)
             elif job.status != JobStatus.SUCCEEDED:
-                job.status = JobStatus.SUCCEEDED
-                job.finished_at = timezone.now()
-                job.save(update_fields=["status", "finished_at", "updated_at"])
+                self.orchestrator.mark_succeeded(job, None)
             return transcript, created
 
     def should_automatic_retry(self, job: ProcessingJob, *, error_code: str) -> bool:
