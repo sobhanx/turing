@@ -33,6 +33,7 @@ AI Analysis
 - Outbound signed webhooks (subscriptions + deliveries)
 - Connector framework foundation (installations + sync jobs)
 - Speech Center backend API (host lookup + timeline aggregation)
+- Semantic search foundation (Embedding + provider registry)
 - Multi-organization support
 - Admin panel
 - REST API
@@ -123,8 +124,8 @@ Includes:
 
 ## Phase 4.5 status
 
-**Phase 4.5.1–4.5.2 Speech Center backend API + intelligence aggregation are in
-place.**
+**Phase 4.5.1–4.5.3 Speech Center API, intelligence aggregation, and semantic
+search foundation are in place.**
 
 Includes:
 
@@ -133,13 +134,16 @@ Includes:
 - `GET /api/turing/v1/speech-center/{transcript_id}/timeline/`
 - `GET /api/turing/v1/speech-center/{transcript_id}/intelligence/` (latest-per-type)
 - Host-ready intelligence contract (`summary` / `topics` / `action_items`)
-- Docs: `docs/speech-center-api.md`
+- Semantic search package + `Embedding` model + segment indexing service
+- `GET /api/turing/v1/search/` placeholder contract
+- Docs: `docs/speech-center-api.md`, `docs/search.md`
 
 
-## Current Limitations (post–Phase 4.5.2)
+## Current Limitations (post–Phase 4.5.3)
 
 - No frontend Speech Center UI
-- No vector / semantic search
+- No production vector provider (null placeholder only)
+- No RAG / chat assistant
 - No sentiment analysis
 - No marketplace / product UI for connector install
 - No billing / entitlement / payments / app publishing

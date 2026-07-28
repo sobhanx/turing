@@ -12,6 +12,7 @@ from turing.api.viewsets import (
     MediaAssetViewSet,
     ProcessingJobViewSet,
     ProviderViewSet,
+    SemanticSearchViewSet,
     SpeakerViewSet,
     SpeechCenterViewSet,
     TranscriptAnalysisViewSet,
@@ -34,6 +35,7 @@ router.register(
     basename="turing-external-references",
 )
 router.register(r"v1/speech-center", SpeechCenterViewSet, basename="turing-speech-center")
+router.register(r"v1/search", SemanticSearchViewSet, basename="turing-search")
 router.register(r"v1/providers", ProviderViewSet, basename="turing-providers")
 router.register(r"v1/webhooks", WebhookSubscriptionViewSet, basename="turing-webhooks")
 router.register(

@@ -6,6 +6,7 @@ from turing.models.connector import (
     ConnectorInstallation,
     ConnectorSyncJob,
 )
+from turing.models.embedding import Embedding
 from turing.models.external_reference import ExternalReference
 from turing.models.job import ProcessingAttempt, ProcessingJob, ProcessingLog
 from turing.models.media import MediaAsset
@@ -42,6 +43,7 @@ __all__ = [
     "TranscriptWord",
     "TranscriptRevision",
     "TranscriptAnalysis",
+    "Embedding",
     "ExternalReference",
     "OutboxEvent",
     "ReviewAssignment",

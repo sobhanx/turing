@@ -1283,3 +1283,45 @@ class SpeechCenterViewSet(viewsets.ViewSet):
                 ),
             }
         )
+
+
+class SemanticSearchViewSet(viewsets.ViewSet):
+    """
+    Semantic search API foundation (Phase 4.5.3).
+
+    Placeholder contract until a production vector provider is configured.
+    """
+
+    required_capability = "view_transcript"
+    read_capability = "view_transcript"
+    permission_classes = [IsAuthenticated, HasTuringCapability]
+    http_method_names = ["get", "head", "options"]
+
+    def list(self, request):
+        from turing.auth.tenancy import resolve_organization
+        from turing.models import Embedding
+
+        try:
+            organization = resolve_organization(
+                organization_id=request.query_params.get("organization_id"),
+                user=request.user,
+                capability="view_transcript",
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+
+        # Foundation accepts q / external_* for forward compatibility.
+        _ = (
+            request.query_params.get("q"),
+            request.query_params.get("external_system"),
+            request.query_params.get("external_type"),
+            request.query_params.get("external_id"),
+        )
+        indexed = Embedding.objects.filter(organization=organization).exists()
+        return Response(
+            {
+                "results": [],
+                "provider": None,
+                "indexed": bool(indexed),
+            }
+        )
