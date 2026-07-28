@@ -190,11 +190,51 @@ GET /api/turing/v1/search/?q=renewal&external_system=salesforce&external_type=ca
 - External filters applied inside the resolved organization
 
 
+## RAG foundation (Phase 4.5.6 / 4.5.7)
+
+Retrieval-augmented answers sit on top of semantic search:
+
+```text
+question
+   │
+   ▼
+RAGService.retrieve_context()  →  SemanticSearchProvider.search (org-scoped)
+   │
+   ▼
+RAGService.build_context()     →  transcript/segment/speaker/times/refs/text
+   │
+   ▼
+LLMProvider.generate()         →  openai | null (fallback on failure)
+```
+
+| Setting | Default | Notes |
+|---------|---------|--------|
+| `TURING_LLM_PROVIDER` | `null` | `null` or `openai` |
+| `TURING_LLM_MODEL` | `gpt-4o-mini` | Chat model (falls back to `TURING_OPENAI_MODEL`) |
+| `TURING_OPENAI_API_KEY` | empty | Required when provider is `openai` |
+
+```bash
+export TURING_LLM_PROVIDER=openai
+export TURING_LLM_MODEL=gpt-4o-mini
+export TURING_OPENAI_API_KEY=sk-...
+```
+
+``RAGService`` falls back to ``NullLLMProvider`` if generation fails (missing key,
+network, HTTP errors). API keys and prompt/context content are never logged.
+
+```http
+POST /api/turing/v1/speech-center/ask/
+```
+
+See ``docs/speech-center-api.md`` for the ask contract.
+
+
 ## Other backends
 
 Still pluggable:
 
 - Remote embedding APIs (OpenAI, etc.) via new ``EmbeddingProvider``
 - OpenSearch / Pinecone / Weaviate via ``SemanticSearchProvider``
+- Additional chat vendors via ``LLMProvider`` (Anthropic, …)
 
-Out of scope: RAG/chat, sentiment, frontend UI, LLM workflow changes.
+Out of scope: full chat assistant UX, sentiment, frontend UI.

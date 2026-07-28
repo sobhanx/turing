@@ -347,6 +347,12 @@ TURING_SPEECHMATICS_WEBHOOK_SECRET = os.environ.get("TURING_SPEECHMATICS_WEBHOOK
 TURING_AI_PROVIDER = os.environ.get("TURING_AI_PROVIDER", "fake")
 TURING_OPENAI_API_KEY = os.environ.get("TURING_OPENAI_API_KEY", "")
 TURING_OPENAI_MODEL = os.environ.get("TURING_OPENAI_MODEL", "gpt-4o-mini")
+# RAG LLM (Phase 4.5.6 / 4.5.7) — null keeps the pipeline testable without vendors.
+TURING_LLM_PROVIDER = os.environ.get("TURING_LLM_PROVIDER", "null")
+TURING_LLM_MODEL = os.environ.get(
+    "TURING_LLM_MODEL",
+    os.environ.get("TURING_OPENAI_MODEL", "gpt-4o-mini"),
+)
 TURING_NORMALIZATION_ENABLED = os.environ.get("TURING_NORMALIZATION_ENABLED", "true").lower() in {
     "1",
     "true",

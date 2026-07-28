@@ -124,8 +124,8 @@ Includes:
 
 ## Phase 4.5 status
 
-**Phase 4.5.1–4.5.5 Speech Center API, intelligence aggregation, semantic
-search (pgvector), and local neural embedding providers are in place.**
+**Phase 4.5.1–4.5.7 Speech Center API, intelligence, semantic search, local
+embeddings, RAG foundation, and production OpenAI LLM provider are in place.**
 
 Includes:
 
@@ -133,20 +133,22 @@ Includes:
 - `GET /api/turing/v1/speech-center/` host-object aggregation
 - `GET /api/turing/v1/speech-center/{transcript_id}/timeline/`
 - `GET /api/turing/v1/speech-center/{transcript_id}/intelligence/` (latest-per-type)
+- `POST|GET /api/turing/v1/speech-center/ask/` RAG (`null` or `openai` LLM)
 - Host-ready intelligence contract (`summary` / `topics` / `action_items`)
 - Semantic search package + `Embedding` model + segment indexing service
 - `PgVectorSearchProvider` (default) with cosine ranking + org isolation
 - `EmbeddingProvider` + `LocalNeuralEmbeddingProvider` (deterministic, no API)
+- `LLMProvider` + `OpenAILLMProvider` + `RAGService` with null fallback
 - `GET /api/turing/v1/search/` ranked results (`provider: "pgvector"`)
 - Docs: `docs/speech-center-api.md`, `docs/search.md`
 
 
-## Current Limitations (post–Phase 4.5.5)
+## Current Limitations (post–Phase 4.5.7)
 
 - No frontend Speech Center UI
-- No RAG / chat assistant
+- No multi-turn chat / conversation memory
 - No sentiment analysis
-- No remote/API embedding providers (OpenAI, etc.)
+- No remote/API embedding providers beyond local neural
 - No marketplace / product UI for connector install
 - No billing / entitlement / payments / app publishing
 - No CRM write-back / action-item sync

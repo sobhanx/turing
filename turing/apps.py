@@ -16,6 +16,9 @@ class TuringConfig(AppConfig):
 
         from turing.ai.providers import fake as _ai_fake  # noqa: F401
         from turing.ai.providers import openai as _ai_openai  # noqa: F401
+        from turing.ai.registry import register_builtin_llm_providers
+
+        register_builtin_llm_providers()
 
         # Ensure default roles exist after migrate (idempotent signal hook).
         from turing.auth import signals  # noqa: F401

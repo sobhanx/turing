@@ -187,9 +187,62 @@ service layer when hosts need analysis ids / provider metadata.
 | `get_timeline(transcript)` | Segments, speakers, timestamps, analysis refs |
 
 
+## Ask (RAG — Phase 4.5.6 / 4.5.7)
+
+Grounded Q&A over org-scoped Speech Center segments.
+
+```http
+POST /api/turing/v1/speech-center/ask/
+Content-Type: application/json
+
+{
+  "question": "What did we say about renewal?",
+  "external_system": "salesforce",
+  "external_type": "call",
+  "external_id": "SF-CALL-1"
+}
+```
+
+``GET`` with the same query parameters is also supported.
+
+Flow:
+
+1. Resolve organization + ``view_transcript``
+2. ``SemanticSearchProvider.search`` (tenant-scoped; optional external filters)
+3. Build context (transcript/segment/speaker/timestamps/refs/text only)
+4. ``LLMProvider.generate`` via registry (`null` default, or `openai`)
+5. On LLM failure → graceful ``NullLLMProvider`` fallback
+
+```json
+{
+  "answer": "…",
+  "sources": [
+    {
+      "transcript_id": "...",
+      "segment_id": "...",
+      "score": 0.91,
+      "timestamp": { "start_ms": 0, "end_ms": 2000 }
+    }
+  ],
+  "provider": "openai",
+  "model_name": "gpt-4o-mini"
+}
+```
+
+| Setting | Default |
+|---------|---------|
+| `TURING_LLM_PROVIDER` | `null` |
+| `TURING_LLM_MODEL` | `gpt-4o-mini` |
+| `TURING_OPENAI_API_KEY` | empty |
+
+Credentials are never returned in API responses. Prompt/context content is never
+logged.
+
+
 ## Out of scope (later Phase 4.5+)
 
 - Frontend Speech Center UI
 - Sentiment analysis
-- LLM provider changes
+- Streaming / multi-turn chat assistant UX
+- Conversation memory
 - New connectors

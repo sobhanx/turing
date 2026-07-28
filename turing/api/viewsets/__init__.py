@@ -1190,17 +1190,18 @@ def _serialize_speech_center_context(context: dict) -> dict:
 
 class SpeechCenterViewSet(viewsets.ViewSet):
     """
-    Unified Speech Center access for host applications (Phase 4.5.1 / 4.5.2).
+    Unified Speech Center access for host applications (Phase 4.5.1+).
 
     GET /speech-center/?external_system=&external_type=&external_id=
     GET /speech-center/{transcript_id}/timeline/
     GET /speech-center/{transcript_id}/intelligence/
+    POST|GET /speech-center/ask/  (RAG foundation, Phase 4.5.6)
     """
 
     required_capability = "view_transcript"
     read_capability = "view_transcript"
     permission_classes = [IsAuthenticated, HasTuringCapability]
-    http_method_names = ["get", "head", "options"]
+    http_method_names = ["get", "post", "head", "options"]
 
     def list(self, request):
         from turing.auth.tenancy import resolve_organization
@@ -1230,6 +1231,47 @@ class SpeechCenterViewSet(viewsets.ViewSet):
         except TuringError as exc:
             return _error_response(exc)
         return Response(_serialize_speech_center_context(context))
+
+    @action(detail=False, methods=["get", "post"], url_path="ask")
+    def ask(self, request):
+        """
+        RAG ask foundation (Phase 4.5.6).
+
+        Retrieves org-scoped semantic search hits, builds context, and asks the
+        configured LLM provider (default: null / unavailable).
+        """
+        from turing.auth.tenancy import resolve_organization
+        from turing.domain.exceptions import ValidationError
+        from turing.services.rag import RAGService
+
+        data = request.data if request.method == "POST" else request.query_params
+        question = (data.get("question") or data.get("q") or "").strip()
+        if not question:
+            return _error_response(
+                ValidationError("question is required.")
+            )
+
+        try:
+            organization = resolve_organization(
+                organization_id=data.get("organization_id")
+                or request.query_params.get("organization_id"),
+                user=request.user,
+                capability="view_transcript",
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+
+        filters = {
+            "external_system": (data.get("external_system") or "").strip(),
+            "external_type": (data.get("external_type") or "").strip(),
+            "external_id": (data.get("external_id") or "").strip(),
+        }
+        payload = RAGService().answer(
+            question,
+            organization,
+            filters=filters,
+        )
+        return Response(payload)
 
     @action(detail=True, methods=["get"], url_path="timeline")
     def timeline(self, request, pk=None):
