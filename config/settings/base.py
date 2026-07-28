@@ -183,8 +183,25 @@ CELERY_TASK_ROUTES = {
     "turing.tasks.webhooks.*": {"queue": "turing.default"},
     "turing.tasks.analysis.*": {"queue": "turing.default"},
     "turing.tasks.ingestion.*": {"queue": "turing.default"},
+    "turing.tasks.events.*": {"queue": "turing.default"},
     "turing.tasks.export.*": {"queue": "turing.export"},
 }
+
+# Outbox / outbound webhook reliability (Phase 4.2.3)
+# Set TURING_OUTBOX_DISPATCH_ENABLED=false to omit Beat entries (manual dispatch only).
+TURING_OUTBOX_DISPATCH_ENABLED = os.environ.get(
+    "TURING_OUTBOX_DISPATCH_ENABLED", "true"
+).lower() in {"1", "true", "yes", "on"}
+TURING_OUTBOX_DISPATCH_INTERVAL_SECONDS = float(
+    os.environ.get("TURING_OUTBOX_DISPATCH_INTERVAL_SECONDS", "30")
+)
+TURING_OUTBOX_STUCK_TIMEOUT_SECONDS = float(
+    os.environ.get("TURING_OUTBOX_STUCK_TIMEOUT_SECONDS", "300")
+)
+
+from turing.celery_schedule import build_celery_beat_schedule  # noqa: E402
+
+CELERY_BEAT_SCHEDULE = build_celery_beat_schedule()
 
 # ---------------------------------------------------------------------------
 # Turing package (env defaults; Admin overrides at runtime)
@@ -232,6 +249,18 @@ TURING_NORMALIZATION_ENABLED = os.environ.get("TURING_NORMALIZATION_ENABLED", "t
 }
 TURING_MAX_DURATION_MS = int(os.environ.get("TURING_MAX_DURATION_MS", "0"))
 TURING_POLL_TIMEOUT_MULTIPLIER = float(os.environ.get("TURING_POLL_TIMEOUT_MULTIPLIER", "2.0"))
+TURING_OUTBOUND_WEBHOOK_MAX_RETRIES = int(
+    os.environ.get("TURING_OUTBOUND_WEBHOOK_MAX_RETRIES", "5")
+)
+TURING_OUTBOUND_WEBHOOK_BACKOFF_BASE_SECONDS = float(
+    os.environ.get("TURING_OUTBOUND_WEBHOOK_BACKOFF_BASE_SECONDS", "2")
+)
+TURING_OUTBOUND_WEBHOOK_BACKOFF_MAX_SECONDS = float(
+    os.environ.get("TURING_OUTBOUND_WEBHOOK_BACKOFF_MAX_SECONDS", "300")
+)
+TURING_OUTBOUND_WEBHOOK_TIMEOUT_SECONDS = float(
+    os.environ.get("TURING_OUTBOUND_WEBHOOK_TIMEOUT_SECONDS", "10")
+)
 
 # Media storage (local by default; set TURING_STORAGE_BACKEND=s3 in production)
 from config.settings.storage import apply_media_storage  # noqa: E402

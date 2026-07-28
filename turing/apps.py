@@ -19,3 +19,8 @@ class TuringConfig(AppConfig):
 
         # Ensure default roles exist after migrate (idempotent signal hook).
         from turing.auth import signals  # noqa: F401
+
+        # Outbound webhook extension point (no HTTP handlers registered yet).
+        from turing.events.outbound import register_outbound_handlers
+
+        register_outbound_handlers()

@@ -124,8 +124,9 @@ pip install "psycopg[binary]>=3.1"
 
 1. **Web** — gunicorn/uvicorn behind HTTPS reverse proxy  
 2. **Worker** — `celery -A config worker -l info -Q turing.default,turing.high,turing.export`  
-3. **Redis** — broker/result backend  
-4. **Postgres** — primary database  
+3. **Beat** — `celery -A config beat -l info` (outbox dispatch; disable with `TURING_OUTBOX_DISPATCH_ENABLED=false`)  
+4. **Redis** — broker/result backend  
+5. **Postgres** — primary database  
 
 ## Local development (unchanged)
 

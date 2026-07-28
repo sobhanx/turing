@@ -1,6 +1,7 @@
 from turing.auth.permissions import (
     CanApproveTranscript,
     CanEditTranscript,
+    CanManageConfig,
     CanManageJobs,
     CanReviewTranscript,
     CanUploadMedia,
@@ -31,4 +32,5 @@ __all__ = [
     "CanEditTranscript",
     "CanReviewTranscript",
     "CanApproveTranscript",
+    "CanManageConfig",
 ]

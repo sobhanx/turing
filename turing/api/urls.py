@@ -12,6 +12,7 @@ from turing.api.viewsets import (
     TranscriptAnalysisViewSet,
     TranscriptSegmentViewSet,
     TranscriptViewSet,
+    WebhookSubscriptionViewSet,
 )
 from turing.api.webhooks import speechmatics_webhook
 
@@ -28,8 +29,10 @@ router.register(
     basename="turing-external-references",
 )
 router.register(r"v1/providers", ProviderViewSet, basename="turing-providers")
+router.register(r"v1/webhooks", WebhookSubscriptionViewSet, basename="turing-webhooks")
 
 urlpatterns = [
+    # Inbound provider callback — must stay before the webhooks detail route.
     path("v1/webhooks/speechmatics/", speechmatics_webhook, name="turing-webhook-speechmatics"),
     *router.urls,
 ]

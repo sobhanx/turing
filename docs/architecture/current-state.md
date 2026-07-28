@@ -29,7 +29,8 @@ AI Analysis
 - AI analysis
 - External object references (host linking)
 - Public analysis API (including latest-per-type)
-- Internal event foundation
+- Internal event foundation + durable outbox
+- Outbound signed webhooks (subscriptions + deliveries)
 - Multi-organization support
 - Admin panel
 - REST API
@@ -57,13 +58,28 @@ Includes:
 - Host-key filters on media/transcripts
 
 
-## Current Limitations (post–Phase 4.1)
+## Phase 4.2 status
+
+**Phase 4.2.1–4.2.4 outbox reliability + outbound webhooks (incl. public API) are in place.**
+
+Includes:
+
+- Durable `OutboxEvent` written after commit via `EventBus`
+- Celery Beat schedule for `dispatch_outbox_events` (+ stuck recovery)
+- `WebhookSubscription` / `WebhookDelivery` with signed HTTP delivery + retries
+- Stuck PROCESSING/DELIVERING recovery (`processing_started_at`, `recovery_count`)
+- Retry policy (429/5xx/network yes; 400/401/403/404 no)
+- Admin filters + `OutboxOpsService` operational queries
+- Public REST API for webhook subscription CRUD + delivery listing
+
+
+## Current Limitations (post–Phase 4.2.4)
 
 - No connector framework (Zoom / CRM / telephony)
-- No outbound webhook / event outbox delivery
 - UI is not productized
 - Permissions are organization-level (no record-level ACL)
 - Celery coupling exists inside services
+- No OAuth app installation / marketplace connectors
 
 
 ## Current Product Shape
@@ -77,6 +93,6 @@ It can power:
 - Meeting intelligence
 - Call center QA
 
-Host applications can link objects, read analyses, and subscribe in-process to
-domain events. Custom glue is still needed for out-of-process callbacks and
-connectors (Phase 4.2+).
+Host applications can link objects, read analyses, subscribe in-process to
+domain events, and receive signed outbound webhooks from durable outbox
+dispatch. Connectors remain later Phase 4.2+.

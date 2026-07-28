@@ -28,15 +28,20 @@ from turing.api.serializers import (
     TranscriptRevisionSerializer,
     TranscriptSegmentSerializer,
     TranscriptSerializer,
+    WebhookDeliverySerializer,
+    WebhookSubscriptionSerializer,
+    WebhookSubscriptionUpdateSerializer,
+    WebhookSubscriptionWriteSerializer,
 )
 from turing.auth.permissions import (
     CanApproveTranscript,
     CanEditTranscript,
+    CanManageConfig,
     CanManageJobs,
     CanUploadMedia,
     HasTuringCapability,
 )
-from turing.auth.tenancy import scope_by_organization
+from turing.auth.tenancy import resolve_organization, scope_by_organization
 from turing.domain.exceptions import PermissionDeniedError, TuringError
 from turing.models import (
     ExternalReference,
@@ -46,6 +51,8 @@ from turing.models import (
     Transcript,
     TranscriptAnalysis,
     TranscriptSegment,
+    WebhookDelivery,
+    WebhookSubscription,
 )
 from turing.services.external_reference import ExternalReferenceService
 from turing.services.job_orchestrator import JobOrchestrator
@@ -590,3 +597,109 @@ class ProviderViewSet(viewsets.ViewSet):
                     }
                 )
         return Response(data)
+
+
+class WebhookSubscriptionViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """
+    Org-scoped outbound webhook subscription CRUD (Phase 4.2.4).
+
+    Signing secrets are generated on create and returned once; never in serializers.
+    """
+
+    queryset = WebhookSubscription.objects.all().select_related("organization")
+    serializer_class = WebhookSubscriptionSerializer
+    required_capability = "manage_config"
+    read_capability = "manage_config"
+    permission_classes = [IsAuthenticated, HasTuringCapability]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    search_fields = ("name", "url")
+    ordering_fields = ("created_at", "name", "updated_at")
+
+    def get_queryset(self):
+        return scope_by_organization(super().get_queryset(), self.request.user)
+
+    def get_permissions(self):
+        if self.action in {"create", "partial_update", "update", "destroy"}:
+            return [IsAuthenticated(), CanManageConfig()]
+        return super().get_permissions()
+
+    def create(self, request, *args, **kwargs):
+        import secrets
+
+        serializer = WebhookSubscriptionWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            organization = resolve_organization(
+                organization_id=data.get("organization_id"),
+                user=request.user,
+                capability="manage_config",
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+
+        signing_secret = secrets.token_urlsafe(32)
+        subscription = WebhookSubscription(
+            organization=organization,
+            name=data["name"],
+            url=data["url"],
+            secret=signing_secret,
+            subscribed_events=data["subscribed_events"],
+            is_active=data.get("is_active", True),
+        )
+        subscription.full_clean()
+        subscription.save()
+
+        return Response(
+            {
+                "subscription": WebhookSubscriptionSerializer(subscription).data,
+                "signing_secret": signing_secret,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        subscription = self.get_object()
+        serializer = WebhookSubscriptionUpdateSerializer(
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if "name" in data:
+            subscription.name = data["name"]
+        if "url" in data:
+            subscription.url = data["url"]
+        if "subscribed_events" in data:
+            subscription.subscribed_events = data["subscribed_events"]
+        if "is_active" in data:
+            subscription.is_active = data["is_active"]
+        subscription.full_clean()
+        subscription.save()
+        return Response(WebhookSubscriptionSerializer(subscription).data)
+
+    def destroy(self, request, *args, **kwargs):
+        subscription = self.get_object()
+        subscription.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["get"], url_path="deliveries")
+    def deliveries(self, request, pk=None):
+        subscription = self.get_object()
+        qs = (
+            WebhookDelivery.objects.filter(subscription=subscription)
+            .select_related("outbox_event")
+            .order_by("-created_at")
+        )
+        page = self.paginate_queryset(qs)
+        serializer = WebhookDeliverySerializer(page or qs, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)

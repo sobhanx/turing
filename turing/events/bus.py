@@ -22,6 +22,9 @@ class EventBus:
 
     Handlers run synchronously after emit. Failures are logged and swallowed so
     integrations cannot break media/STT/transcript/analysis flows.
+
+    After commit (via ``emit_after_commit``), each emit also persists a durable
+    ``OutboxEvent`` for async dispatch. Outbox write failures are swallowed.
     """
 
     @classmethod
@@ -53,6 +56,9 @@ class EventBus:
 
     @classmethod
     def emit(cls, event: DomainEvent) -> None:
+        from turing.events.outbox import persist_domain_event
+
+        persist_domain_event(event)
         for handler in cls.handlers_for(event.name):
             try:
                 handler(event)

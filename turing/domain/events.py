@@ -14,6 +14,17 @@ class EventName:
     ANALYSIS_COMPLETED = "analysis.completed"
 
 
+# Names allowed on outbound webhook subscriptions (plus ``*`` for all).
+SUPPORTED_OUTBOUND_EVENT_NAMES: frozenset[str] = frozenset(
+    {
+        EventName.MEDIA_CREATED,
+        EventName.JOB_COMPLETED,
+        EventName.TRANSCRIPT_CREATED,
+        EventName.ANALYSIS_COMPLETED,
+    }
+)
+
+
 @dataclass(frozen=True)
 class DomainEvent:
     """Lightweight notification for host integrations (not a Celery replacement)."""

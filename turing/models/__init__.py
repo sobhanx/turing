@@ -6,6 +6,7 @@ from turing.models.job import ProcessingAttempt, ProcessingJob, ProcessingLog
 from turing.models.media import MediaAsset
 from turing.models.membership import TuringMembership
 from turing.models.organization import Organization
+from turing.models.outbox import OutboxEvent
 from turing.models.review import ReviewAssignment, ReviewDecision
 from turing.models.transcript import (
     Speaker,
@@ -14,7 +15,12 @@ from turing.models.transcript import (
     TranscriptSegment,
     TranscriptWord,
 )
-from turing.models.webhook import ProviderWebhookDelivery, WebhookDeliveryOutcome
+from turing.models.webhook import (
+    ProviderWebhookDelivery,
+    WebhookDelivery,
+    WebhookDeliveryOutcome,
+    WebhookSubscription,
+)
 
 __all__ = [
     "PlatformConfiguration",
@@ -32,9 +38,12 @@ __all__ = [
     "TranscriptRevision",
     "TranscriptAnalysis",
     "ExternalReference",
+    "OutboxEvent",
     "ReviewAssignment",
     "ReviewDecision",
     "TuringMembership",
     "ProviderWebhookDelivery",
     "WebhookDeliveryOutcome",
+    "WebhookSubscription",
+    "WebhookDelivery",
 ]

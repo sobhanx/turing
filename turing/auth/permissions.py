@@ -6,6 +6,7 @@ from turing.auth.roles import user_has_capability
 from turing.auth.tenancy import user_is_global_bypass
 from turing.models import MediaAsset, ProcessingJob, Speaker, Transcript, TranscriptAnalysis, TranscriptSegment
 from turing.models.external_reference import ExternalReference
+from turing.models.webhook import WebhookDelivery, WebhookSubscription
 
 
 class HasTuringCapability(BasePermission):
@@ -65,14 +66,24 @@ class CanApproveTranscript(HasTuringCapability):
         return user_has_capability(request.user, self.capability)
 
 
+class CanManageConfig(HasTuringCapability):
+    capability = "manage_config"
+
+    def has_permission(self, request, view) -> bool:
+        return user_has_capability(request.user, self.capability)
+
+
 def _organization_from_obj(obj):
     if obj is None:
         return None
     if isinstance(
         obj,
-        (MediaAsset, ProcessingJob, Transcript, TranscriptAnalysis, ExternalReference),
+        (MediaAsset, ProcessingJob, Transcript, TranscriptAnalysis, ExternalReference, WebhookSubscription),
     ):
         return getattr(obj, "organization", None)
+    if isinstance(obj, WebhookDelivery):
+        subscription = getattr(obj, "subscription", None)
+        return getattr(subscription, "organization", None) if subscription else None
     if isinstance(obj, TranscriptSegment):
         transcript = getattr(obj, "transcript", None)
         return getattr(transcript, "organization", None) if transcript else None

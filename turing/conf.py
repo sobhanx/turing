@@ -40,6 +40,13 @@ class TuringSettings:
     auto_enqueue: bool
     enable_diarization_default: bool
     default_language: str
+    outbound_webhook_max_retries: int
+    outbound_webhook_backoff_base_seconds: float
+    outbound_webhook_backoff_max_seconds: float
+    outbound_webhook_timeout_seconds: float
+    outbox_dispatch_enabled: bool
+    outbox_dispatch_interval_seconds: float
+    outbox_stuck_timeout_seconds: float
 
 
 def _env(name: str, default: Any) -> Any:
@@ -94,6 +101,27 @@ def _load_from_django() -> TuringSettings:
         auto_enqueue=True,
         enable_diarization_default=True,
         default_language="",
+        outbound_webhook_max_retries=int(
+            _env("TURING_OUTBOUND_WEBHOOK_MAX_RETRIES", 5)
+        ),
+        outbound_webhook_backoff_base_seconds=float(
+            _env("TURING_OUTBOUND_WEBHOOK_BACKOFF_BASE_SECONDS", 2.0)
+        ),
+        outbound_webhook_backoff_max_seconds=float(
+            _env("TURING_OUTBOUND_WEBHOOK_BACKOFF_MAX_SECONDS", 300.0)
+        ),
+        outbound_webhook_timeout_seconds=float(
+            _env("TURING_OUTBOUND_WEBHOOK_TIMEOUT_SECONDS", 10.0)
+        ),
+        outbox_dispatch_enabled=_as_bool(
+            _env("TURING_OUTBOX_DISPATCH_ENABLED", True), True
+        ),
+        outbox_dispatch_interval_seconds=float(
+            _env("TURING_OUTBOX_DISPATCH_INTERVAL_SECONDS", 30.0)
+        ),
+        outbox_stuck_timeout_seconds=float(
+            _env("TURING_OUTBOX_STUCK_TIMEOUT_SECONDS", 300.0)
+        ),
     )
 
 
@@ -187,6 +215,13 @@ def _cached_settings() -> TuringSettings:
         auto_enqueue=platform.auto_enqueue,
         enable_diarization_default=platform.enable_diarization_default,
         default_language=platform.default_language or base.default_language,
+        outbound_webhook_max_retries=base.outbound_webhook_max_retries,
+        outbound_webhook_backoff_base_seconds=base.outbound_webhook_backoff_base_seconds,
+        outbound_webhook_backoff_max_seconds=base.outbound_webhook_backoff_max_seconds,
+        outbound_webhook_timeout_seconds=base.outbound_webhook_timeout_seconds,
+        outbox_dispatch_enabled=base.outbox_dispatch_enabled,
+        outbox_dispatch_interval_seconds=base.outbox_dispatch_interval_seconds,
+        outbox_stuck_timeout_seconds=base.outbox_stuck_timeout_seconds,
     )
 
 

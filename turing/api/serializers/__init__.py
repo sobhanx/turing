@@ -13,6 +13,8 @@ from turing.models import (
     TranscriptAnalysis,
     TranscriptRevision,
     TranscriptSegment,
+    WebhookDelivery,
+    WebhookSubscription,
 )
 
 
@@ -325,5 +327,110 @@ class TranscriptAnalysisSerializer(serializers.ModelSerializer):
             "model_name",
             "created_at",
             "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class WebhookSubscriptionSerializer(serializers.ModelSerializer):
+    """Public webhook subscription (never includes signing secret)."""
+
+    class Meta:
+        model = WebhookSubscription
+        fields = [
+            "id",
+            "name",
+            "url",
+            "subscribed_events",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class WebhookSubscriptionWriteSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=128)
+    url = serializers.URLField(max_length=2048)
+    subscribed_events = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        allow_empty=False,
+    )
+    is_active = serializers.BooleanField(required=False, default=True)
+    organization_id = serializers.IntegerField(required=False)
+
+    def validate_url(self, value: str) -> str:
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from django.core.validators import URLValidator
+
+        url = (value or "").strip()
+        validator = URLValidator(schemes=["http", "https"])
+        try:
+            validator(url)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError("Enter a valid http(s) URL.") from exc
+        return url
+
+    def validate_subscribed_events(self, value: list) -> list[str]:
+        from turing.domain.events import SUPPORTED_OUTBOUND_EVENT_NAMES
+
+        if not value:
+            raise serializers.ValidationError("Select at least one event (or '*').")
+        cleaned: list[str] = []
+        for item in value:
+            name = str(item).strip()
+            if not name:
+                raise serializers.ValidationError("Event names must be non-empty.")
+            cleaned.append(name)
+        unknown = sorted(
+            {
+                name
+                for name in cleaned
+                if name != "*" and name not in SUPPORTED_OUTBOUND_EVENT_NAMES
+            }
+        )
+        if unknown:
+            raise serializers.ValidationError(
+                "Unknown event name(s): "
+                + ", ".join(unknown)
+                + ". Supported: "
+                + ", ".join(sorted(SUPPORTED_OUTBOUND_EVENT_NAMES))
+                + ", *."
+            )
+        return cleaned
+
+
+class WebhookSubscriptionUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=128, required=False)
+    url = serializers.URLField(max_length=2048, required=False)
+    subscribed_events = serializers.ListField(
+        child=serializers.CharField(max_length=128),
+        allow_empty=False,
+        required=False,
+    )
+    is_active = serializers.BooleanField(required=False)
+
+    def validate_url(self, value: str) -> str:
+        return WebhookSubscriptionWriteSerializer().validate_url(value)
+
+    def validate_subscribed_events(self, value: list) -> list[str]:
+        return WebhookSubscriptionWriteSerializer().validate_subscribed_events(value)
+
+
+class WebhookDeliverySerializer(serializers.ModelSerializer):
+    """Read-only delivery status (no response body content)."""
+
+    event = serializers.CharField(source="outbox_event.event_name", read_only=True)
+
+    class Meta:
+        model = WebhookDelivery
+        fields = [
+            "id",
+            "status",
+            "attempts",
+            "response_status_code",
+            "last_error",
+            "delivered_at",
+            "created_at",
+            "event",
         ]
         read_only_fields = fields

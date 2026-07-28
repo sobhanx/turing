@@ -29,3 +29,33 @@ def process_provider_webhook_event(self, notification_data: dict) -> str:
             notification.external_job_id,
         )
         raise
+
+
+@shared_task(
+    bind=True,
+    name="turing.tasks.webhooks.deliver_webhook_delivery",
+    acks_late=True,
+    max_retries=20,
+)
+def deliver_webhook_delivery(self, delivery_id: str) -> str:
+    """
+    Deliver one outbound ``WebhookDelivery`` with exponential backoff retries.
+
+    Failures are stored on the delivery row and never fail the parent outbox event.
+    """
+    from turing.conf import get_turing_settings
+    from turing.models import WebhookDelivery
+    from turing.services.webhook_delivery import WebhookDeliveryService
+
+    service = WebhookDeliveryService()
+    outcome = service.attempt_delivery(delivery_id)
+    if outcome == "retry":
+        try:
+            delivery = WebhookDelivery.objects.only("attempts").get(pk=delivery_id)
+            countdown = service.retry_countdown(delivery.attempts)
+        except WebhookDelivery.DoesNotExist:
+            return "failed"
+        settings = get_turing_settings()
+        max_retries = int(settings.outbound_webhook_max_retries)
+        raise self.retry(countdown=countdown, max_retries=max_retries)
+    return outcome

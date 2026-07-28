@@ -116,3 +116,21 @@ class ExternalReferenceTarget(models.TextChoices):
 
     MEDIA = "media", "Media asset"
     TRANSCRIPT = "transcript", "Transcript"
+
+
+class OutboxEventStatus(models.TextChoices):
+    """Durable outbox delivery lifecycle (Phase 4.2.1)."""
+
+    PENDING = "pending", "Pending"
+    PROCESSING = "processing", "Processing"
+    DELIVERED = "delivered", "Delivered"
+    FAILED = "failed", "Failed"
+
+
+class OutboundWebhookDeliveryStatus(models.TextChoices):
+    """Outbound host webhook delivery lifecycle (Phase 4.2.2)."""
+
+    PENDING = "pending", "Pending"
+    DELIVERING = "delivering", "Delivering"
+    DELIVERED = "delivered", "Delivered"
+    FAILED = "failed", "Failed"
