@@ -28,6 +28,11 @@ turing/connectors/
     connector.py
     oauth.py
     serializers.py
+  salesforce/      Salesforce CRM call/meeting recordings (oauth2)
+    client.py
+    connector.py
+    oauth.py
+    serializers.py
   oauth_state.py   Shim → OAuthStateService
 ```
 
@@ -345,6 +350,53 @@ Mapping:
 | `external_type` | `meeting` |
 | `external_id` | Drive file id |
 | `media_url` | Drive `webContentLink` |
+
+
+## Salesforce connector (Phase 4.3.10)
+
+First CRM connector. Discovers Salesforce call/meeting records that include a
+recording URL and ingests them into Turing via **OAuth2**.
+
+### App setup
+
+| Setting | Purpose |
+|---------|---------|
+| `TURING_SALESFORCE_CLIENT_ID` | Connected App consumer key |
+| `TURING_SALESFORCE_CLIENT_SECRET` | Connected App consumer secret |
+| `TURING_SALESFORCE_OAUTH_REDIRECT_URI` | Must match Connected App callback |
+| `TURING_SALESFORCE_OAUTH_SCOPES` | Default `api refresh_token offline_access` |
+
+Redirect URI example:
+
+`https://<host>/api/turing/v1/oauth/callback/salesforce/`
+
+OAuth token response ``instance_url`` is stored in credential metadata (not a
+secret) and used as the REST API base.
+
+### Flow
+
+```text
+POST /connector-installations/  (connector_type=salesforce) → pending
+GET  .../authorize/ → Salesforce authorize URL
+GET  /oauth/callback/salesforce/?code=&state=
+  → exchange_code → store_credentials (+ instance_url) → activate
+SalesforceConnector.sync()
+  → ensure_fresh_credentials()
+  → SalesforceClient.list_recordings()  (VoiceCall SOQL, Task fallback)
+  → MediaService.create_from_url (crm_call | meeting)
+  → ExternalReference(salesforce / call|meeting / <Id>)
+```
+
+No CRM write-back in this phase.
+
+Mapping:
+
+| Field | Value |
+|-------|--------|
+| `external_system` | `salesforce` |
+| `external_type` | `call` or `meeting` |
+| `external_id` | Salesforce record `Id` |
+| `media_url` | `RecordingUrl` / custom link fields |
 
 
 ## REST API (Phase 4.3.2 / 4.3.5 / 4.3.6)

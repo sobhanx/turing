@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from turing.connectors.google_meet.connector import GoogleMeetConnector
 from turing.connectors.registry import ConnectorRegistry
+from turing.connectors.salesforce.connector import SalesforceConnector
 from turing.connectors.teams.connector import TeamsConnector
 from turing.connectors.zoom.connector import ZoomConnector
 
@@ -16,3 +17,5 @@ def register_builtin_connectors() -> None:
         ConnectorRegistry.register(TeamsConnector)
     if "google_meet" not in ConnectorRegistry.types():
         ConnectorRegistry.register(GoogleMeetConnector)
+    if "salesforce" not in ConnectorRegistry.types():
+        ConnectorRegistry.register(SalesforceConnector)

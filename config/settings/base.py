@@ -271,6 +271,31 @@ TURING_GOOGLE_MEET_OAUTH_SCOPES = os.environ.get(
     "openid email profile https://www.googleapis.com/auth/drive.readonly",
 )
 
+# Salesforce OAuth (Phase 4.3.10)
+TURING_SALESFORCE_CLIENT_ID = os.environ.get("TURING_SALESFORCE_CLIENT_ID", "")
+TURING_SALESFORCE_CLIENT_SECRET = os.environ.get(
+    "TURING_SALESFORCE_CLIENT_SECRET", ""
+)
+TURING_SALESFORCE_OAUTH_REDIRECT_URI = os.environ.get(
+    "TURING_SALESFORCE_OAUTH_REDIRECT_URI", ""
+)
+TURING_SALESFORCE_OAUTH_AUTHORIZE_URL = os.environ.get(
+    "TURING_SALESFORCE_OAUTH_AUTHORIZE_URL",
+    "https://login.salesforce.com/services/oauth2/authorize",
+)
+TURING_SALESFORCE_OAUTH_TOKEN_URL = os.environ.get(
+    "TURING_SALESFORCE_OAUTH_TOKEN_URL",
+    "https://login.salesforce.com/services/oauth2/token",
+)
+TURING_SALESFORCE_OAUTH_REVOKE_URL = os.environ.get(
+    "TURING_SALESFORCE_OAUTH_REVOKE_URL",
+    "https://login.salesforce.com/services/oauth2/revoke",
+)
+TURING_SALESFORCE_OAUTH_SCOPES = os.environ.get(
+    "TURING_SALESFORCE_OAUTH_SCOPES",
+    "api refresh_token offline_access",
+)
+
 from turing.celery_schedule import build_celery_beat_schedule  # noqa: E402
 
 CELERY_BEAT_SCHEDULE = build_celery_beat_schedule()
