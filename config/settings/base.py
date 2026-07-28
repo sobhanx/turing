@@ -225,6 +225,27 @@ TURING_ZOOM_OAUTH_SCOPES = os.environ.get(
     "recording:read user:read:user",
 )
 
+# Microsoft Teams OAuth (Phase 4.3.8)
+TURING_TEAMS_CLIENT_ID = os.environ.get("TURING_TEAMS_CLIENT_ID", "")
+TURING_TEAMS_CLIENT_SECRET = os.environ.get("TURING_TEAMS_CLIENT_SECRET", "")
+TURING_TEAMS_OAUTH_REDIRECT_URI = os.environ.get("TURING_TEAMS_OAUTH_REDIRECT_URI", "")
+TURING_TEAMS_OAUTH_AUTHORIZE_URL = os.environ.get(
+    "TURING_TEAMS_OAUTH_AUTHORIZE_URL",
+    "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+)
+TURING_TEAMS_OAUTH_TOKEN_URL = os.environ.get(
+    "TURING_TEAMS_OAUTH_TOKEN_URL",
+    "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+)
+TURING_TEAMS_OAUTH_REVOKE_URL = os.environ.get(
+    "TURING_TEAMS_OAUTH_REVOKE_URL",
+    "https://graph.microsoft.com/v1.0/me/revokeSignInSessions",
+)
+TURING_TEAMS_OAUTH_SCOPES = os.environ.get(
+    "TURING_TEAMS_OAUTH_SCOPES",
+    "openid offline_access User.Read OnlineMeetings.Read OnlineMeetingRecording.Read.All",
+)
+
 from turing.celery_schedule import build_celery_beat_schedule  # noqa: E402
 
 CELERY_BEAT_SCHEDULE = build_celery_beat_schedule()

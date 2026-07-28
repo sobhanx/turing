@@ -18,6 +18,11 @@ turing/connectors/
     connector.py
     oauth.py
     serializers.py
+  teams/           Microsoft Teams meeting recordings (oauth2)
+    client.py
+    connector.py
+    oauth.py
+    serializers.py
   oauth_state.py   Shim → OAuthStateService
 ```
 
@@ -253,6 +258,47 @@ Mapping:
 | `external_type` | `meeting` |
 | `external_id` | Zoom recording file id |
 | `media_url` | Zoom `download_url` |
+
+
+## Microsoft Teams connector (Phase 4.3.8)
+
+Pulls Teams / Graph online-meeting recordings into Turing via **OAuth2**.
+
+### App setup
+
+| Setting | Purpose |
+|---------|---------|
+| `TURING_TEAMS_CLIENT_ID` | Azure AD app client id |
+| `TURING_TEAMS_CLIENT_SECRET` | Azure AD app client secret |
+| `TURING_TEAMS_OAUTH_REDIRECT_URI` | Must match Azure redirect URI |
+| `TURING_TEAMS_OAUTH_SCOPES` | Default includes `OnlineMeetings.Read`, `OnlineMeetingRecording.Read.All`, `offline_access` |
+
+Redirect URI example:
+
+`https://<host>/api/turing/v1/oauth/callback/teams/`
+
+### Flow
+
+```text
+POST /connector-installations/  (connector_type=teams) → pending
+GET  .../authorize/ → Microsoft authorize URL (OAuthStateService)
+GET  /oauth/callback/teams/?code=&state=
+  → exchange_code → store_credentials → activate
+TeamsConnector.sync()
+  → ensure_fresh_credentials()
+  → TeamsClient.list_recordings()  (Graph /me/onlineMeetings + recordings)
+  → MediaService.create_from_url
+  → ExternalReference(teams / meeting / <recording_id>)
+```
+
+Mapping:
+
+| Field | Value |
+|-------|--------|
+| `external_system` | `teams` |
+| `external_type` | `meeting` |
+| `external_id` | Graph recording id |
+| `media_url` | `recordingContentUrl` |
 
 
 ## REST API (Phase 4.3.2 / 4.3.5 / 4.3.6)
