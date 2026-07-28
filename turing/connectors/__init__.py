@@ -25,6 +25,11 @@ from turing.connectors.exceptions import (
     TemporaryConnectorError,
 )
 from turing.connectors.registry import ConnectorRegistry
+from turing.connectors.telephony import (
+    TelephonyCall,
+    TelephonyConnector,
+    normalize_call,
+)
 
 __all__ = [
     "AuthenticationError",
@@ -42,5 +47,8 @@ __all__ = [
     "InstallationRequirements",
     "MediaPullItem",
     "PermanentConnectorError",
+    "TelephonyCall",
+    "TelephonyConnector",
     "TemporaryConnectorError",
+    "normalize_call",
 ]

@@ -33,6 +33,9 @@ turing/connectors/
     connector.py
     oauth.py
     serializers.py
+  telephony/       Generic telephony / CTI call-recording foundation
+    connector.py   TelephonyConnector abstract base
+    serializers.py TelephonyCall + normalize_call()
   oauth_state.py   Shim → OAuthStateService
 ```
 
@@ -399,6 +402,61 @@ Mapping:
 | `media_url` | `RecordingUrl` / custom link fields |
 
 
+## Telephony connector model (Phase 4.4.3)
+
+Generic CTI / contact-center foundation. No enterprise vendor adapters ship
+yet — subclass ``TelephonyConnector`` and register with ``ConnectorRegistry``.
+
+### Contract
+
+| Method | Purpose |
+|--------|---------|
+| `list_calls()` | Discover call recordings |
+| `get_recording(call_id)` | Fetch one call descriptor |
+| `normalize_call(raw)` | Normalize vendor payload → ``TelephonyCall`` |
+| `sync()` | Ingest via MediaService + ExternalReference |
+
+Marketplace metadata (on the base class):
+
+| Field | Value |
+|-------|--------|
+| `category` | `telephony` |
+| `supported_sync_types` | `["calls"]` |
+| `auth_type` | `api_key` (CTI adapters may switch to oauth2) |
+| `capabilities` | oauth/refresh/revoke default false |
+| `installation_requirements` | `api_token` (secret) + host checklist messages |
+
+### Normalized call
+
+```json
+{
+  "external_system": "telephony",
+  "external_type": "call",
+  "external_id": "call-100",
+  "recording_url": "https://cdn.example/calls/100.mp3",
+  "caller": "+15551110000",
+  "callee": "+15552220000",
+  "started_at": "2026-01-01T10:00:00Z",
+  "duration": 120,
+  "metadata": {"queue": "support"}
+}
+```
+
+### Sync flow
+
+```text
+TelephonyConnector.list_calls()
+  → MediaService.create_from_url (use_case=crm_call)
+  → ExternalReference(telephony / call / <id>)
+  → existing STT pipeline
+```
+
+Events reused: ``connector.sync.*``, ``media.created``.
+
+Out of scope for this foundation: real-time streaming, agent desktop UI, QA
+scoring, and specific enterprise CTI providers.
+
+
 ## REST API (Phase 4.3.2 / 4.3.5 / 4.3.6 / 4.4.1 / 4.4.2)
 
 Requires capability `manage_config` (org Admin role). Config secrets and OAuth
@@ -594,8 +652,9 @@ Emitted via existing ``EventBus`` + durable outbox.
 
 Still planned (not in this phase):
 
-- Additional CRM / telephony connectors
-- Marketplace / product UI (consumes Phase 4.4.1 contracts)
+- Enterprise CTI providers (Genesys, Twilio, etc.) on ``TelephonyConnector``
+- Marketplace / product UI (consumes Phase 4.4 catalog contracts)
+- Billing / entitlements / app publishing
 - CRM write-back / action-item sync
 
 Each adapter lives under ``turing/connectors/<vendor>/`` and registers via
