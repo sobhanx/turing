@@ -30,7 +30,9 @@ class TuringConfig(AppConfig):
         register_builtin_connectors()
 
         from turing.search import register_builtin_search_providers
+        from turing.search.embeddings import register_builtin_embedding_providers
         from turing.search.handlers import register_search_handlers
 
+        register_builtin_embedding_providers()
         register_builtin_search_providers()
         register_search_handlers()

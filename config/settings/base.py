@@ -377,6 +377,12 @@ TURING_SEARCH_PGVECTOR_SQL = os.environ.get(
     "TURING_SEARCH_PGVECTOR_SQL", "false"
 ).lower() in {"1", "true", "yes"}
 
+# Embedding providers (Phase 4.5.5) — local neural default; unknown → null.
+TURING_EMBEDDING_PROVIDER = os.environ.get("TURING_EMBEDDING_PROVIDER", "local")
+TURING_EMBEDDING_MODEL = os.environ.get(
+    "TURING_EMBEDDING_MODEL", "turing-local-v1"
+)
+
 # Media storage (local by default; set TURING_STORAGE_BACKEND=s3 in production)
 from config.settings.storage import apply_media_storage  # noqa: E402
 

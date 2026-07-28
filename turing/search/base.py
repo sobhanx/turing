@@ -23,6 +23,7 @@ class SearchDocument:
     text: str
     content_hash: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    vector: list[float] | None = None
 
 
 @dataclass(frozen=True)

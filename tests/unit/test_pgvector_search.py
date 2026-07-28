@@ -25,6 +25,8 @@ from turing.search import (
 )
 from turing.search.base import SearchDocument
 from turing.search.embedder import cosine_similarity, embed_text
+from turing.search.embeddings import register_builtin_embedding_providers
+from turing.search.embeddings.registry import EmbeddingProviderRegistry
 from turing.services.external_reference import ExternalReferenceService
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
@@ -79,9 +81,13 @@ def _membership(user, org, role: str) -> TuringMembership:
 
 @pytest.fixture(autouse=True)
 def _pgvector_registry():
+    EmbeddingProviderRegistry.clear()
+    register_builtin_embedding_providers()
     SemanticSearchRegistry.clear()
     register_builtin_search_providers()
     yield
+    EmbeddingProviderRegistry.clear()
+    register_builtin_embedding_providers()
     SemanticSearchRegistry.clear()
     register_builtin_search_providers()
 
@@ -156,6 +162,8 @@ def test_pgvector_indexing(pgv_setup):
         assert isinstance(row.vector, list)
         assert len(row.vector) == 64
         assert row.dimensions == 64
+        assert row.provider == "local"
+        assert row.model_name
         assert row.content_hash
         assert row.metadata["text"]
         assert row.metadata["external_references"]

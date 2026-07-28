@@ -17,8 +17,8 @@ class Embedding(UUIDModel):
     Org-scoped search index row for Speech Center objects.
 
     ``vector`` stores a float array compatible with PostgreSQL pgvector (JSON
-    list on all backends; optional SQL distance when the ``vector`` extension
-    is enabled). Metadata fields remain provider-neutral.
+    list on all backends). ``provider`` / ``model_name`` record which
+    EmbeddingProvider produced the vector.
     """
 
     organization = models.ForeignKey(
@@ -43,6 +43,19 @@ class Embedding(UUIDModel):
     dimensions = models.PositiveIntegerField(
         default=0,
         help_text="Embedding dimensionality (0 = unset / null provider).",
+    )
+    provider = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+        help_text="EmbeddingProvider code (e.g. local, null).",
+    )
+    model_name = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="Embedding model identifier.",
     )
     metadata = models.JSONField(default=dict, blank=True)
 

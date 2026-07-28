@@ -18,20 +18,28 @@ from django.db import connection
 from turing.models import Embedding
 from turing.models.embedding import EmbeddingObjectType
 from turing.search.base import SearchDocument, SearchHit, SearchResult, SemanticSearchProvider
-from turing.search.embedder import cosine_similarity, embed_text
+from turing.search.embedder import cosine_similarity
 
 logger = logging.getLogger(__name__)
 
 
-def _default_dimensions() -> int:
-    return int(getattr(settings, "TURING_SEARCH_EMBEDDING_DIMS", 256) or 256)
+def _resolve_embedding_provider(*, dimensions: int | None = None):
+    """Use EmbeddingProviderRegistry; honor explicit dimensions for tests."""
+    from turing.search.embeddings import (
+        EmbeddingProviderRegistry,
+        LocalNeuralEmbeddingProvider,
+    )
+
+    if dimensions is not None:
+        return LocalNeuralEmbeddingProvider(dimensions=dimensions)
+    return EmbeddingProviderRegistry.create()
 
 
 class PgVectorSearchProvider(SemanticSearchProvider):
     """
     First production-oriented vector provider.
 
-    - ``index_document`` generates an embedding and upserts ``Embedding``
+    - ``index_document`` upserts ``Embedding`` (uses EmbeddingProvider vectors)
     - ``search`` ranks org-scoped rows by cosine similarity
     - Never crosses organization boundaries
     """
@@ -39,19 +47,47 @@ class PgVectorSearchProvider(SemanticSearchProvider):
     code = "pgvector"
     display_name = "PostgreSQL pgvector"
 
-    def __init__(self, *, dimensions: int | None = None) -> None:
-        self.dimensions = int(dimensions) if dimensions is not None else _default_dimensions()
+    def __init__(
+        self,
+        *,
+        dimensions: int | None = None,
+        embedding_provider=None,
+    ) -> None:
+        self._dimensions_override = (
+            int(dimensions) if dimensions is not None else None
+        )
+        self._embedding_provider = embedding_provider
+
+    @property
+    def embedding_provider(self):
+        if self._embedding_provider is None:
+            self._embedding_provider = _resolve_embedding_provider(
+                dimensions=self._dimensions_override
+            )
+        return self._embedding_provider
+
+    @property
+    def dimensions(self) -> int:
+        if self._dimensions_override is not None:
+            return self._dimensions_override
+        return int(self.embedding_provider.dimensions() or 0)
 
     def embed(self, text: str) -> list[float]:
-        """Generate a vector for ``text`` (provider-owned embed step)."""
-        return embed_text(text, dimensions=self.dimensions)
+        """Generate a vector via the configured EmbeddingProvider."""
+        return self.embedding_provider.embed(text)
 
     def index_document(self, document: SearchDocument) -> None:
-        vector = self.embed(document.text)
+        emb = self.embedding_provider
+        if document.vector is not None:
+            vector = list(document.vector)
+        else:
+            vector = self.embed(document.text)
+        dims = len(vector) if vector else int(emb.dimensions() or 0)
         metadata = dict(document.metadata or {})
-        # Persist text for API responses (never secrets).
         metadata.setdefault("text", document.text)
-        metadata["dimensions"] = self.dimensions
+        metadata["dimensions"] = dims
+        metadata["embedding_provider"] = emb.code
+        metadata["embedding_model"] = emb.model_name()
 
         Embedding.objects.update_or_create(
             organization_id=document.organization_id,
@@ -60,11 +96,12 @@ class PgVectorSearchProvider(SemanticSearchProvider):
             defaults={
                 "content_hash": document.content_hash or "",
                 "vector": vector,
-                "dimensions": self.dimensions,
+                "dimensions": dims,
+                "provider": emb.code,
+                "model_name": emb.model_name(),
                 "metadata": metadata,
             },
         )
-
     def delete_document(self, document_id: str, *, organization_id: int | None = None) -> None:
         object_type, _, object_id = document_id.partition(":")
         if not object_id:

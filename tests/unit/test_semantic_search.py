@@ -23,6 +23,8 @@ from turing.search import (
     SemanticSearchRegistry,
     register_builtin_search_providers,
 )
+from turing.search.embeddings import register_builtin_embedding_providers
+from turing.search.embeddings.registry import EmbeddingProviderRegistry
 from turing.search.handlers import (
     on_analysis_completed,
     on_transcript_created,
@@ -82,11 +84,15 @@ def _membership(user, org, role: str) -> TuringMembership:
 
 @pytest.fixture(autouse=True)
 def _search_registry():
+    EmbeddingProviderRegistry.clear()
+    register_builtin_embedding_providers()
     SemanticSearchRegistry.clear()
     register_builtin_search_providers()
     EventBus.clear()
     register_search_handlers()
     yield
+    EmbeddingProviderRegistry.clear()
+    register_builtin_embedding_providers()
     SemanticSearchRegistry.clear()
     register_builtin_search_providers()
     EventBus.clear()
@@ -146,10 +152,13 @@ def test_provider_registry():
 
 @pytest.mark.django_db
 def test_indexing_service(search_setup):
+    from turing.search.embeddings import NullEmbeddingProvider
+
     transcript = search_setup["transcript"]
-    # Foundation path still works with null provider (empty vectors).
+    # Null search + null embedding → Embedding rows with empty vectors.
     count = SearchIndexService(
-        provider=NullSemanticSearchProvider()
+        provider=NullSemanticSearchProvider(),
+        embedding_provider=NullEmbeddingProvider(),
     ).index_transcript(transcript)
     assert count == 2
     rows = Embedding.objects.filter(organization=search_setup["org"])
@@ -161,9 +170,11 @@ def test_indexing_service(search_setup):
     assert "start_ms" in row.metadata
     assert row.metadata["external_references"]
     assert row.vector == []
+    assert row.provider == "null"
 
     removed = SearchIndexService(
-        provider=NullSemanticSearchProvider()
+        provider=NullSemanticSearchProvider(),
+        embedding_provider=NullEmbeddingProvider(),
     ).remove_index(transcript)
     assert removed == 2
     assert Embedding.objects.filter(organization=search_setup["org"]).count() == 0
