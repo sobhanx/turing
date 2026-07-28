@@ -216,3 +216,9 @@ Other routes:
 | `GET` | `/api/turing/v1/webhooks/{id}/deliveries/` | Delivery status (no response body) |
 
 `subscribed_events` must be non-empty and only include canonical event names or `*`.
+
+Connector sync events (Phase 4.3.1) are also supported:
+
+- `connector.sync.started`
+- `connector.sync.completed`
+- `connector.sync.failed`

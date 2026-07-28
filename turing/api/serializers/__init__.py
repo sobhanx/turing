@@ -13,6 +13,8 @@ from turing.models import (
     TranscriptAnalysis,
     TranscriptRevision,
     TranscriptSegment,
+    ConnectorInstallation,
+    ConnectorSyncJob,
     WebhookDelivery,
     WebhookSubscription,
 )
@@ -432,5 +434,64 @@ class WebhookDeliverySerializer(serializers.ModelSerializer):
             "delivered_at",
             "created_at",
             "event",
+        ]
+        read_only_fields = fields
+
+
+class ConnectorInstallationSerializer(serializers.ModelSerializer):
+    """Public connector installation (never includes raw config secrets)."""
+
+    class Meta:
+        model = ConnectorInstallation
+        fields = [
+            "id",
+            "connector_type",
+            "name",
+            "status",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class ConnectorInstallationWriteSerializer(serializers.Serializer):
+    connector_type = serializers.CharField(max_length=64)
+    name = serializers.CharField(max_length=128)
+    config = serializers.DictField(required=False, default=dict)
+    status = serializers.ChoiceField(
+        choices=["active", "disabled", "error"],
+        required=False,
+        default="active",
+    )
+    organization_id = serializers.IntegerField(required=False)
+
+
+class ConnectorInstallationUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=128, required=False)
+    status = serializers.ChoiceField(
+        choices=["active", "disabled", "error"],
+        required=False,
+    )
+    config = serializers.DictField(required=False)
+
+
+class ConnectorSyncJobSerializer(serializers.ModelSerializer):
+    connector_type = serializers.CharField(
+        source="installation.connector_type",
+        read_only=True,
+    )
+
+    class Meta:
+        model = ConnectorSyncJob
+        fields = [
+            "id",
+            "installation",
+            "connector_type",
+            "status",
+            "started_at",
+            "finished_at",
+            "records_processed",
+            "error",
+            "created_at",
         ]
         read_only_fields = fields

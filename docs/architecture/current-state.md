@@ -31,6 +31,7 @@ AI Analysis
 - Public analysis API (including latest-per-type)
 - Internal event foundation + durable outbox
 - Outbound signed webhooks (subscriptions + deliveries)
+- Connector framework foundation (installations + sync jobs)
 - Multi-organization support
 - Admin panel
 - REST API
@@ -73,13 +74,28 @@ Includes:
 - Public REST API for webhook subscription CRUD + delivery listing
 
 
-## Current Limitations (post–Phase 4.2.4)
+## Phase 4.3 status
 
-- No connector framework (Zoom / CRM / telephony)
+**Phase 4.3.1–4.3.3 connector framework + Zoom adapter are in place.**
+
+Includes:
+
+- `BaseConnector` contract + `ConnectorRegistry`
+- `ConnectorInstallation` / `ConnectorSyncJob` models + Admin
+- `ConnectorSyncService` + Celery `sync_connector_installation`
+- Events: `connector.sync.started` / `.completed` / `.failed`
+- REST: catalog, installation CRUD, sync trigger, sync job status
+- Zoom connector: recording discovery → `MediaService.create_from_url` + ExternalReference
+
+
+## Current Limitations (post–Phase 4.3.3)
+
+- No OAuth / marketplace installation (Zoom uses account_id + api_token config)
+- No Teams / Meet / CRM / telephony connectors yet
+- No periodic connector sync Beat schedule
 - UI is not productized
 - Permissions are organization-level (no record-level ACL)
 - Celery coupling exists inside services
-- No OAuth app installation / marketplace connectors
 
 
 ## Current Product Shape

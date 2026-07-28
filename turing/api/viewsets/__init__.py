@@ -13,6 +13,10 @@ from turing.api.filters import (
     TranscriptFilter,
 )
 from turing.api.serializers import (
+    ConnectorInstallationSerializer,
+    ConnectorInstallationUpdateSerializer,
+    ConnectorInstallationWriteSerializer,
+    ConnectorSyncJobSerializer,
     CreateTranscriptionJobSerializer,
     ExternalReferenceCreateSerializer,
     ExternalReferenceSerializer,
@@ -44,6 +48,8 @@ from turing.auth.permissions import (
 from turing.auth.tenancy import resolve_organization, scope_by_organization
 from turing.domain.exceptions import PermissionDeniedError, TuringError
 from turing.models import (
+    ConnectorInstallation,
+    ConnectorSyncJob,
     ExternalReference,
     MediaAsset,
     ProcessingJob,
@@ -703,3 +709,213 @@ class WebhookSubscriptionViewSet(
         if page is not None:
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
+
+
+def _validate_connector_config(*, connector_type: str, config: dict, name: str = "tmp"):
+    """Resolve registry connector and run validate_config against a temporary installation."""
+    from turing.connectors.exceptions import ConnectorError, ConnectorNotFoundError
+    from turing.connectors.registry import ConnectorRegistry
+    from turing.domain.enums import ConnectorInstallationStatus
+
+    try:
+        connector_cls = ConnectorRegistry.get(connector_type)
+    except ConnectorNotFoundError as exc:
+        raise TuringError(str(exc), code="connector_not_found") from exc
+
+    temp = ConnectorInstallation(
+        connector_type=connector_type,
+        name=name or "tmp",
+        status=ConnectorInstallationStatus.ACTIVE,
+        config=dict(config or {}),
+    )
+    # organization not required for validate_config on typical connectors
+    connector = connector_cls(temp)
+    try:
+        connector.validate_config()
+    except ConnectorError as exc:
+        raise TuringError(str(exc), code=getattr(exc, "code", "connector_error")) from exc
+
+
+class ConnectorCatalogViewSet(viewsets.ViewSet):
+    """Discover registered connector types (Phase 4.3.2)."""
+
+    required_capability = "manage_config"
+    read_capability = "manage_config"
+    permission_classes = [IsAuthenticated, HasTuringCapability]
+    http_method_names = ["get", "head", "options"]
+
+    def list(self, request):
+        from turing.connectors.registry import ConnectorRegistry
+
+        data = [
+            {
+                "type": row["connector_type"],
+                "name": row["display_name"],
+                "available": True,
+            }
+            for row in ConnectorRegistry.list_available()
+        ]
+        return Response(data)
+
+
+class ConnectorInstallationViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    mixins.UpdateModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Org-scoped connector installation CRUD + sync trigger."""
+
+    queryset = ConnectorInstallation.objects.all().select_related("organization")
+    serializer_class = ConnectorInstallationSerializer
+    required_capability = "manage_config"
+    read_capability = "manage_config"
+    permission_classes = [IsAuthenticated, HasTuringCapability]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    search_fields = ("name", "connector_type")
+    ordering_fields = ("created_at", "name", "updated_at")
+
+    def get_queryset(self):
+        return scope_by_organization(super().get_queryset(), self.request.user)
+
+    def get_permissions(self):
+        if self.action in {"create", "partial_update", "update", "destroy", "sync"}:
+            return [IsAuthenticated(), CanManageConfig()]
+        return super().get_permissions()
+
+    def create(self, request, *args, **kwargs):
+        from django.db import IntegrityError
+
+        from turing.domain.enums import ConnectorInstallationStatus
+
+        serializer = ConnectorInstallationWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            organization = resolve_organization(
+                organization_id=data.get("organization_id"),
+                user=request.user,
+                capability="manage_config",
+            )
+            _validate_connector_config(
+                connector_type=data["connector_type"],
+                config=data.get("config") or {},
+                name=data["name"],
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+
+        installation = ConnectorInstallation(
+            organization=organization,
+            connector_type=data["connector_type"].strip(),
+            name=data["name"].strip(),
+            status=data.get("status") or ConnectorInstallationStatus.ACTIVE,
+            config=dict(data.get("config") or {}),
+        )
+        try:
+            installation.full_clean()
+            installation.save()
+        except IntegrityError:
+            return Response(
+                {
+                    "detail": "A connector installation with this name already exists.",
+                    "code": "validation_error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:  # noqa: BLE001
+            from django.core.exceptions import ValidationError as DjangoValidationError
+
+            if isinstance(exc, DjangoValidationError):
+                return Response(
+                    {"detail": exc.message_dict if hasattr(exc, "message_dict") else exc.messages},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            raise
+
+        return Response(
+            ConnectorInstallationSerializer(installation).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        from django.db import IntegrityError
+
+        installation = self.get_object()
+        serializer = ConnectorInstallationUpdateSerializer(
+            data=request.data,
+            partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if "name" in data:
+            installation.name = data["name"].strip()
+        if "status" in data:
+            installation.status = data["status"]
+        if "config" in data:
+            installation.config = dict(data["config"] or {})
+            try:
+                _validate_connector_config(
+                    connector_type=installation.connector_type,
+                    config=installation.config,
+                    name=installation.name,
+                )
+            except TuringError as exc:
+                return _error_response(exc)
+        try:
+            installation.full_clean()
+            installation.save()
+        except IntegrityError:
+            return Response(
+                {
+                    "detail": "A connector installation with this name already exists.",
+                    "code": "validation_error",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(ConnectorInstallationSerializer(installation).data)
+
+    def destroy(self, request, *args, **kwargs):
+        installation = self.get_object()
+        installation.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="sync")
+    def sync(self, request, pk=None):
+        from turing.services.connector_sync import ConnectorSyncService
+
+        installation = self.get_object()
+        try:
+            job = ConnectorSyncService().start_sync(installation, auto_enqueue=True)
+        except TuringError as exc:
+            return _error_response(exc)
+        return Response(
+            {"sync_job_id": str(job.id)},
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+
+class ConnectorSyncJobViewSet(
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Retrieve connector sync job status (org-scoped)."""
+
+    queryset = ConnectorSyncJob.objects.all().select_related(
+        "installation",
+        "installation__organization",
+    )
+    serializer_class = ConnectorSyncJobSerializer
+    required_capability = "manage_config"
+    read_capability = "manage_config"
+    permission_classes = [IsAuthenticated, HasTuringCapability]
+    http_method_names = ["get", "head", "options"]
+
+    def get_queryset(self):
+        return scope_by_organization(
+            super().get_queryset(),
+            self.request.user,
+            field="installation__organization_id",
+        )

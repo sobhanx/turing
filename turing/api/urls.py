@@ -4,6 +4,9 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from turing.api.viewsets import (
+    ConnectorCatalogViewSet,
+    ConnectorInstallationViewSet,
+    ConnectorSyncJobViewSet,
     ExternalReferenceViewSet,
     MediaAssetViewSet,
     ProcessingJobViewSet,
@@ -30,6 +33,21 @@ router.register(
 )
 router.register(r"v1/providers", ProviderViewSet, basename="turing-providers")
 router.register(r"v1/webhooks", WebhookSubscriptionViewSet, basename="turing-webhooks")
+router.register(
+    r"v1/connectors",
+    ConnectorCatalogViewSet,
+    basename="turing-connectors",
+)
+router.register(
+    r"v1/connector-installations",
+    ConnectorInstallationViewSet,
+    basename="turing-connector-installations",
+)
+router.register(
+    r"v1/connector-sync-jobs",
+    ConnectorSyncJobViewSet,
+    basename="turing-connector-sync-jobs",
+)
 
 urlpatterns = [
     # Inbound provider callback — must stay before the webhooks detail route.

@@ -24,3 +24,7 @@ class TuringConfig(AppConfig):
         from turing.events.outbound import register_outbound_handlers
 
         register_outbound_handlers()
+
+        from turing.connectors.builtins import register_builtin_connectors
+
+        register_builtin_connectors()

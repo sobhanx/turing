@@ -184,6 +184,7 @@ CELERY_TASK_ROUTES = {
     "turing.tasks.analysis.*": {"queue": "turing.default"},
     "turing.tasks.ingestion.*": {"queue": "turing.default"},
     "turing.tasks.events.*": {"queue": "turing.default"},
+    "turing.tasks.connectors.*": {"queue": "turing.default"},
     "turing.tasks.export.*": {"queue": "turing.export"},
 }
 

@@ -6,12 +6,15 @@ from typing import Any
 
 
 class EventName:
-    """Canonical Phase 4.1.3 event names."""
+    """Canonical Phase 4 event names."""
 
     MEDIA_CREATED = "media.created"
     JOB_COMPLETED = "job.completed"
     TRANSCRIPT_CREATED = "transcript.created"
     ANALYSIS_COMPLETED = "analysis.completed"
+    CONNECTOR_SYNC_STARTED = "connector.sync.started"
+    CONNECTOR_SYNC_COMPLETED = "connector.sync.completed"
+    CONNECTOR_SYNC_FAILED = "connector.sync.failed"
 
 
 # Names allowed on outbound webhook subscriptions (plus ``*`` for all).
@@ -21,6 +24,9 @@ SUPPORTED_OUTBOUND_EVENT_NAMES: frozenset[str] = frozenset(
         EventName.JOB_COMPLETED,
         EventName.TRANSCRIPT_CREATED,
         EventName.ANALYSIS_COMPLETED,
+        EventName.CONNECTOR_SYNC_STARTED,
+        EventName.CONNECTOR_SYNC_COMPLETED,
+        EventName.CONNECTOR_SYNC_FAILED,
     }
 )
 
@@ -112,6 +118,64 @@ def analysis_completed(
             "analysis_types": list(analysis_types),
             "provider": provider or "",
             "external_references": list(external_references or []),
+        },
+    )
+
+
+def connector_sync_started(
+    *,
+    sync_job_id: str,
+    installation_id: str,
+    organization_id: int,
+    connector_type: str,
+) -> DomainEvent:
+    return DomainEvent(
+        name=EventName.CONNECTOR_SYNC_STARTED,
+        payload={
+            "sync_job_id": str(sync_job_id),
+            "installation_id": str(installation_id),
+            "organization_id": organization_id,
+            "connector_type": connector_type,
+        },
+    )
+
+
+def connector_sync_completed(
+    *,
+    sync_job_id: str,
+    installation_id: str,
+    organization_id: int,
+    connector_type: str,
+    records_processed: int = 0,
+) -> DomainEvent:
+    return DomainEvent(
+        name=EventName.CONNECTOR_SYNC_COMPLETED,
+        payload={
+            "sync_job_id": str(sync_job_id),
+            "installation_id": str(installation_id),
+            "organization_id": organization_id,
+            "connector_type": connector_type,
+            "records_processed": int(records_processed),
+        },
+    )
+
+
+def connector_sync_failed(
+    *,
+    sync_job_id: str,
+    installation_id: str,
+    organization_id: int,
+    connector_type: str,
+    error_code: str = "",
+) -> DomainEvent:
+    return DomainEvent(
+        name=EventName.CONNECTOR_SYNC_FAILED,
+        payload={
+            "sync_job_id": str(sync_job_id),
+            "installation_id": str(installation_id),
+            "organization_id": organization_id,
+            "connector_type": connector_type,
+            "error_code": error_code or "",
         },
     )
 

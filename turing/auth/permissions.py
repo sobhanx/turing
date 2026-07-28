@@ -5,6 +5,7 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from turing.auth.roles import user_has_capability
 from turing.auth.tenancy import user_is_global_bypass
 from turing.models import MediaAsset, ProcessingJob, Speaker, Transcript, TranscriptAnalysis, TranscriptSegment
+from turing.models.connector import ConnectorInstallation, ConnectorSyncJob
 from turing.models.external_reference import ExternalReference
 from turing.models.webhook import WebhookDelivery, WebhookSubscription
 
@@ -78,12 +79,23 @@ def _organization_from_obj(obj):
         return None
     if isinstance(
         obj,
-        (MediaAsset, ProcessingJob, Transcript, TranscriptAnalysis, ExternalReference, WebhookSubscription),
+        (
+            MediaAsset,
+            ProcessingJob,
+            Transcript,
+            TranscriptAnalysis,
+            ExternalReference,
+            WebhookSubscription,
+            ConnectorInstallation,
+        ),
     ):
         return getattr(obj, "organization", None)
     if isinstance(obj, WebhookDelivery):
         subscription = getattr(obj, "subscription", None)
         return getattr(subscription, "organization", None) if subscription else None
+    if isinstance(obj, ConnectorSyncJob):
+        installation = getattr(obj, "installation", None)
+        return getattr(installation, "organization", None) if installation else None
     if isinstance(obj, TranscriptSegment):
         transcript = getattr(obj, "transcript", None)
         return getattr(transcript, "organization", None) if transcript else None

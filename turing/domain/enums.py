@@ -134,3 +134,20 @@ class OutboundWebhookDeliveryStatus(models.TextChoices):
     DELIVERING = "delivering", "Delivering"
     DELIVERED = "delivered", "Delivered"
     FAILED = "failed", "Failed"
+
+
+class ConnectorInstallationStatus(models.TextChoices):
+    """Lifecycle status for an org connector installation (Phase 4.3.1)."""
+
+    ACTIVE = "active", "Active"
+    DISABLED = "disabled", "Disabled"
+    ERROR = "error", "Error"
+
+
+class ConnectorSyncJobStatus(models.TextChoices):
+    """Status of a connector sync run."""
+
+    PENDING = "pending", "Pending"
+    RUNNING = "running", "Running"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
