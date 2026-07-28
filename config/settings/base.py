@@ -367,6 +367,16 @@ TURING_OUTBOUND_WEBHOOK_TIMEOUT_SECONDS = float(
     os.environ.get("TURING_OUTBOUND_WEBHOOK_TIMEOUT_SECONDS", "10")
 )
 
+# Semantic search (Phase 4.5.4) — pgvector is the default production provider.
+# Set TURING_SEARCH_PROVIDER=null to disable ranking (Embedding rows only).
+TURING_SEARCH_PROVIDER = os.environ.get("TURING_SEARCH_PROVIDER", "pgvector")
+TURING_SEARCH_EMBEDDING_DIMS = int(os.environ.get("TURING_SEARCH_EMBEDDING_DIMS", "256"))
+# Optional Postgres SQL distance via CREATE EXTENSION vector (off by default;
+# Python cosine over Embedding.vector works on SQLite and Postgres).
+TURING_SEARCH_PGVECTOR_SQL = os.environ.get(
+    "TURING_SEARCH_PGVECTOR_SQL", "false"
+).lower() in {"1", "true", "yes"}
+
 # Media storage (local by default; set TURING_STORAGE_BACKEND=s3 in production)
 from config.settings.storage import apply_media_storage  # noqa: E402
 

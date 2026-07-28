@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 """
-Transcript chunk indexing for Speech Center semantic search (Phase 4.5.3).
+Transcript chunk indexing for Speech Center semantic search (Phase 4.5.4).
 
 Indexes transcript *segments* (not full transcript only). Failures are logged
 and never raised into the STT / analysis pipeline.
+
+Embedding generation is owned by the active ``SemanticSearchProvider``;
+duplicate content hashes skip re-embedding (metadata may still refresh).
 """
 
 import hashlib
@@ -78,8 +81,9 @@ class SearchIndexService:
         """
         Upsert Embedding rows + provider documents for transcript segments.
 
-        Metadata includes transcript_id, media_id, speaker, timestamps, and an
-        external_references snapshot.
+        Skips re-embedding when ``content_hash`` is unchanged (metadata refresh
+        only). Metadata includes transcript_id, media_id, speaker, timestamps,
+        and an external_references snapshot.
         """
         if transcript.organization_id is None:
             raise SemanticSearchIndexError("Transcript has no organization.")
@@ -115,21 +119,28 @@ class SearchIndexService:
                 "speaker": speaker_label,
                 "start_ms": segment.start_ms,
                 "end_ms": segment.end_ms,
+                "text": text,
                 "external_references": ext_snapshot,
             }
             document_id = f"transcript_segment:{object_id}"
 
             with transaction.atomic():
-                Embedding.objects.update_or_create(
-                    organization_id=transcript.organization_id,
-                    object_type=EmbeddingObjectType.TRANSCRIPT_SEGMENT,
-                    object_id=object_id,
-                    defaults={
-                        "content_hash": content_hash,
-                        "vector": [],
-                        "metadata": metadata,
-                    },
+                existing = (
+                    Embedding.objects.select_for_update()
+                    .filter(
+                        organization_id=transcript.organization_id,
+                        object_type=EmbeddingObjectType.TRANSCRIPT_SEGMENT,
+                        object_id=object_id,
+                    )
+                    .first()
                 )
+                if existing is not None and existing.content_hash == content_hash:
+                    # Same text — refresh metadata only (e.g. external refs).
+                    existing.metadata = metadata
+                    existing.save(update_fields=["metadata", "updated_at"])
+                    indexed += 1
+                    continue
+
                 self.provider.index_document(
                     SearchDocument(
                         document_id=document_id,
@@ -141,6 +152,21 @@ class SearchIndexService:
                         metadata=metadata,
                     )
                 )
+                # Null provider does not persist; ensure Embedding row exists.
+                if not Embedding.objects.filter(
+                    organization_id=transcript.organization_id,
+                    object_type=EmbeddingObjectType.TRANSCRIPT_SEGMENT,
+                    object_id=object_id,
+                ).exists():
+                    Embedding.objects.create(
+                        organization_id=transcript.organization_id,
+                        object_type=EmbeddingObjectType.TRANSCRIPT_SEGMENT,
+                        object_id=object_id,
+                        content_hash=content_hash,
+                        vector=[],
+                        dimensions=0,
+                        metadata=metadata,
+                    )
             indexed += 1
         return indexed
 
@@ -156,7 +182,6 @@ class SearchIndexService:
             transcript.segments.values_list("id", flat=True)
         )
         if not segment_ids:
-            # Also clean any stale rows keyed by transcript metadata.
             qs = Embedding.objects.filter(
                 organization_id=transcript.organization_id,
                 object_type=EmbeddingObjectType.TRANSCRIPT_SEGMENT,
@@ -170,7 +195,7 @@ class SearchIndexService:
             )
 
         removed = 0
-        for row in qs:
+        for row in list(qs):
             document_id = f"{row.object_type}:{row.object_id}"
             try:
                 self.provider.delete_document(
@@ -182,6 +207,8 @@ class SearchIndexService:
                     "Search provider delete failed document_id=%s (continuing)",
                     document_id,
                 )
-            row.delete()
+            # Provider may already have deleted the row (pgvector); avoid double-delete.
+            if Embedding.objects.filter(pk=row.pk).exists():
+                row.delete()
             removed += 1
         return removed

@@ -13,7 +13,7 @@ class SemanticSearchRegistry:
     """Strategy registry for semantic search providers (no vendor hardcoding)."""
 
     _providers: dict[str, Type[SemanticSearchProvider]] = {}
-    _default_code: str = "null"
+    _default_code: str = "pgvector"
 
     @classmethod
     def register(
@@ -57,4 +57,4 @@ class SemanticSearchRegistry:
     def clear(cls) -> None:
         """Remove all registrations (tests)."""
         cls._providers.clear()
-        cls._default_code = "null"
+        cls._default_code = "pgvector"

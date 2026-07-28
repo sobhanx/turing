@@ -1287,9 +1287,10 @@ class SpeechCenterViewSet(viewsets.ViewSet):
 
 class SemanticSearchViewSet(viewsets.ViewSet):
     """
-    Semantic search API foundation (Phase 4.5.3).
+    Semantic search API (Phase 4.5.4).
 
-    Placeholder contract until a production vector provider is configured.
+    Ranks org-scoped transcript segments via the configured
+    ``SemanticSearchProvider`` (default: pgvector).
     """
 
     required_capability = "view_transcript"
@@ -1299,7 +1300,7 @@ class SemanticSearchViewSet(viewsets.ViewSet):
 
     def list(self, request):
         from turing.auth.tenancy import resolve_organization
-        from turing.models import Embedding
+        from turing.search.registry import SemanticSearchRegistry
 
         try:
             organization = resolve_organization(
@@ -1310,18 +1311,46 @@ class SemanticSearchViewSet(viewsets.ViewSet):
         except TuringError as exc:
             return _error_response(exc)
 
-        # Foundation accepts q / external_* for forward compatibility.
-        _ = (
-            request.query_params.get("q"),
-            request.query_params.get("external_system"),
-            request.query_params.get("external_type"),
-            request.query_params.get("external_id"),
+        q = (request.query_params.get("q") or "").strip()
+        try:
+            limit = int(request.query_params.get("limit") or 20)
+        except (TypeError, ValueError):
+            limit = 20
+        filters = {
+            "external_system": (request.query_params.get("external_system") or "").strip(),
+            "external_type": (request.query_params.get("external_type") or "").strip(),
+            "external_id": (request.query_params.get("external_id") or "").strip(),
+        }
+
+        provider = SemanticSearchRegistry.create()
+        result = provider.search(
+            q,
+            organization_id=organization.id,
+            limit=limit,
+            filters=filters,
         )
-        indexed = Embedding.objects.filter(organization=organization).exists()
+
+        results = []
+        for hit in result.hits:
+            meta = hit.metadata or {}
+            start_ms = meta.get("start_ms")
+            end_ms = meta.get("end_ms")
+            results.append(
+                {
+                    "transcript_id": meta.get("transcript_id") or "",
+                    "segment_id": meta.get("segment_id") or hit.object_id,
+                    "speaker": meta.get("speaker") or "",
+                    "start_time": start_ms,
+                    "end_time": end_ms,
+                    "text": meta.get("text") or "",
+                    "score": hit.score,
+                    "external_references": meta.get("external_references") or [],
+                }
+            )
+
         return Response(
             {
-                "results": [],
-                "provider": None,
-                "indexed": bool(indexed),
+                "results": results,
+                "provider": result.provider or provider.code,
             }
         )

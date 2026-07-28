@@ -1,7 +1,7 @@
-# Semantic search (Phase 4.5.3)
+# Semantic search (Phase 4.5.3 / 4.5.4)
 
-Provider-agnostic foundation for indexing Speech Center objects (transcript
-segments) and querying them later. No production vector vendor is locked in.
+Provider-agnostic indexing for Speech Center transcript segments, with
+**PostgreSQL pgvector** as the first production-oriented vector backend.
 
 
 ## Architecture
@@ -12,11 +12,11 @@ transcript.created / analysis.completed
         ▼ (EventBus — failures isolated)
 SearchIndexService.index_transcript()
         │
-        ├─► Embedding rows (org-scoped, provider-neutral)
-        └─► SemanticSearchProvider.index_document()
+        ├─ content_hash unchanged → metadata refresh only
+        └─ else → SemanticSearchProvider.index_document()
                     │
-                    └─► NullSemanticSearchProvider (default no-op)
-                        or future pgvector / OpenSearch / Pinecone adapter
+                    ├─ PgVectorSearchProvider (default) — embed + persist vector
+                    └─ NullSemanticSearchProvider — Embedding row, empty vector
 ```
 
 Core services never import a vendor SDK — only ``SemanticSearchRegistry`` +
@@ -27,103 +27,140 @@ Core services never import a vendor SDK — only ``SemanticSearchRegistry`` +
 
 ```text
 turing/search/
-  base.py        SemanticSearchProvider + SearchDocument / SearchHit
-  registry.py    SemanticSearchRegistry
-  exceptions.py  SemanticSearch* errors
-  handlers.py    EventBus subscribers (non-blocking)
-  __init__.py    register_builtin_search_providers()
+  base.py              SemanticSearchProvider + SearchDocument / SearchHit
+  registry.py          SemanticSearchRegistry
+  embedder.py          Deterministic hashing-trick embedder (no LLM)
+  exceptions.py
+  handlers.py
+  providers/
+    pgvector.py        PgVectorSearchProvider
+  __init__.py          register_builtin_search_providers()
 
-turing/models/embedding.py   Embedding (vector JSON placeholder)
+turing/models/embedding.py
 turing/services/search_index.py
 ```
 
 
-## Provider abstraction
+## PgVector provider
 
-```python
-class SemanticSearchProvider(ABC):
-    code: str
-    def index_document(self, document: SearchDocument) -> None: ...
-    def delete_document(self, document_id: str, *, organization_id=None) -> None: ...
-    def search(self, query, *, organization_id, limit=20, filters=None) -> SearchResult: ...
+``PgVectorSearchProvider`` (``code=pgvector``):
+
+| Method | Behavior |
+|--------|----------|
+| `index_document` | Embed text → upsert org-scoped ``Embedding`` with float vector |
+| `delete_document` | Delete Embedding row (org-scoped when `organization_id` set) |
+| `search` | Cosine rank within **one** organization only |
+
+Vectors are stored as JSON float lists on ``Embedding.vector`` so the same
+path works on **SQLite (tests)** and **PostgreSQL**. Optional SQL distance via
+the Postgres ``vector`` extension can be enabled separately (see below).
+
+Default embedder is a deterministic local hashing trick (no OpenAI/LLM call).
+Hosts can later wrap a model-backed embedder without changing the provider
+interface.
+
+
+## Configuration
+
+| Setting | Default | Notes |
+|---------|---------|--------|
+| `TURING_SEARCH_PROVIDER` | `pgvector` | Registry code (`pgvector` or `null`) |
+| `TURING_SEARCH_EMBEDDING_DIMS` | `256` | Vector dimensionality |
+| `TURING_SEARCH_PGVECTOR_SQL` | `false` | Use Postgres `<=>` distance when extension exists |
+
+```bash
+export TURING_SEARCH_PROVIDER=pgvector
+export TURING_SEARCH_EMBEDDING_DIMS=256
+# Optional (Postgres + CREATE EXTENSION vector):
+# export TURING_SEARCH_PGVECTOR_SQL=true
 ```
 
-Default: ``NullSemanticSearchProvider`` (``code=null``) — no remote index.
+Fallback: set ``TURING_SEARCH_PROVIDER=null`` to keep Embedding rows without
+ranking (search API returns empty ``results`` with ``provider: "null"``).
 
-Register a future backend:
+
+## Migration notes
+
+- **0019** — creates ``Embedding`` (org, object_type/id, content_hash, vector JSON, metadata)
+- **0020** — adds ``dimensions``; updates vector help text; best-effort
+  ``CREATE EXTENSION IF NOT EXISTS vector`` on PostgreSQL (no-op if missing
+  privileges or on SQLite)
+
+Re-index after switching from null → pgvector (or changing dims) so vectors
+are populated:
 
 ```python
-@SemanticSearchRegistry.register
-class PgvectorSearchProvider(SemanticSearchProvider):
-    code = "pgvector"
-    ...
-SemanticSearchRegistry.set_default("pgvector")
+from turing.services.search_index import SearchIndexService
+SearchIndexService().index_transcript(transcript)
 ```
 
 
 ## Embedding model
 
-Org-scoped, provider-neutral:
-
 | Field | Notes |
 |-------|--------|
-| `organization` | Data boundary |
-| `object_type` | e.g. `transcript_segment` |
-| `object_id` | Segment UUID string |
-| `content_hash` | SHA-256 of indexed text |
-| `vector` | JSON list placeholder (empty until a provider fills it) |
-| `metadata` | transcript_id, media_id, speaker, timestamps, external_references |
+| `organization` | Data boundary (required) |
+| `object_type` / `object_id` | Unique per org |
+| `content_hash` | SHA-256 of indexed text (skip re-embed when unchanged) |
+| `vector` | pgvector-compatible float list |
+| `dimensions` | Embedding size (0 for null provider rows) |
+| `metadata` | transcript_id, segment_id, speaker, start/end_ms, text, external_references |
 
 
 ## Indexing rules
 
-``SearchIndexService`` indexes **segments**, not full transcript text alone.
+``SearchIndexService`` indexes **segments**.
 
-Each chunk metadata includes:
-
-- `transcript_id`
-- `media_id`
-- `speaker`
-- `start_ms` / `end_ms`
-- `external_references` snapshot
+- Same ``content_hash`` → metadata refresh only (no duplicate embedding)
+- Hash change → provider re-embeds and upserts
+- Failures on EventBus handlers are logged and never block STT/analysis
 
 
-## Events
-
-Subscribed (in-process ``EventBus``):
-
-- `transcript.created` → index segments
-- `analysis.completed` → re-index (metadata refresh)
-
-Failures are logged and swallowed — they never block STT or analysis.
-
-
-## API foundation
+## API
 
 ```http
-GET /api/turing/v1/search/?q=renewal&external_system=salesforce&external_type=call&external_id=SF-1
+GET /api/turing/v1/search/?q=renewal&external_system=salesforce&external_type=call&limit=20
 ```
 
-Requires ``view_transcript``. Placeholder response:
+Requires ``view_transcript``. Response:
 
 ```json
 {
-  "results": [],
-  "provider": null,
-  "indexed": false
+  "results": [
+    {
+      "transcript_id": "...",
+      "segment_id": "...",
+      "speaker": "S1",
+      "start_time": 0,
+      "end_time": 2000,
+      "text": "Discuss renewal pricing today.",
+      "score": 0.82,
+      "external_references": [
+        {"external_system": "salesforce", "external_type": "call", "external_id": "SF-1"}
+      ]
+    }
+  ],
+  "provider": "pgvector"
 }
 ```
 
-``indexed`` becomes ``true`` when the org has at least one ``Embedding`` row.
-Query params are accepted for forward compatibility.
+``start_time`` / ``end_time`` are milliseconds (same units as segment
+``start_ms`` / ``end_ms``). External filters are applied **inside** the
+resolved organization — never across tenants.
 
 
-## Future vector providers
+## Security
 
-Planned adapters (not in this phase):
+- Every search requires a resolved organization + ``view_transcript``
+- Vector lookup is always ``organization_id``-scoped
+- External reference filters cannot escape the org boundary
 
-- PostgreSQL + pgvector
+
+## Other backends
+
+Still pluggable via ``SemanticSearchRegistry``:
+
 - OpenSearch / Elasticsearch k-NN
 - Managed: Pinecone, Weaviate, Qdrant
 
-Out of scope here: RAG/chat assistants, sentiment, frontend UI, LLM workflow changes.
+Out of scope: RAG/chat assistants, sentiment, frontend UI, LLM workflow changes.

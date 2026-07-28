@@ -16,9 +16,9 @@ class Embedding(UUIDModel):
     """
     Org-scoped search index row for Speech Center objects.
 
-    ``vector`` is a provider-neutral placeholder (JSON list of floats or empty).
-    Concrete vector backends may sync from this table without locking Turing to
-    a single vendor schema.
+    ``vector`` stores a float array compatible with PostgreSQL pgvector (JSON
+    list on all backends; optional SQL distance when the ``vector`` extension
+    is enabled). Metadata fields remain provider-neutral.
     """
 
     organization = models.ForeignKey(
@@ -38,7 +38,11 @@ class Embedding(UUIDModel):
     vector = models.JSONField(
         default=list,
         blank=True,
-        help_text="Provider-neutral embedding placeholder (list of floats).",
+        help_text="pgvector-compatible embedding (list of floats).",
+    )
+    dimensions = models.PositiveIntegerField(
+        default=0,
+        help_text="Embedding dimensionality (0 = unset / null provider).",
     )
     metadata = models.JSONField(default=dict, blank=True)
 

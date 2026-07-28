@@ -136,9 +136,10 @@ def search_setup(db, monkeypatch):
 
 def test_provider_registry():
     assert "null" in SemanticSearchRegistry.codes()
-    provider = SemanticSearchRegistry.create()
-    assert isinstance(provider, NullSemanticSearchProvider)
-    assert provider.search("q", organization_id=1).hits == []
+    assert "pgvector" in SemanticSearchRegistry.codes()
+    null = SemanticSearchRegistry.create("null")
+    assert isinstance(null, NullSemanticSearchProvider)
+    assert null.search("q", organization_id=1).hits == []
     with pytest.raises(SemanticSearchProviderNotFoundError):
         SemanticSearchRegistry.get("does-not-exist")
 
@@ -146,7 +147,10 @@ def test_provider_registry():
 @pytest.mark.django_db
 def test_indexing_service(search_setup):
     transcript = search_setup["transcript"]
-    count = SearchIndexService().index_transcript(transcript)
+    # Foundation path still works with null provider (empty vectors).
+    count = SearchIndexService(
+        provider=NullSemanticSearchProvider()
+    ).index_transcript(transcript)
     assert count == 2
     rows = Embedding.objects.filter(organization=search_setup["org"])
     assert rows.count() == 2
@@ -158,7 +162,9 @@ def test_indexing_service(search_setup):
     assert row.metadata["external_references"]
     assert row.vector == []
 
-    removed = SearchIndexService().remove_index(transcript)
+    removed = SearchIndexService(
+        provider=NullSemanticSearchProvider()
+    ).remove_index(transcript)
     assert removed == 2
     assert Embedding.objects.filter(organization=search_setup["org"]).count() == 0
 
@@ -206,25 +212,29 @@ def test_event_handler_indexes(search_setup):
 
 
 @pytest.mark.django_db
-def test_org_isolation_and_empty_search_contract(search_setup):
+def test_org_isolation_with_null_provider(search_setup, settings):
+    settings.TURING_SEARCH_PROVIDER = "null"
+    SemanticSearchRegistry.clear()
+    register_builtin_search_providers()
+
     transcript = search_setup["transcript"]
-    SearchIndexService().index_transcript(transcript)
+    SearchIndexService(provider=NullSemanticSearchProvider()).index_transcript(
+        transcript
+    )
 
     viewer = APIClient()
     viewer.force_authenticate(user=search_setup["viewer"])
     ok = viewer.get(SEARCH_URL, {"q": "renewal"})
     assert ok.status_code == 200
     assert ok.data["results"] == []
-    assert ok.data["provider"] is None
-    assert ok.data["indexed"] is True
+    assert ok.data["provider"] == "null"
 
     outsider = APIClient()
     outsider.force_authenticate(user=search_setup["outsider"])
     other = outsider.get(SEARCH_URL, {"q": "renewal"})
     assert other.status_code == 200
     assert other.data["results"] == []
-    assert other.data["provider"] is None
-    assert other.data["indexed"] is False  # other org has no embeddings
+    assert other.data["provider"] == "null"
 
 
 @pytest.mark.django_db

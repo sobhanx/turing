@@ -190,7 +190,6 @@ service layer when hosts need analysis ids / provider metadata.
 ## Out of scope (later Phase 4.5+)
 
 - Frontend Speech Center UI
-- Vector / semantic search
 - Sentiment analysis
 - LLM provider changes
 - New connectors
