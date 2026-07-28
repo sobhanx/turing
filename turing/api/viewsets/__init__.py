@@ -1190,10 +1190,11 @@ def _serialize_speech_center_context(context: dict) -> dict:
 
 class SpeechCenterViewSet(viewsets.ViewSet):
     """
-    Unified Speech Center access for host applications (Phase 4.5.1).
+    Unified Speech Center access for host applications (Phase 4.5.1 / 4.5.2).
 
     GET /speech-center/?external_system=&external_type=&external_id=
     GET /speech-center/{transcript_id}/timeline/
+    GET /speech-center/{transcript_id}/intelligence/
     """
 
     required_capability = "view_transcript"
@@ -1254,5 +1255,31 @@ class SpeechCenterViewSet(viewsets.ViewSet):
                     payload["analysis_references"],
                     many=True,
                 ).data,
+            }
+        )
+
+    @action(detail=True, methods=["get"], url_path="intelligence")
+    def intelligence(self, request, pk=None):
+        from turing.services.speech_center import SpeechCenterService
+
+        service = SpeechCenterService()
+        try:
+            transcript = service.get_transcript_for_user(pk, user=request.user)
+            payload = service.get_latest_intelligence(transcript, user=request.user)
+        except TuringError as exc:
+            return _error_response(exc)
+
+        generated_at = payload.get("generated_at")
+        return Response(
+            {
+                "transcript_id": str(transcript.id),
+                "intelligence": {
+                    "summary": payload.get("summary"),
+                    "topics": payload.get("topics"),
+                    "action_items": payload.get("action_items"),
+                },
+                "generated_at": (
+                    generated_at.isoformat() if generated_at is not None else None
+                ),
             }
         )

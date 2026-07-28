@@ -1,4 +1,4 @@
-# Speech Center API (Phase 4.5.1)
+# Speech Center API (Phase 4.5.1 / 4.5.2)
 
 Host applications use these endpoints to embed Speech Center experiences
 (CRM records, meetings, call-center interactions) without a Turing frontend.
@@ -91,13 +91,72 @@ GET /api/turing/v1/speech-center/{transcript_id}/timeline/
 ```
 
 
+## Intelligence contract (Phase 4.5.2)
+
+Host-ready intelligence layer (content only — not raw analysis history rows).
+
+```http
+GET /api/turing/v1/speech-center/{transcript_id}/intelligence/
+```
+
+```json
+{
+  "transcript_id": "...",
+  "intelligence": {
+    "summary": { "summary": "...", "main_points": ["..."] },
+    "topics": ["renewal", "pricing"],
+    "action_items": [{ "task": "Send quote", "owner": "Ada" }]
+  },
+  "generated_at": "2026-01-01T12:00:00+00:00"
+}
+```
+
+### Latest semantics
+
+Uses ``TranscriptAnalysisService.latest_by_type()`` (append-only history):
+
+| Field | Rule |
+|-------|------|
+| `summary` | Newest ``summary`` row content, or ``null`` |
+| `topics` | Newest ``topics`` row content, or ``null`` |
+| `action_items` | Newest ``action_items`` row content, or ``null`` |
+| `generated_at` | Max ``created_at`` among available latest rows, or ``null`` |
+
+Missing types stay ``null`` so hosts can poll while generation runs.
+
+### Service contract
+
+``SpeechCenterService.get_latest_intelligence()`` / ``aggregate_analyses()`` /
+``intelligence_summary()`` return:
+
+```json
+{
+  "summary": { "...": "..." },
+  "topics": ["..."],
+  "action_items": [{ "task": "..." }],
+  "metadata": {
+    "summary_id": "...",
+    "topics_id": "...",
+    "action_items_id": "...",
+    "providers": { "summary": "fake", "topics": "fake", "action_items": "fake" },
+    "model_names": { "summary": "...", "topics": "...", "action_items": "..." },
+    "available_types": ["summary", "topics", "action_items"]
+  },
+  "generated_at": "..."
+}
+```
+
+The HTTP intelligence endpoint exposes content fields + ``generated_at``; use the
+service layer when hosts need analysis ids / provider metadata.
+
+
 ## Host usage patterns
 
 ### CRM
 
 1. Attach ``ExternalReference(salesforce/call/<Id>)`` when ingesting (connector or host).
 2. Open the CRM record → call Speech Center lookup with that key.
-3. Render summary / topics / action items from ``analyses``.
+3. Prefer ``…/intelligence/`` for summary / topics / action items cards.
 4. Open the player/timeline via ``…/speech-center/{transcript_id}/timeline/``.
 
 ### Meetings
@@ -110,7 +169,7 @@ GET /api/turing/v1/speech-center/{transcript_id}/timeline/
 
 1. Twilio (or other ``TelephonyConnector``) links ``ExternalReference(twilio/call/<CallSid>)``.
 2. Agent or supervisor UI loads Speech Center by Call SID.
-3. Timeline segments + speakers support QA review; analysis refs point at latest intelligence rows.
+3. Timeline segments + speakers support QA review; intelligence endpoint feeds side panels.
 
 
 ## Service layer
@@ -121,7 +180,10 @@ GET /api/turing/v1/speech-center/{transcript_id}/timeline/
 |--------|---------|
 | `get_by_external_reference(...)` | Host key → unified context |
 | `get_transcript_context(transcript)` | Build media/transcript/speakers/analyses payload |
-| `get_available_intelligence(transcript)` | Latest summary / topics / action_items |
+| `get_available_intelligence(transcript)` | Latest analysis *rows* per type |
+| `get_latest_intelligence(transcript)` | Host-ready intelligence contract |
+| `aggregate_analyses(...)` | Collapse rows → unified contract |
+| `intelligence_summary(transcript)` | Alias of `get_latest_intelligence` |
 | `get_timeline(transcript)` | Segments, speakers, timestamps, analysis refs |
 
 
@@ -130,4 +192,5 @@ GET /api/turing/v1/speech-center/{transcript_id}/timeline/
 - Frontend Speech Center UI
 - Vector / semantic search
 - Sentiment analysis
+- LLM provider changes
 - New connectors

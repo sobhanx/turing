@@ -167,6 +167,112 @@ class SpeechCenterService:
                 result[analysis_type] = None
         return result
 
+    def get_latest_intelligence(
+        self,
+        transcript: Transcript,
+        *,
+        user: AbstractBaseUser | None = None,
+    ) -> dict[str, Any]:
+        """
+        Host-ready intelligence layer using latest-per-type semantics.
+
+        Returns unified structure::
+
+            {
+              "summary": <content>|None,
+              "topics": <content>|None,
+              "action_items": <content>|None,
+              "metadata": {...},
+              "generated_at": <datetime>|None,
+            }
+        """
+        if user is not None:
+            assert_organization_access(
+                user,
+                transcript.organization,
+                capability="view_transcript",
+            )
+        latest = self.get_available_intelligence(transcript, user=None)
+        return self.aggregate_analyses(latest)
+
+    def aggregate_analyses(
+        self,
+        analyses: dict[str, TranscriptAnalysis | None] | list[TranscriptAnalysis],
+    ) -> dict[str, Any]:
+        """
+        Collapse analysis rows into the unified Speech Center intelligence contract.
+
+        When given a list, keeps the newest row per ``analysis_type``.
+        """
+        by_type: dict[str, TranscriptAnalysis | None]
+        if isinstance(analyses, dict):
+            by_type = {
+                AnalysisType.SUMMARY: analyses.get(AnalysisType.SUMMARY),
+                AnalysisType.TOPICS: analyses.get(AnalysisType.TOPICS),
+                AnalysisType.ACTION_ITEMS: analyses.get(AnalysisType.ACTION_ITEMS),
+            }
+        else:
+            by_type = {
+                AnalysisType.SUMMARY: None,
+                AnalysisType.TOPICS: None,
+                AnalysisType.ACTION_ITEMS: None,
+            }
+            for row in analyses:
+                if row is None:
+                    continue
+                current = by_type.get(row.analysis_type)
+                if current is None or row.created_at >= current.created_at:
+                    by_type[row.analysis_type] = row
+
+        summary = by_type.get(AnalysisType.SUMMARY)
+        topics = by_type.get(AnalysisType.TOPICS)
+        action_items = by_type.get(AnalysisType.ACTION_ITEMS)
+        present = [row for row in (summary, topics, action_items) if row is not None]
+        generated_at = max((row.created_at for row in present), default=None)
+
+        return {
+            "summary": summary.content if summary is not None else None,
+            "topics": topics.content if topics is not None else None,
+            "action_items": action_items.content if action_items is not None else None,
+            "metadata": {
+                "summary_id": str(summary.id) if summary is not None else None,
+                "topics_id": str(topics.id) if topics is not None else None,
+                "action_items_id": str(action_items.id) if action_items is not None else None,
+                "providers": {
+                    AnalysisType.SUMMARY: (summary.provider or "") if summary else "",
+                    AnalysisType.TOPICS: (topics.provider or "") if topics else "",
+                    AnalysisType.ACTION_ITEMS: (
+                        (action_items.provider or "") if action_items else ""
+                    ),
+                },
+                "model_names": {
+                    AnalysisType.SUMMARY: (summary.model_name or "") if summary else "",
+                    AnalysisType.TOPICS: (topics.model_name or "") if topics else "",
+                    AnalysisType.ACTION_ITEMS: (
+                        (action_items.model_name or "") if action_items else ""
+                    ),
+                },
+                "available_types": [
+                    key for key, row in by_type.items() if row is not None
+                ],
+            },
+            "generated_at": generated_at,
+        }
+
+    def intelligence_summary(
+        self,
+        transcript: Transcript,
+        *,
+        user: AbstractBaseUser | None = None,
+    ) -> dict[str, Any]:
+        """
+        Convenience wrapper for hosts: latest intelligence contract for a transcript.
+
+        Equivalent to ``get_latest_intelligence`` (kept as an explicit Speech Center
+        API surface name).
+        """
+        return self.get_latest_intelligence(transcript, user=user)
+
     def get_timeline(
         self,
         transcript: Transcript,

@@ -123,17 +123,20 @@ Includes:
 
 ## Phase 4.5 status
 
-**Phase 4.5.1 Speech Center backend API foundation is in place.**
+**Phase 4.5.1–4.5.2 Speech Center backend API + intelligence aggregation are in
+place.**
 
 Includes:
 
 - `SpeechCenterService` (external lookup, transcript context, intelligence, timeline)
 - `GET /api/turing/v1/speech-center/` host-object aggregation
 - `GET /api/turing/v1/speech-center/{transcript_id}/timeline/`
+- `GET /api/turing/v1/speech-center/{transcript_id}/intelligence/` (latest-per-type)
+- Host-ready intelligence contract (`summary` / `topics` / `action_items`)
 - Docs: `docs/speech-center-api.md`
 
 
-## Current Limitations (post–Phase 4.5.1)
+## Current Limitations (post–Phase 4.5.2)
 
 - No frontend Speech Center UI
 - No vector / semantic search
