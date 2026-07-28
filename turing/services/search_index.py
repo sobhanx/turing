@@ -132,16 +132,22 @@ class SearchIndexService:
                 continue
             object_id = str(segment.id)
             content_hash = _content_hash(text)
-            speaker_label = ""
+            speaker_display = ""
+            speaker_label_value = ""
+            speaker_name_value = ""
             if segment.speaker_id and segment.speaker is not None:
-                speaker_label = segment.speaker.resolved_name or segment.speaker.label or ""
+                speaker_display = segment.speaker.resolved_name
+                speaker_label_value = segment.speaker.speaker_label
+                speaker_name_value = segment.speaker.speaker_name
 
             metadata: dict[str, Any] = {
                 "transcript_id": str(transcript.id),
                 "media_id": media_id,
                 "segment_id": object_id,
                 "sequence": segment.sequence,
-                "speaker": speaker_label,
+                "speaker": speaker_display,
+                "speaker_label": speaker_label_value,
+                "speaker_name": speaker_name_value,
                 "start_ms": segment.start_ms,
                 "end_ms": segment.end_ms,
                 "text": text,

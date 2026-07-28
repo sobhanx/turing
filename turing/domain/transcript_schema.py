@@ -15,7 +15,7 @@ def normalize_word_dict(payload: dict[str, Any] | NormalizedWord) -> dict[str, A
     Map provider-specific or NormalizedWord payloads into the shared word schema.
 
     Output always contains: text, start_ms, end_ms, confidence.
-    Extra keys (e.g. speaker_label) are preserved for forward compatibility.
+    Extra keys (e.g. speaker_label, speaker_name) are preserved for forward compatibility.
     """
     if isinstance(payload, NormalizedWord):
         data = {

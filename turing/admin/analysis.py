@@ -3,11 +3,14 @@ from __future__ import annotations
 from django.contrib import admin
 
 from turing.admin.authz import CapabilityGatedAdminMixin, admin_scope_queryset
+from turing.admin.persian import PersianAdminMixin
 from turing.models import TranscriptAnalysis
 
 
 @admin.register(TranscriptAnalysis)
-class TranscriptAnalysisAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+class TranscriptAnalysisAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
+    """Speech intelligence / analysis browser (append-only rows)."""
+
     turing_view_capability = "view_transcript"
     turing_change_capability = "view_transcript"
     turing_add_capability = "view_transcript"
@@ -22,8 +25,16 @@ class TranscriptAnalysisAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
         "organization",
         "created_at",
     )
-    list_filter = ("analysis_type", "provider", "organization")
-    search_fields = ("id", "transcript__id")
+    list_filter = (
+        ("transcript", admin.RelatedOnlyFieldListFilter),
+        "analysis_type",
+        "provider",
+        ("organization", admin.RelatedOnlyFieldListFilter),
+        "created_at",
+    )
+    search_fields = ("id", "transcript__id", "transcript__media__original_filename")
+    list_select_related = ("transcript", "transcript__media", "organization")
+    list_per_page = 50
     readonly_fields = (
         "transcript",
         "organization",
@@ -45,5 +56,9 @@ class TranscriptAnalysisAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
         return False
 
     def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return admin_scope_queryset(qs, request, field="organization_id")
+        qs = (
+            super()
+            .get_queryset(request)
+            .select_related("transcript", "transcript__media", "organization")
+        )
+        return admin_scope_queryset(qs, request.user, field="organization_id")

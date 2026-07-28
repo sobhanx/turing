@@ -3,20 +3,24 @@ from __future__ import annotations
 from django.contrib import admin, messages
 from django.utils.html import format_html
 
+from turing.admin import fa as fa_labels
 from turing.admin.authz import (
     CapabilityGatedAdminMixin,
     admin_assert_capability,
     admin_scope_queryset,
 )
+from turing.admin.persian import PersianAdminMixin, PersianInlineMixin
 from turing.domain.enums import JobStatus
 from turing.domain.exceptions import PermissionDeniedError
 from turing.models import ProcessingAttempt, ProcessingJob, ProcessingLog
 from turing.services.job_orchestrator import JobOrchestrator
 
 
-class ProcessingAttemptInline(admin.TabularInline):
+class ProcessingAttemptInline(PersianInlineMixin, admin.TabularInline):
     model = ProcessingAttempt
     extra = 0
+    verbose_name = fa_labels.MODEL_TITLES["ProcessingAttempt"][0]
+    verbose_name_plural = fa_labels.MODEL_TITLES["ProcessingAttempt"][1]
     readonly_fields = (
         "attempt_number",
         "provider_code",
@@ -30,16 +34,18 @@ class ProcessingAttemptInline(admin.TabularInline):
     can_delete = False
 
 
-class ProcessingLogInline(admin.TabularInline):
+class ProcessingLogInline(PersianInlineMixin, admin.TabularInline):
     model = ProcessingLog
     extra = 0
+    verbose_name = fa_labels.MODEL_TITLES["ProcessingLog"][0]
+    verbose_name_plural = fa_labels.MODEL_TITLES["ProcessingLog"][1]
     readonly_fields = ("level", "message", "context", "created_at")
     can_delete = False
     ordering = ("-created_at",)
 
 
 @admin.register(ProcessingJob)
-class ProcessingJobAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+class ProcessingJobAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
     turing_view_capability = "view_transcript"
     turing_change_capability = "manage_jobs"
     turing_add_capability = "manage_jobs"
@@ -93,7 +99,7 @@ class ProcessingJobAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
             return
         admin.ModelAdmin.save_model(self, request, obj, form, change)
 
-    @admin.display(description="Status")
+    @admin.display(description=fa_labels.FIELD_LABELS["status"])
     def status_badge(self, obj: ProcessingJob):
         colors = {
             JobStatus.PENDING: "#6c757d",
@@ -108,14 +114,14 @@ class ProcessingJobAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
         return format_html(
             '<span style="padding:2px 8px;border-radius:4px;background:{};color:#fff;">{}</span>',
             color,
-            obj.get_status_display(),
+            fa_labels.status_label(obj.status, obj.get_status_display()),
         )
 
-    @admin.display(description="Media")
+    @admin.display(description=fa_labels.FIELD_LABELS["media"])
     def media_link(self, obj: ProcessingJob):
         return obj.media.display_name
 
-    @admin.action(description="Enqueue selected jobs")
+    @admin.action(description="افزودن به صف")
     def enqueue_jobs(self, request, queryset):
         orch = JobOrchestrator()
         count = 0
@@ -130,9 +136,9 @@ class ProcessingJobAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
                 count += 1
             except (PermissionDeniedError, Exception) as exc:  # noqa: BLE001
                 self.message_user(request, f"{job.id}: {exc}", messages.ERROR)
-        self.message_user(request, f"Enqueued {count} job(s).", messages.SUCCESS)
+        self.message_user(request, f"{count} پردازش به صف اضافه شد.", messages.SUCCESS)
 
-    @admin.action(description="Retry failed jobs")
+    @admin.action(description="تلاش مجدد پردازش‌های ناموفق")
     def retry_jobs(self, request, queryset):
         orch = JobOrchestrator()
         count = 0
@@ -147,9 +153,9 @@ class ProcessingJobAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
                 count += 1
             except (PermissionDeniedError, Exception) as exc:  # noqa: BLE001
                 self.message_user(request, f"{job.id}: {exc}", messages.ERROR)
-        self.message_user(request, f"Retried {count} job(s).", messages.SUCCESS)
+        self.message_user(request, f"{count} پردازش مجدداً تلاش شد.", messages.SUCCESS)
 
-    @admin.action(description="Cancel selected jobs")
+    @admin.action(description="لغو پردازش‌های انتخاب‌شده")
     def cancel_jobs(self, request, queryset):
         orch = JobOrchestrator()
         count = 0
@@ -164,11 +170,11 @@ class ProcessingJobAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
                 count += 1
             except (PermissionDeniedError, Exception) as exc:  # noqa: BLE001
                 self.message_user(request, f"{job.id}: {exc}", messages.ERROR)
-        self.message_user(request, f"Cancelled {count} job(s).", messages.SUCCESS)
+        self.message_user(request, f"{count} پردازش لغو شد.", messages.SUCCESS)
 
 
 @admin.register(ProcessingLog)
-class ProcessingLogAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+class ProcessingLogAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
     turing_view_capability = "view_transcript"
     turing_change_capability = "manage_jobs"
     turing_delete_capability = "manage_jobs"
@@ -191,6 +197,6 @@ class ProcessingLogAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
     def has_add_permission(self, request) -> bool:
         return False
 
-    @admin.display(description="Message")
+    @admin.display(description=fa_labels.FIELD_LABELS["message"])
     def message_short(self, obj: ProcessingLog):
         return obj.message[:120]

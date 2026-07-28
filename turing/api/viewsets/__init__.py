@@ -493,7 +493,7 @@ class SpeakerViewSet(
         try:
             updated = TranscriptService().rename_speaker(
                 speaker=speaker,
-                display_name=serializer.validated_data["display_name"],
+                speaker_name=serializer.validated_data["speaker_name"],
                 edited_by=request.user,
             )
         except TuringError as exc:

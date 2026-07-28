@@ -4,12 +4,13 @@ from django.contrib import admin
 from django.utils.html import format_html
 
 from turing.admin.authz import CapabilityGatedAdminMixin, admin_scope_queryset
+from turing.admin.persian import PersianAdminMixin
 from turing.models import ConnectorCredential, ConnectorInstallation, ConnectorSyncJob
 from turing.models.connector import redact_connector_config
 
 
 @admin.register(ConnectorInstallation)
-class ConnectorInstallationAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+class ConnectorInstallationAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
     turing_view_capability = "manage_config"
     turing_change_capability = "manage_config"
     turing_add_capability = "manage_config"
@@ -40,26 +41,26 @@ class ConnectorInstallationAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
             },
         ),
         (
-            "Configuration",
+            "پیکربندی",
             {
                 "fields": ("config_public", "config", "credential_summary"),
                 "description": (
-                    "Secrets in config are masked in the public view. "
-                    "OAuth tokens are stored encrypted on ConnectorCredential "
-                    "and are never shown here."
+                    "اسرار موجود در پیکربندی در نمای عمومی ماسک می‌شوند. "
+                    "توکن‌های OAuth به‌صورت رمزنگاری‌شده در اعتبارنامه اتصال ذخیره می‌شوند "
+                    "و اینجا نمایش داده نمی‌شوند."
                 ),
             },
         ),
-        ("Timestamps", {"fields": ("created_at", "updated_at")}),
+        ("زمان‌ها", {"fields": ("created_at", "updated_at")}),
     )
 
-    @admin.display(description="Config (redacted)")
+    @admin.display(description="پیکربندی (ماسک‌شده)")
     def config_public(self, obj: ConnectorInstallation) -> str:
         if not obj or not obj.pk:
             return "(none)"
         return str(redact_connector_config(obj.config))
 
-    @admin.display(description="Credential")
+    @admin.display(description="اعتبارنامه")
     def credential_summary(self, obj: ConnectorInstallation) -> str:
         if not obj or not obj.pk:
             return "(none)"
@@ -76,13 +77,17 @@ class ConnectorInstallationAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
             parts.append(f"expires={cred.expires_at.isoformat()}")
         return ", ".join(parts)
 
-    @admin.display(description="Last sync")
+    @admin.display(description="آخرین همگام‌سازی")
     def last_sync_display(self, obj: ConnectorInstallation) -> str:
         job = obj.sync_jobs.order_by("-created_at").first()
         if job is None:
             return "—"
         when = job.finished_at or job.started_at or job.created_at
-        return format_html("{} · {}", job.status, when)
+        return format_html(
+            '<span class="ltr" style="direction:ltr;unicode-bidi:isolate;">{} · {}</span>',
+            job.status,
+            when,
+        )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request).select_related("organization")
@@ -90,7 +95,7 @@ class ConnectorInstallationAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
 
 
 @admin.register(ConnectorCredential)
-class ConnectorCredentialAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+class ConnectorCredentialAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
     """Read-only credential metadata — never display decrypted tokens."""
 
     turing_view_capability = "manage_config"
@@ -138,11 +143,11 @@ class ConnectorCredentialAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         return False
 
-    @admin.display(boolean=True, description="Access token")
+    @admin.display(boolean=True, description="توکن دسترسی")
     def has_access(self, obj: ConnectorCredential) -> bool:
         return obj.has_access_token()
 
-    @admin.display(boolean=True, description="Refresh token")
+    @admin.display(boolean=True, description="توکن تازه‌سازی")
     def has_refresh(self, obj: ConnectorCredential) -> bool:
         return obj.has_refresh_token()
 
@@ -155,7 +160,7 @@ class ConnectorCredentialAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
 
 
 @admin.register(ConnectorSyncJob)
-class ConnectorSyncJobAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+class ConnectorSyncJobAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
     turing_view_capability = "manage_config"
     turing_change_capability = "manage_config"
     turing_add_capability = "manage_config"
@@ -196,11 +201,11 @@ class ConnectorSyncJobAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         return False
 
-    @admin.display(description="Type", ordering="installation__connector_type")
+    @admin.display(description="نوع", ordering="installation__connector_type")
     def connector_type(self, obj: ConnectorSyncJob) -> str:
         return obj.installation.connector_type if obj.installation_id else ""
 
-    @admin.display(description="Organization", ordering="installation__organization")
+    @admin.display(description="سازمان", ordering="installation__organization")
     def organization(self, obj: ConnectorSyncJob):
         return obj.installation.organization if obj.installation_id else None
 

@@ -44,7 +44,12 @@ class SpeechmaticsAdapter(STTProvider):
         except Exception:
             pass
         self._operating_point_default = operating_point
-        self._client = SpeechmaticsClient(api_key=api_key, base_url=base_url)
+        self._client = SpeechmaticsClient(
+            api_key=api_key,
+            base_url=base_url,
+            connect_timeout=settings.speechmatics_connect_timeout,
+            upload_timeout=settings.speechmatics_upload_timeout,
+        )
         return self._client
 
     def submit(self, request: TranscriptionRequest) -> ProviderJobHandle:

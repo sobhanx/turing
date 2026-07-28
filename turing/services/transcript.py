@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from django.contrib.auth.models import AbstractBaseUser
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Max, Q, QuerySet
@@ -27,6 +29,8 @@ from turing.models import (
     TranscriptWord,
 )
 from turing.providers.types import NormalizedTranscript
+
+logger = logging.getLogger(__name__)
 
 
 class TranscriptService:
@@ -79,8 +83,8 @@ class TranscriptService:
         for sp in normalized.speakers:
             speakers_by_label[sp.label] = Speaker.objects.create(
                 transcript=transcript,
-                label=sp.label,
-                display_name=sp.display_name or sp.label,
+                speaker_label=sp.label,
+                speaker_name=(sp.display_name or "").strip(),
                 external_speaker_id=sp.external_speaker_id,
                 confidence=sp.confidence,
             )
@@ -89,16 +93,19 @@ class TranscriptService:
             if seg.speaker_label and seg.speaker_label not in speakers_by_label:
                 speakers_by_label[seg.speaker_label] = Speaker.objects.create(
                     transcript=transcript,
-                    label=seg.speaker_label,
-                    display_name=seg.speaker_label,
+                    speaker_label=seg.speaker_label,
+                    speaker_name="",
                 )
 
         created_segments: list[TranscriptSegment] = []
         for seg in normalized.segments:
+            speaker = speakers_by_label.get(seg.speaker_label or "")
             word_payloads = words_to_json_list(seg.words)
+            if speaker is not None:
+                word_payloads = self._stamp_speaker_identity(word_payloads, speaker)
             segment = TranscriptSegment.objects.create(
                 transcript=transcript,
-                speaker=speakers_by_label.get(seg.speaker_label or ""),
+                speaker=speaker,
                 sequence=seg.sequence,
                 start_ms=seg.start_ms,
                 end_ms=seg.end_ms,
@@ -244,9 +251,16 @@ class TranscriptService:
         self,
         *,
         speaker: Speaker,
-        display_name: str,
+        speaker_name: str | None = None,
+        display_name: str | None = None,
         edited_by: AbstractBaseUser | None = None,
     ) -> Speaker:
+        """
+        Set editable ``speaker_name`` while preserving immutable ``speaker_label``.
+
+        Propagates the name into segment word JSON, TranscriptWord metadata, and
+        the semantic search index.
+        """
         transcript = speaker.transcript
         assert_transcript_editable(transcript.status)
         if edited_by is not None:
@@ -257,19 +271,81 @@ class TranscriptService:
                 transcript.organization,
                 capability="edit_transcript",
             )
-        speaker.display_name = display_name
-        speaker.save(update_fields=["display_name", "updated_at"])
+        # Prefer speaker_name; display_name kept as API/admin alias.
+        new_name = speaker_name if speaker_name is not None else display_name
+        if new_name is None:
+            new_name = ""
+        new_name = str(new_name).strip()
+        speaker.speaker_name = new_name
+        speaker.save(update_fields=["speaker_name", "updated_at"])
+        self._propagate_speaker_name(speaker)
         self.recompute_full_text(transcript)
         transcript.version += 1
         transcript.save(update_fields=["full_text", "version", "updated_at"])
         self._create_revision(
             transcript,
             source=RevisionSource.HUMAN,
-            change_summary=f"Renamed speaker {speaker.label} → {display_name}",
+            change_summary=(
+                f"Renamed speaker {speaker.speaker_label} → {speaker.resolved_name}"
+            ),
             created_by=edited_by,
-            diff={"speaker_id": str(speaker.id), "display_name": display_name},
+            diff={
+                "speaker_id": str(speaker.id),
+                "speaker_label": speaker.speaker_label,
+                "speaker_name": speaker.speaker_name,
+            },
         )
+        self._reindex_after_speaker_rename(transcript)
         return speaker
+
+    def _stamp_speaker_identity(
+        self, words: list[dict], speaker: Speaker
+    ) -> list[dict]:
+        """Ensure word payloads carry speaker_label + current speaker_name."""
+        stamped: list[dict] = []
+        for word in words:
+            if not isinstance(word, dict):
+                continue
+            row = dict(word)
+            row["speaker_label"] = speaker.speaker_label
+            if speaker.speaker_name:
+                row["speaker_name"] = speaker.speaker_name
+            else:
+                row.pop("speaker_name", None)
+            stamped.append(row)
+        return stamped
+
+    def _propagate_speaker_name(self, speaker: Speaker) -> None:
+        """Update denormalized speaker_name on segments/words; keep speaker_label."""
+        segments = list(TranscriptSegment.objects.filter(speaker=speaker))
+        for segment in segments:
+            words = segment.words if isinstance(segment.words, list) else []
+            dict_words = [w for w in words if isinstance(w, dict)]
+            if not dict_words and not words:
+                continue
+            segment.words = self._stamp_speaker_identity(dict_words, speaker)
+            segment.save(update_fields=["words", "updated_at"])
+
+        for tw in TranscriptWord.objects.filter(segment__speaker=speaker).iterator():
+            meta = dict(tw.metadata or {})
+            meta["speaker_label"] = speaker.speaker_label
+            if speaker.speaker_name:
+                meta["speaker_name"] = speaker.speaker_name
+            else:
+                meta.pop("speaker_name", None)
+            tw.metadata = meta
+            tw.save(update_fields=["metadata", "updated_at"])
+
+    def _reindex_after_speaker_rename(self, transcript: Transcript) -> None:
+        try:
+            from turing.services.search_index import SearchIndexService
+
+            SearchIndexService().index_transcript(transcript)
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Search reindex after speaker rename failed transcript_id=%s",
+                transcript.id,
+            )
 
     def recompute_full_text(self, transcript: Transcript) -> str:
         lines: list[str] = []
@@ -457,8 +533,9 @@ class TranscriptService:
             "speakers": [
                 {
                     "id": str(s.id),
-                    "label": s.label,
-                    "display_name": s.display_name,
+                    "speaker_label": s.speaker_label,
+                    "speaker_name": s.speaker_name,
+                    "resolved_name": s.resolved_name,
                 }
                 for s in transcript.speakers.all()
             ],

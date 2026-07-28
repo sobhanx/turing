@@ -1,0 +1,355 @@
+# Turing Admin Persian overrides (presentation layer).
+# Overrides Django built-in catalog phrasing for a native ops experience.
+msgid ""
+msgstr ""
+"Project-Id-Version: turing-admin-fa\n"
+"Report-Msgid-Bugs-To: \n"
+"Language: fa\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+msgid "Home"
+msgstr "خانه"
+
+msgid "Welcome,"
+msgstr "خوش آمدید،"
+
+msgid "View site"
+msgstr "مشاهده سایت"
+
+msgid "Change password"
+msgstr "تغییر رمز عبور"
+
+msgid "Log out"
+msgstr "خروج"
+
+msgid "Django administration"
+msgstr "مدیریت"
+
+msgid "Site administration"
+msgstr "مدیریت سامانه"
+
+msgid "Django site admin"
+msgstr "مدیریت"
+
+msgid "%(app)s administration"
+msgstr "مدیریت %(app)s"
+
+msgid "Models in the %(name)s application"
+msgstr "مدل‌های برنامهٔ %(name)s"
+
+msgid "Add"
+msgstr "افزودن"
+
+msgid "Change"
+msgstr "مدیریت"
+
+msgid "View"
+msgstr "مشاهده"
+
+msgid "Delete"
+msgstr "حذف"
+
+msgid "History"
+msgstr "تاریخچه"
+
+msgid "Save"
+msgstr "ذخیره"
+
+msgid "Save and continue editing"
+msgstr "ذخیره و ادامه ویرایش"
+
+msgid "Save and add another"
+msgstr "ذخیره و افزودن مورد جدید"
+
+msgid "Save as new"
+msgstr "ذخیره به‌عنوان مورد جدید"
+
+msgid "Close"
+msgstr "بستن"
+
+msgid "Search"
+msgstr "جستجو"
+
+msgid "Filter"
+msgstr "فیلتر"
+
+msgid "Actions"
+msgstr "عملیات"
+
+msgid "Go"
+msgstr "اجرا"
+
+msgid "Run the selected action"
+msgstr "اجرای عملیات انتخاب‌شده"
+
+msgid "Clear all filters"
+msgstr "پاک‌کردن همه فیلترها"
+
+msgid "Show all"
+msgstr "نمایش همه"
+
+msgid "Model name"
+msgstr "مدل"
+
+msgid "Add link"
+msgstr "افزودن"
+
+msgid "Change or view list link"
+msgstr "مدیریت"
+
+msgid "Models"
+msgstr "مدل‌ها"
+
+msgid "Add %(name)s"
+msgstr "افزودن %(name)s"
+
+msgid "Select %s to change"
+msgstr "انتخاب %s برای مدیریت"
+
+msgid "Select %s to view"
+msgstr "انتخاب %s برای مشاهده"
+
+msgid "Select %s"
+msgstr "انتخاب %s"
+
+msgid "Delete selected %(verbose_name_plural)s"
+msgstr "حذف %(verbose_name_plural)s انتخاب‌شده"
+
+msgid "Delete multiple objects"
+msgstr "حذف چند مورد"
+
+msgid "Are you sure?"
+msgstr "آیا مطمئن هستید؟"
+
+msgid "Yes, I’m sure"
+msgstr "بله، مطمئنم"
+
+msgid "No, take me back"
+msgstr "خیر، بازگشت"
+
+msgid "Delete?"
+msgstr "حذف؟"
+
+msgid "Please correct the error below."
+msgstr "لطفاً خطای زیر را برطرف کنید."
+
+msgid "Please correct the errors below."
+msgstr "لطفاً خطاهای زیر را برطرف کنید."
+
+msgid "Object history"
+msgstr "تاریخچه"
+
+msgid "This object doesn’t have a change history. It probably wasn’t added via this admin site."
+msgstr "این مورد تاریخچه‌ای ندارد. احتمالاً از طریق این پنل افزوده نشده است."
+
+msgid "This object doesn’t have a change history."
+msgstr "این مورد تاریخچه‌ای ندارد."
+
+msgid "Date/time"
+msgstr "تاریخ/ساعت"
+
+msgid "User"
+msgstr "کاربر"
+
+msgid "Action"
+msgstr "عملیات"
+
+msgid "Username"
+msgstr "نام کاربری"
+
+msgid "Password"
+msgstr "رمز عبور"
+
+msgid "Log in"
+msgstr "ورود"
+
+msgid "Log in again"
+msgstr "ورود مجدد"
+
+msgid "Forgotten your password or username?"
+msgstr "رمز عبور یا نام کاربری را فراموش کرده‌اید؟"
+
+msgid "Forgotten your login credentials?"
+msgstr "اطلاعات ورود را فراموش کرده‌اید؟"
+
+msgid "Toggle theme (current theme: auto)"
+msgstr "تغییر پوسته (پوسته فعلی: خودکار)"
+
+msgid "Toggle theme (current theme: light)"
+msgstr "تغییر پوسته (پوسته فعلی: روشن)"
+
+msgid "Toggle theme (current theme: dark)"
+msgstr "تغییر پوسته (پوسته فعلی: تیره)"
+
+msgid "auto"
+msgstr "خودکار"
+
+msgid "light"
+msgstr "روشن"
+
+msgid "dark"
+msgstr "تیره"
+
+msgid "Breadcrumbs"
+msgstr "مسیر صفحه"
+
+msgid "Skip to main content"
+msgstr "پرش به محتوای اصلی"
+
+msgid "Start typing to filter…"
+msgstr "برای فیلتر کردن تایپ کنید…"
+
+msgid "Filter navigation items"
+msgstr "فیلتر آیتم‌های ناوبری"
+
+msgid "Added:"
+msgstr "افزوده شد:"
+
+msgid "Changed:"
+msgstr "تغییر یافت:"
+
+msgid "Deleted:"
+msgstr "حذف شد:"
+
+msgid "You don’t have permission to view or edit anything."
+msgstr "شما اجازه مشاهده یا ویرایش هیچ موردی را ندارید."
+
+msgid "Thanks for spending some quality time with the web site today."
+msgstr "از وقتی که امروز در سامانه گذراندید سپاسگزاریم."
+
+msgid "%d selected"
+msgstr "%d انتخاب‌شده"
+
+msgid "All %(total_count)s selected"
+msgstr "همه %(total_count)s انتخاب شدند"
+
+msgid "0 of %(cnt)s selected"
+msgstr "۰ از %(cnt)s انتخاب شده"
+
+msgid "All dates"
+msgstr "همه تاریخ‌ها"
+
+msgid "By %(filter_title)s"
+msgstr "بر اساس %(filter_title)s"
+
+msgid "Today"
+msgstr "امروز"
+
+msgid "Past 7 days"
+msgstr "۷ روز اخیر"
+
+msgid "This month"
+msgstr "این ماه"
+
+msgid "This year"
+msgstr "امسال"
+
+msgid "Error:"
+msgstr "خطا:"
+
+msgid "Remove"
+msgstr "حذف"
+
+msgid "Choose all"
+msgstr "انتخاب همه"
+
+msgid "Remove all"
+msgstr "حذف همه"
+
+msgid "Choose a Date"
+msgstr "انتخاب تاریخ"
+
+msgid "Choose a Time"
+msgstr "انتخاب زمان"
+
+msgid "Choose a time"
+msgstr "انتخاب زمان"
+
+msgid "Midnight"
+msgstr "نیمه‌شب"
+
+msgid "Noon"
+msgstr "ظهر"
+
+msgid "Now"
+msgstr "اکنون"
+
+msgid "Yesterday"
+msgstr "دیروز"
+
+msgid "Tomorrow"
+msgstr "فردا"
+
+msgid "Cancel"
+msgstr "لغو"
+
+msgid "Yes"
+msgstr "بله"
+
+msgid "No"
+msgstr "خیر"
+
+msgid "None"
+msgstr "هیچ‌کدام"
+
+msgid "Unknown"
+msgstr "نامشخص"
+
+msgid "Online now"
+msgstr "اکنون آنلاین"
+
+msgid "View on site"
+msgstr "مشاهده در سایت"
+
+msgid "Recover deleted %(name)s"
+msgstr "بازیابی %(name)s حذف‌شده"
+
+msgid "You have %(counter)s notification."
+msgid_plural "You have %(counter)s notifications."
+msgstr[0] "شما %(counter)s اعلان دارید."
+msgstr[1] "شما %(counter)s اعلان دارید."
+
+msgid "Action:"
+msgstr "عملیات:"
+
+msgid "Save and view"
+msgstr "ذخیره و مشاهده"
+
+msgid "Clear selection"
+msgstr "لغو انتخاب"
+
+msgid "Click here to select the objects across all pages"
+msgstr "برای انتخاب همه موارد در تمام صفحات اینجا را کلیک کنید"
+
+msgid "Select all %(total_count)s %(module_name)s"
+msgstr "انتخاب همه %(total_count)s %(module_name)s"
+
+msgid "Choose"
+msgstr "انتخاب"
+
+msgid "Delete selected objects"
+msgstr "حذف موارد انتخاب‌شده"
+
+msgid "Confirm deletion"
+msgstr "تأیید حذف"
+
+msgid "Objects"
+msgstr "موارد"
+
+msgid "object"
+msgstr "مورد"
+
+msgid "objects"
+msgstr "موارد"
+
+msgid "Sorting priority: %(priority_number)s"
+msgstr "اولویت مرتب‌سازی: %(priority_number)s"
+
+msgid "Toggle sorting"
+msgstr "تغییر مرتب‌سازی"
+
+msgid "Remove from sorting"
+msgstr "حذف از مرتب‌سازی"

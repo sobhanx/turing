@@ -27,6 +27,8 @@ class TuringSettings:
     signed_url_ttl_seconds: int
     speechmatics_api_key: str
     speechmatics_base_url: str
+    speechmatics_connect_timeout: float
+    speechmatics_upload_timeout: float
     speechmatics_webhook_secret: str
     webhook_mode: str
     webhook_base_url: str
@@ -89,6 +91,12 @@ def _load_from_django() -> TuringSettings:
         speechmatics_base_url=_env(
             "TURING_SPEECHMATICS_BASE_URL",
             "https://asr.api.speechmatics.com/v2",
+        ),
+        speechmatics_connect_timeout=float(
+            _env("TURING_SPEECHMATICS_CONNECT_TIMEOUT", 30.0)
+        ),
+        speechmatics_upload_timeout=float(
+            _env("TURING_SPEECHMATICS_UPLOAD_TIMEOUT", 600.0)
         ),
         speechmatics_webhook_secret=_env("TURING_SPEECHMATICS_WEBHOOK_SECRET", ""),
         webhook_mode=_env("TURING_WEBHOOK_MODE", "augment"),
@@ -208,6 +216,8 @@ def _cached_settings() -> TuringSettings:
         signed_url_ttl_seconds=base.signed_url_ttl_seconds,
         speechmatics_api_key=api_key,
         speechmatics_base_url=base_url,
+        speechmatics_connect_timeout=base.speechmatics_connect_timeout,
+        speechmatics_upload_timeout=base.speechmatics_upload_timeout,
         speechmatics_webhook_secret=webhook_secret,
         webhook_mode=webhook_mode,
         webhook_base_url=webhook_base,

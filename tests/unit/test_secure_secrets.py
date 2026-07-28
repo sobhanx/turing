@@ -12,7 +12,7 @@ from turing.conf import clear_settings_cache, get_turing_settings
 from turing.domain.exceptions import ConfigurationError
 from turing.models import SpeechProviderConfig
 from turing.providers.speechmatics.adapter import SpeechmaticsAdapter
-from turing.providers.speechmatics.client import SpeechmaticsClient
+from turing.providers.speechmatics.client import SpeechmaticsClient, SpeechmaticsTimeouts
 from turing.security.secrets import ENCRYPTED_PREFIX, is_encrypted, mask_secret
 
 
@@ -160,15 +160,30 @@ def test_adapter_uses_decrypted_db_key(monkeypatch):
     captured: dict[str, str] = {}
 
     class CapturingClient(SpeechmaticsClient):
-        def __init__(self, *, api_key: str, base_url: str = "", timeout: int = 60):
+        def __init__(
+            self,
+            *,
+            api_key: str,
+            base_url: str = "",
+            connect_timeout: float = 30.0,
+            upload_timeout: float = 600.0,
+            read_timeout: float = 60.0,
+            timeout: int | float | None = None,
+        ):
             captured["api_key"] = api_key
             captured["base_url"] = base_url
-            # Skip real Session setup validation beyond api_key check
+            captured["connect_timeout"] = connect_timeout
+            captured["upload_timeout"] = upload_timeout
             if not api_key:
                 raise ConfigurationError("missing")
             self.api_key = api_key
             self.base_url = base_url
-            self.timeout = timeout
+            self.timeouts = SpeechmaticsTimeouts(
+                connect=connect_timeout,
+                upload=upload_timeout,
+                read=read_timeout if timeout is None else float(timeout),
+            )
+            self.timeout = self.timeouts.read
             self.session = None  # type: ignore[assignment]
 
     monkeypatch.setattr(

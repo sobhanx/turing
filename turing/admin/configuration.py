@@ -3,13 +3,15 @@ from __future__ import annotations
 from django import forms
 from django.contrib import admin
 
+from turing.admin import fa as fa_labels
 from turing.admin.authz import GlobalCapabilityAdminMixin
+from turing.admin.persian import PersianAdminMixin
 from turing.models import PlatformConfiguration, SpeechProviderConfig
 from turing.security.secrets import mask_secret
 
 
 @admin.register(PlatformConfiguration)
-class PlatformConfigurationAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
+class PlatformConfigurationAdmin(PersianAdminMixin, GlobalCapabilityAdminMixin, admin.ModelAdmin):
     turing_capability = "manage_config"
     list_display = (
         "default_provider_code",
@@ -21,7 +23,7 @@ class PlatformConfigurationAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
     )
     fieldsets = (
         (
-            "Provider defaults",
+            "پیش‌فرض‌های ارائه‌دهنده",
             {
                 "fields": (
                     "default_provider_code",
@@ -31,7 +33,7 @@ class PlatformConfigurationAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
             },
         ),
         (
-            "Processing",
+            "پردازش",
             {
                 "fields": (
                     "auto_enqueue",
@@ -53,17 +55,16 @@ class PlatformConfigurationAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
             {"fields": ("api_require_auth", "api_page_size")},
         ),
         (
-            "Webhooks",
+            "وب‌هوک‌ها",
             {
                 "fields": ("webhook_mode", "webhook_base_url"),
                 "description": (
-                    "Augment mode registers Speechmatics callbacks when "
-                    "TURING_SPEECHMATICS_WEBHOOK_SECRET and webhook base URL are set. "
-                    "Polling remains enabled as a safety net."
+                    "حالت augment هنگام تنظیم رمز وب‌هوک Speechmatics و نشانی پایه، "
+                    "callback ثبت می‌کند. نظرسنجی همچنان به‌عنوان پشتیبان فعال است."
                 ),
             },
         ),
-        ("Notes", {"fields": ("notes",)}),
+        ("یادداشت‌ها", {"fields": ("notes",)}),
     )
 
     def has_add_permission(self, request) -> bool:
@@ -80,13 +81,9 @@ class SpeechProviderConfigForm(forms.ModelForm):
 
     api_key = forms.CharField(
         required=False,
-        label="API key",
+        label=fa_labels.FIELD_LABELS["api_key"],
         widget=forms.PasswordInput(render_value=False, attrs={"autocomplete": "new-password"}),
-        help_text=(
-            "Enter a new key to replace the stored secret. "
-            "Leave blank to keep the current key. "
-            "Stored values are encrypted at rest."
-        ),
+        help_text=fa_labels.FIELD_HELP["api_key"],
     )
 
     class Meta:
@@ -103,6 +100,21 @@ class SpeechProviderConfigForm(forms.ModelForm):
             "enable_diarization",
             "extra_options",
         )
+        labels = {
+            key: fa_labels.FIELD_LABELS[key]
+            for key in (
+                "code",
+                "name",
+                "is_active",
+                "priority",
+                "base_url",
+                "default_language",
+                "operating_point",
+                "enable_diarization",
+                "extra_options",
+            )
+            if key in fa_labels.FIELD_LABELS
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -110,7 +122,7 @@ class SpeechProviderConfigForm(forms.ModelForm):
 
 
 @admin.register(SpeechProviderConfig)
-class SpeechProviderConfigAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
+class SpeechProviderConfigAdmin(PersianAdminMixin, GlobalCapabilityAdminMixin, admin.ModelAdmin):
     turing_capability = "manage_config"
     form = SpeechProviderConfigForm
     list_display = (
@@ -129,17 +141,17 @@ class SpeechProviderConfigAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
     fieldsets = (
         (None, {"fields": ("code", "name", "is_active", "priority")}),
         (
-            "Credentials",
+            "اعتبارنامه‌ها",
             {
                 "fields": ("api_key_display", "api_key", "base_url"),
                 "description": (
-                    "API keys are encrypted in the database and never shown in full. "
-                    "Priority: database secret → TURING_SPEECHMATICS_API_KEY env → error."
+                    "کلیدهای API در پایگاه‌داده رمزنگاری می‌شوند و هرگز کامل نمایش داده نمی‌شوند. "
+                    "اولویت: رمز پایگاه‌داده ← متغیر محیطی TURING_SPEECHMATICS_API_KEY ← خطا."
                 ),
             },
         ),
         (
-            "Defaults",
+            "پیش‌فرض‌ها",
             {
                 "fields": (
                     "default_language",
@@ -151,7 +163,7 @@ class SpeechProviderConfigAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
         ),
     )
 
-    @admin.display(description="API key")
+    @admin.display(description=fa_labels.FIELD_LABELS["api_key"])
     def api_key_display(self, obj: SpeechProviderConfig) -> str:
         if not obj or not obj.pk:
             return "(not set)"
@@ -160,7 +172,6 @@ class SpeechProviderConfigAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         new_key = (form.cleaned_data.get("api_key") or "").strip()
         if change and not new_key:
-            # Preserve existing encrypted secret when the password field is left blank.
             previous = SpeechProviderConfig.objects.get(pk=obj.pk)
             obj.api_key = previous.api_key
         elif new_key:

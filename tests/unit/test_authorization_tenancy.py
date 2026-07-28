@@ -693,6 +693,6 @@ def test_unique_constraint_speaker_label(orgs):
             raw={},
         ),
     )
-    Speaker.objects.create(transcript=transcript, label="S1")
+    Speaker.objects.create(transcript=transcript, speaker_label="S1")
     with pytest.raises(IntegrityError):
-        Speaker.objects.create(transcript=transcript, label="S1")
+        Speaker.objects.create(transcript=transcript, speaker_label="S1")

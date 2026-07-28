@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from django.apps import AppConfig
+from django.utils.translation import gettext_lazy as _
 
 
 class TuringConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "turing"
-    verbose_name = "Turing Speech Intelligence"
+    verbose_name = _("هوش گفتار تورینگ")
 
     def ready(self) -> None:
         from turing.providers.registry import ProviderRegistry
@@ -39,3 +40,8 @@ class TuringConfig(AppConfig):
         register_builtin_embedding_providers()
         register_builtin_search_providers()
         register_search_handlers()
+
+        # Persian Admin chrome (presentation only).
+        from turing.admin.persian import configure_admin_site
+
+        configure_admin_site()

@@ -108,6 +108,8 @@ class RAGService:
                         f"transcript_id: {source.get('transcript_id', '')}",
                         f"segment_id: {source.get('segment_id', '')}",
                         f"speaker: {source.get('speaker', '')}",
+                        f"speaker_label: {source.get('speaker_label', '')}",
+                        f"speaker_name: {source.get('speaker_name', '')}",
                         f"start_ms: {ts.get('start_ms', '')}",
                         f"end_ms: {ts.get('end_ms', '')}",
                         f"external_references: {', '.join(ref_bits) or '(none)'}",
@@ -181,7 +183,14 @@ class RAGService:
         return {
             "transcript_id": meta.get("transcript_id") or "",
             "segment_id": meta.get("segment_id") or hit.object_id,
-            "speaker": meta.get("speaker") or "",
+            "speaker": (
+                meta.get("speaker_name")
+                or meta.get("speaker")
+                or meta.get("speaker_label")
+                or ""
+            ),
+            "speaker_label": meta.get("speaker_label") or "",
+            "speaker_name": meta.get("speaker_name") or "",
             "timestamp": {
                 "start_ms": meta.get("start_ms"),
                 "end_ms": meta.get("end_ms"),

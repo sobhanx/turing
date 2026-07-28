@@ -3,11 +3,12 @@ from __future__ import annotations
 from django.contrib import admin
 
 from turing.admin.authz import CapabilityGatedAdminMixin, admin_scope_queryset
+from turing.admin.persian import PersianAdminMixin
 from turing.models import ExternalReference
 
 
 @admin.register(ExternalReference)
-class ExternalReferenceAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+class ExternalReferenceAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
     """Read-oriented Admin for host object links (Phase 4.1.5)."""
 
     turing_view_capability = "view_transcript"

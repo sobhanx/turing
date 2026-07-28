@@ -198,7 +198,7 @@ class TranscriptAnalysisService:
                 text=segment.text,
                 start_ms=segment.start_ms,
                 end_ms=segment.end_ms,
-                speaker_label=segment.speaker.label if segment.speaker_id else "",
+                speaker_label=segment.speaker.resolved_name if segment.speaker_id else "",
             )
             for segment in loaded.segments.select_related("speaker").order_by("sequence")
         )

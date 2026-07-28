@@ -106,6 +106,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -118,7 +119,7 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -139,7 +140,12 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-LANGUAGE_CODE = "en-us"
+LANGUAGE_CODE = "fa"
+LANGUAGES = [
+    ("fa", "Persian"),
+    ("en", "English"),
+]
+LOCALE_PATHS = [BASE_DIR / "locale"]
 TIME_ZONE = os.environ.get("DJANGO_TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True
@@ -150,6 +156,13 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = Path(os.environ.get("TURING_MEDIA_ROOT") or (BASE_DIR / "media"))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Safety net only. Transcript admin no longer inlines segments/words; primary
+# protection against TooManyFieldsSent is the lightweight change form.
+# Default Django value is 1000 — raise modestly for speaker + revision formsets.
+DATA_UPLOAD_MAX_NUMBER_FIELDS = int(
+    os.environ.get("DATA_UPLOAD_MAX_NUMBER_FIELDS", "2000")
+)
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -317,6 +330,12 @@ TURING_SPEECHMATICS_API_KEY = os.environ.get("TURING_SPEECHMATICS_API_KEY", "")
 TURING_SPEECHMATICS_BASE_URL = os.environ.get(
     "TURING_SPEECHMATICS_BASE_URL",
     "https://asr.api.speechmatics.com/v2",
+)
+TURING_SPEECHMATICS_CONNECT_TIMEOUT = float(
+    os.environ.get("TURING_SPEECHMATICS_CONNECT_TIMEOUT", "30")
+)
+TURING_SPEECHMATICS_UPLOAD_TIMEOUT = float(
+    os.environ.get("TURING_SPEECHMATICS_UPLOAD_TIMEOUT", "600")
 )
 TURING_MAX_UPLOAD_BYTES = int(os.environ.get("TURING_MAX_UPLOAD_BYTES", str(500 * 1024 * 1024)))
 TURING_DEFAULT_MAX_ATTEMPTS = int(os.environ.get("TURING_DEFAULT_MAX_ATTEMPTS", "3"))

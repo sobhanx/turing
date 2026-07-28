@@ -3,11 +3,12 @@ from __future__ import annotations
 from django.contrib import admin
 
 from turing.admin.authz import GlobalCapabilityAdminMixin
+from turing.admin.persian import PersianAdminMixin
 from turing.models import Organization, TuringMembership
 
 
 @admin.register(Organization)
-class OrganizationAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
+class OrganizationAdmin(PersianAdminMixin, GlobalCapabilityAdminMixin, admin.ModelAdmin):
     turing_capability = "manage_roles"
 
     list_display = ("name", "slug", "external_key", "is_active", "updated_at")
@@ -17,7 +18,7 @@ class OrganizationAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
 
 
 @admin.register(TuringMembership)
-class TuringMembershipAdmin(GlobalCapabilityAdminMixin, admin.ModelAdmin):
+class TuringMembershipAdmin(PersianAdminMixin, GlobalCapabilityAdminMixin, admin.ModelAdmin):
     turing_capability = "manage_roles"
 
     list_display = ("user", "organization", "role", "is_active", "updated_at")

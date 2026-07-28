@@ -3,7 +3,9 @@ from __future__ import annotations
 from django import forms
 from django.contrib import admin
 
+from turing.admin import fa as fa_labels
 from turing.admin.authz import CapabilityGatedAdminMixin, admin_scope_queryset
+from turing.admin.persian import PersianAdminMixin
 from turing.models import WebhookDelivery, WebhookSubscription
 from turing.security.secrets import mask_secret
 
@@ -13,16 +15,12 @@ class WebhookSubscriptionForm(forms.ModelForm):
 
     secret = forms.CharField(
         required=False,
-        label="Signing secret",
+        label=fa_labels.FIELD_LABELS["secret"],
         widget=forms.PasswordInput(
             render_value=False,
             attrs={"autocomplete": "new-password"},
         ),
-        help_text=(
-            "Enter a new secret to replace the stored value. "
-            "Leave blank to keep the current secret. "
-            "Stored values are encrypted at rest and never shown in full."
-        ),
+        help_text=fa_labels.FIELD_HELP["secret"],
     )
 
     class Meta:
@@ -35,6 +33,11 @@ class WebhookSubscriptionForm(forms.ModelForm):
             "subscribed_events",
             "is_active",
         )
+        labels = {
+            key: fa_labels.FIELD_LABELS[key]
+            for key in ("organization", "name", "url", "subscribed_events", "is_active")
+            if key in fa_labels.FIELD_LABELS
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -42,7 +45,7 @@ class WebhookSubscriptionForm(forms.ModelForm):
 
 
 class DeliveryEventFilter(admin.SimpleListFilter):
-    title = "event"
+    title = fa_labels.FILTER_EVENT
     parameter_name = "event"
 
     def lookups(self, request, model_admin):
@@ -61,7 +64,7 @@ class DeliveryEventFilter(admin.SimpleListFilter):
 
 
 class DeliveryAttemptsFilter(admin.SimpleListFilter):
-    title = "attempts"
+    title = fa_labels.FILTER_ATTEMPTS
     parameter_name = "attempts_bucket"
 
     def lookups(self, request, model_admin):
@@ -86,7 +89,7 @@ class DeliveryAttemptsFilter(admin.SimpleListFilter):
 
 
 @admin.register(WebhookSubscription)
-class WebhookSubscriptionAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+class WebhookSubscriptionAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
     turing_view_capability = "manage_config"
     turing_change_capability = "manage_config"
     turing_add_capability = "manage_config"
@@ -120,23 +123,23 @@ class WebhookSubscriptionAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
             },
         ),
         (
-            "Credentials",
+            "اعتبارنامه‌ها",
             {
                 "fields": ("secret_display", "secret"),
                 "description": (
-                    "Signing secrets are encrypted in the database and never shown in full."
+                    "رمزهای امضا در پایگاه‌داده رمزنگاری می‌شوند و هرگز کامل نمایش داده نمی‌شوند."
                 ),
             },
         ),
-        ("Timestamps", {"fields": ("created_at", "updated_at")}),
+        ("زمان‌ها", {"fields": ("created_at", "updated_at")}),
     )
 
-    @admin.display(description="Events")
+    @admin.display(description="رویدادها")
     def subscribed_events_display(self, obj: WebhookSubscription) -> str:
         events = obj.subscribed_events or []
         return ", ".join(events) if events else "(none)"
 
-    @admin.display(description="Secret")
+    @admin.display(description="رمز")
     def secret_display(self, obj: WebhookSubscription) -> str:
         if not obj or not obj.pk:
             return "(not set)"
@@ -159,7 +162,7 @@ class WebhookSubscriptionAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
 
 
 @admin.register(WebhookDelivery)
-class WebhookDeliveryAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
+class WebhookDeliveryAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
     turing_view_capability = "manage_config"
     turing_change_capability = "manage_config"
     turing_add_capability = "manage_config"
@@ -212,7 +215,7 @@ class WebhookDeliveryAdmin(CapabilityGatedAdminMixin, admin.ModelAdmin):
     def has_change_permission(self, request, obj=None):
         return False
 
-    @admin.display(description="Event", ordering="outbox_event__event_name")
+    @admin.display(description="رویداد", ordering="outbox_event__event_name")
     def event_name(self, obj: WebhookDelivery) -> str:
         return obj.outbox_event.event_name if obj.outbox_event_id else ""
 

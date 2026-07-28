@@ -180,28 +180,46 @@ class CreateTranscriptionJobSerializer(serializers.Serializer):
 
 class SpeakerSerializer(serializers.ModelSerializer):
     resolved_name = serializers.CharField(read_only=True)
+    # Backward-compatible aliases for older clients.
+    label = serializers.CharField(source="speaker_label", read_only=True)
+    display_name = serializers.CharField(source="speaker_name", read_only=True)
 
     class Meta:
         model = Speaker
         fields = [
             "id",
+            "speaker_label",
+            "speaker_name",
+            "resolved_name",
+            "label",
+            "display_name",
+            "external_speaker_id",
+            "confidence",
+            "metadata",
+        ]
+        read_only_fields = [
+            "id",
+            "speaker_label",
             "label",
             "display_name",
             "resolved_name",
             "external_speaker_id",
             "confidence",
-            "metadata",
         ]
-        read_only_fields = ["id", "label", "external_speaker_id", "confidence"]
 
 
 class TranscriptSegmentSerializer(serializers.ModelSerializer):
+    speaker_label = serializers.SerializerMethodField()
+    speaker_name = serializers.SerializerMethodField()
+
     class Meta:
         model = TranscriptSegment
         fields = [
             "id",
             "sequence",
             "speaker",
+            "speaker_label",
+            "speaker_name",
             "start_ms",
             "end_ms",
             "text",
@@ -209,7 +227,26 @@ class TranscriptSegmentSerializer(serializers.ModelSerializer):
             "words",
             "is_edited",
         ]
-        read_only_fields = ["id", "sequence", "confidence", "words", "is_edited"]
+        read_only_fields = [
+            "id",
+            "sequence",
+            "speaker_label",
+            "speaker_name",
+            "confidence",
+            "words",
+            "is_edited",
+        ]
+
+    def get_speaker_label(self, obj: TranscriptSegment) -> str:
+        if not obj.speaker_id or obj.speaker is None:
+            return ""
+        return obj.speaker.speaker_label
+
+    def get_speaker_name(self, obj: TranscriptSegment) -> str:
+        """Display name with fallback to speaker_label."""
+        if not obj.speaker_id or obj.speaker is None:
+            return ""
+        return obj.speaker.resolved_name
 
 
 class TranscriptRevisionSerializer(serializers.ModelSerializer):
@@ -311,7 +348,18 @@ class SegmentUpdateSerializer(serializers.Serializer):
 
 
 class SpeakerRenameSerializer(serializers.Serializer):
-    display_name = serializers.CharField(max_length=128)
+    speaker_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
+    # Backward-compatible alias.
+    display_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if "speaker_name" not in attrs and "display_name" not in attrs:
+            raise serializers.ValidationError(
+                {"speaker_name": "This field is required."}
+            )
+        if "speaker_name" not in attrs:
+            attrs["speaker_name"] = attrs.get("display_name") or ""
+        return attrs
 
 
 class TranscriptAnalysisSerializer(serializers.ModelSerializer):

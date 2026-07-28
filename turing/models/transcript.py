@@ -80,24 +80,37 @@ class Transcript(UUIDModel):
 
 
 class Speaker(UUIDModel):
-    """Speaker label within a transcript (diarization + human renaming)."""
+    """
+    Speaker identity within a transcript.
+
+    ``speaker_label`` is the immutable diarization id (S1, S2, …).
+    ``speaker_name`` is the editable human-facing name.
+    """
 
     transcript = models.ForeignKey(
         Transcript,
         on_delete=models.CASCADE,
         related_name="speakers",
     )
-    label = models.CharField(max_length=64)
-    display_name = models.CharField(max_length=128, blank=True, default="")
+    speaker_label = models.CharField(
+        max_length=64,
+        help_text="Immutable internal diarization identifier (e.g. S1).",
+    )
+    speaker_name = models.CharField(
+        max_length=128,
+        blank=True,
+        default="",
+        help_text="Editable display name. Empty → fall back to speaker_label.",
+    )
     external_speaker_id = models.CharField(max_length=128, blank=True, default="")
     confidence = models.FloatField(null=True, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
-        ordering = ["label"]
+        ordering = ["speaker_label"]
         constraints = [
             models.UniqueConstraint(
-                fields=["transcript", "label"],
+                fields=["transcript", "speaker_label"],
                 name="turing_speaker_transcript_label_uniq",
             ),
         ]
@@ -105,11 +118,21 @@ class Speaker(UUIDModel):
         verbose_name_plural = "Speakers"
 
     def __str__(self) -> str:
-        return self.display_name or self.label
+        return self.resolved_name
 
     @property
     def resolved_name(self) -> str:
-        return self.display_name or self.label
+        """UI display: speaker_name when set, else speaker_label."""
+        return (self.speaker_name or "").strip() or self.speaker_label
+
+    # Backward-compatible aliases for internal call sites during transition.
+    @property
+    def label(self) -> str:
+        return self.speaker_label
+
+    @property
+    def display_name(self) -> str:
+        return self.speaker_name
 
 
 class TranscriptSegment(UUIDModel):
@@ -195,7 +218,9 @@ class TranscriptWord(UUIDModel):
     metadata = models.JSONField(
         default=dict,
         blank=True,
-        help_text="Optional extras (speaker_label, provider ids, …).",
+        help_text=(
+            "Optional extras (speaker_label, speaker_name, provider ids, …)."
+        ),
     )
 
     class Meta:
