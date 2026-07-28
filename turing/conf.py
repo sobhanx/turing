@@ -47,6 +47,8 @@ class TuringSettings:
     outbox_dispatch_enabled: bool
     outbox_dispatch_interval_seconds: float
     outbox_stuck_timeout_seconds: float
+    connector_sync_enabled: bool
+    connector_sync_interval_seconds: float
 
 
 def _env(name: str, default: Any) -> Any:
@@ -121,6 +123,12 @@ def _load_from_django() -> TuringSettings:
         ),
         outbox_stuck_timeout_seconds=float(
             _env("TURING_OUTBOX_STUCK_TIMEOUT_SECONDS", 300.0)
+        ),
+        connector_sync_enabled=_as_bool(
+            _env("TURING_CONNECTOR_SYNC_ENABLED", True), True
+        ),
+        connector_sync_interval_seconds=float(
+            _env("TURING_CONNECTOR_SYNC_INTERVAL_SECONDS", 3600.0)
         ),
     )
 
@@ -222,6 +230,8 @@ def _cached_settings() -> TuringSettings:
         outbox_dispatch_enabled=base.outbox_dispatch_enabled,
         outbox_dispatch_interval_seconds=base.outbox_dispatch_interval_seconds,
         outbox_stuck_timeout_seconds=base.outbox_stuck_timeout_seconds,
+        connector_sync_enabled=base.connector_sync_enabled,
+        connector_sync_interval_seconds=base.connector_sync_interval_seconds,
     )
 
 

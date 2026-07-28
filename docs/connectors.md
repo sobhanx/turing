@@ -68,7 +68,7 @@ Disabled installations cannot start sync. Failed syncs may set status to `error`
 ## Sync lifecycle
 
 ```text
-ConnectorSyncService.start_sync(installation)
+ConnectorSyncService.start_sync(installation)   # manual / API
   → ConnectorSyncJob (PENDING)
   → event connector.sync.started
   → Celery: sync_connector_installation
@@ -78,7 +78,35 @@ ConnectorSyncService.start_sync(installation)
        → event connector.sync.completed | connector.sync.failed
 ```
 
-No Celery Beat scheduling yet — hosts enqueue sync via API or service.
+Manual ``POST .../sync/`` always creates a new job (unchanged).
+
+
+## Periodic scheduling (Phase 4.3.4)
+
+Celery Beat entry ``turing-schedule-connector-syncs`` runs
+``schedule_connector_syncs``, which:
+
+1. Discovers org-scoped installations with status ``active`` or ``error``
+   on active organizations (``disabled`` excluded)
+2. Calls ``start_sync_if_idle`` — skips when a ``PENDING``/``RUNNING`` job exists
+3. Enqueues through existing ``ConnectorSyncService`` / ``sync_connector_installation``
+
+Failed jobs (`FAILED`) and installations in ``error`` do **not** block the next
+Beat tick. Concurrent schedulers use ``select_for_update`` on the installation.
+
+### Settings
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `TURING_CONNECTOR_SYNC_ENABLED` | `true` | When `false`, Beat omits the connector entry (outbox schedule unchanged) |
+| `TURING_CONNECTOR_SYNC_INTERVAL_SECONDS` | `3600` | Beat interval (seconds) |
+
+Outbox and connector Beat features are independently toggleable.
+
+### Observability
+
+Logs include installation id, connector type, sync job id, start/end, and
+failure reason. Config secrets are never logged.
 
 
 ## Zoom connector (Phase 4.3.3)

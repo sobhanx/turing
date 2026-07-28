@@ -36,6 +36,12 @@ class ConnectorSyncService:
             installation=installation,
             status=ConnectorSyncJobStatus.PENDING,
         )
+        logger.info(
+            "Connector sync started installation_id=%s connector_type=%s sync_job_id=%s",
+            installation.id,
+            installation.connector_type,
+            job.id,
+        )
         emit_after_commit(
             connector_sync_started(
                 sync_job_id=str(job.id),
@@ -51,6 +57,107 @@ class ConnectorSyncService:
                 lambda job_id=str(job.id): sync_connector_installation.delay(job_id)
             )
         return job
+
+    def has_in_flight_sync(self, installation: ConnectorInstallation) -> bool:
+        """True when a PENDING or RUNNING sync job exists for this installation."""
+        return ConnectorSyncJob.objects.filter(
+            installation_id=installation.pk,
+            status__in=[
+                ConnectorSyncJobStatus.PENDING,
+                ConnectorSyncJobStatus.RUNNING,
+            ],
+        ).exists()
+
+    def start_sync_if_idle(
+        self,
+        installation: ConnectorInstallation,
+        *,
+        auto_enqueue: bool = True,
+    ) -> ConnectorSyncJob | None:
+        """
+        Start a sync only when no PENDING/RUNNING job exists for the installation.
+
+        Uses a row lock so Beat and concurrent schedulers cannot double-enqueue.
+        Failed jobs do not block; DISABLED installations are skipped.
+        """
+        with transaction.atomic():
+            locked = (
+                ConnectorInstallation.objects.select_for_update()
+                .select_related("organization")
+                .filter(pk=installation.pk)
+                .first()
+            )
+            if locked is None:
+                return None
+            if locked.status == ConnectorInstallationStatus.DISABLED:
+                logger.info(
+                    "Skipping disabled connector installation_id=%s connector_type=%s",
+                    locked.id,
+                    locked.connector_type,
+                )
+                return None
+            if self.has_in_flight_sync(locked):
+                logger.info(
+                    "Skipping in-flight connector sync installation_id=%s "
+                    "connector_type=%s",
+                    locked.id,
+                    locked.connector_type,
+                )
+                return None
+            return self.start_sync(locked, auto_enqueue=auto_enqueue)
+
+    def discover_schedulable_installations(self):
+        """
+        Active (and recoverable ERROR) installations on active organizations.
+
+        DISABLED is excluded. ERROR is included so a failed sync does not block
+        the next scheduled run.
+        """
+        return (
+            ConnectorInstallation.objects.filter(
+                status__in=[
+                    ConnectorInstallationStatus.ACTIVE,
+                    ConnectorInstallationStatus.ERROR,
+                ],
+                organization__is_active=True,
+            )
+            .select_related("organization")
+            .order_by("created_at")
+        )
+
+    def schedule_due_installations(self) -> dict[str, int]:
+        """Discover installations and enqueue idle syncs (Celery Beat entrypoint)."""
+        counts = {
+            "examined": 0,
+            "started": 0,
+            "skipped_in_flight": 0,
+            "errors": 0,
+        }
+        for installation in self.discover_schedulable_installations():
+            counts["examined"] += 1
+            try:
+                job = self.start_sync_if_idle(installation, auto_enqueue=True)
+                if job is None:
+                    counts["skipped_in_flight"] += 1
+                    continue
+                counts["started"] += 1
+                logger.info(
+                    "Scheduled connector sync installation_id=%s connector_type=%s "
+                    "sync_job_id=%s org_id=%s",
+                    installation.id,
+                    installation.connector_type,
+                    job.id,
+                    installation.organization_id,
+                )
+            except Exception:  # noqa: BLE001
+                counts["errors"] += 1
+                logger.exception(
+                    "Failed to schedule connector sync installation_id=%s "
+                    "connector_type=%s",
+                    installation.id,
+                    installation.connector_type,
+                )
+        return counts
 
     def run_sync(self, job_id: str) -> ConnectorSyncJob:
         with transaction.atomic():
@@ -130,6 +237,14 @@ class ConnectorSyncService:
                 records_processed=job.records_processed,
             )
         )
+        logger.info(
+            "Connector sync completed installation_id=%s connector_type=%s "
+            "sync_job_id=%s records_processed=%s",
+            installation.id,
+            installation.connector_type,
+            job.id,
+            job.records_processed,
+        )
         return job
 
     def _fail(
@@ -157,6 +272,14 @@ class ConnectorSyncService:
             installation.status = ConnectorInstallationStatus.ERROR
             installation.save(update_fields=["status", "updated_at"])
         self._emit_failed(job, installation)
+        logger.warning(
+            "Connector sync failed installation_id=%s connector_type=%s "
+            "sync_job_id=%s reason=%s",
+            installation.id,
+            installation.connector_type,
+            job.id,
+            (message or "")[:500],
+        )
         return job
 
     def _emit_failed(

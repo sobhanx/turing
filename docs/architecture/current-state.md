@@ -76,7 +76,7 @@ Includes:
 
 ## Phase 4.3 status
 
-**Phase 4.3.1–4.3.3 connector framework + Zoom adapter are in place.**
+**Phase 4.3.1–4.3.4 connector framework, Zoom adapter, and sync scheduling are in place.**
 
 Includes:
 
@@ -86,13 +86,13 @@ Includes:
 - Events: `connector.sync.started` / `.completed` / `.failed`
 - REST: catalog, installation CRUD, sync trigger, sync job status
 - Zoom connector: recording discovery → `MediaService.create_from_url` + ExternalReference
+- Celery Beat `schedule_connector_syncs` with in-flight lock + config toggles
 
 
-## Current Limitations (post–Phase 4.3.3)
+## Current Limitations (post–Phase 4.3.4)
 
 - No OAuth / marketplace installation (Zoom uses account_id + api_token config)
 - No Teams / Meet / CRM / telephony connectors yet
-- No periodic connector sync Beat schedule
 - UI is not productized
 - Permissions are organization-level (no record-level ACL)
 - Celery coupling exists inside services
@@ -110,5 +110,5 @@ It can power:
 - Call center QA
 
 Host applications can link objects, read analyses, subscribe in-process to
-domain events, and receive signed outbound webhooks from durable outbox
-dispatch. Connectors remain later Phase 4.2+.
+domain events, receive signed outbound webhooks from durable outbox dispatch,
+and sync media from connector installations (manual API or periodic Beat).

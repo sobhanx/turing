@@ -205,6 +205,7 @@ def test_beat_task_registration_when_enabled(settings):
 
 def test_beat_task_registration_disabled(settings):
     settings.TURING_OUTBOX_DISPATCH_ENABLED = False
+    settings.TURING_CONNECTOR_SYNC_ENABLED = False
     assert build_celery_beat_schedule() == {}
 
 

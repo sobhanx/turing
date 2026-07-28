@@ -1,6 +1,6 @@
 from turing.tasks.ingestion import prepare_media_for_transcription
 from turing.tasks.analysis import generate_transcript_analysis
-from turing.tasks.connectors import sync_connector_installation
+from turing.tasks.connectors import schedule_connector_syncs, sync_connector_installation
 from turing.tasks.events import dispatch_outbox_events, recover_stuck_outbox_work
 from turing.tasks.transcription import (
     fetch_and_persist_transcription,
@@ -22,4 +22,5 @@ __all__ = [
     "dispatch_outbox_events",
     "recover_stuck_outbox_work",
     "sync_connector_installation",
+    "schedule_connector_syncs",
 ]

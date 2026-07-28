@@ -199,6 +199,13 @@ TURING_OUTBOX_DISPATCH_INTERVAL_SECONDS = float(
 TURING_OUTBOX_STUCK_TIMEOUT_SECONDS = float(
     os.environ.get("TURING_OUTBOX_STUCK_TIMEOUT_SECONDS", "300")
 )
+# Connector periodic sync (Phase 4.3.4) — independent of outbox Beat entries.
+TURING_CONNECTOR_SYNC_ENABLED = os.environ.get(
+    "TURING_CONNECTOR_SYNC_ENABLED", "true"
+).lower() in {"1", "true", "yes", "on"}
+TURING_CONNECTOR_SYNC_INTERVAL_SECONDS = float(
+    os.environ.get("TURING_CONNECTOR_SYNC_INTERVAL_SECONDS", "3600")
+)
 
 from turing.celery_schedule import build_celery_beat_schedule  # noqa: E402
 

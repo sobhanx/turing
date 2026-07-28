@@ -31,3 +31,28 @@ def sync_connector_installation(self, sync_job_id: str) -> str:
         logger.exception("Connector sync unexpected error for job %s", sync_job_id)
         raise
     return f"{job.status}:{job.records_processed}"
+
+
+@shared_task(
+    bind=True,
+    name="turing.tasks.connectors.schedule_connector_syncs",
+    acks_late=True,
+    max_retries=0,
+)
+def schedule_connector_syncs(self) -> dict:
+    """
+    Periodic Beat task: enqueue syncs for schedulable connector installations.
+
+    Skips installations with an in-flight (PENDING/RUNNING) sync job.
+    """
+    from turing.services.connector_sync import ConnectorSyncService
+
+    counts = ConnectorSyncService().schedule_due_installations()
+    logger.info(
+        "Connector sync schedule examined=%s started=%s skipped_in_flight=%s errors=%s",
+        counts["examined"],
+        counts["started"],
+        counts["skipped_in_flight"],
+        counts["errors"],
+    )
+    return counts
