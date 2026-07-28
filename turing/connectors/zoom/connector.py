@@ -8,6 +8,11 @@ from django.conf import settings
 from django.utils import timezone
 
 from turing.connectors.base import BaseConnector, ConnectorSyncResult, MediaPullItem
+from turing.connectors.definition import (
+    ConnectorCategory,
+    InstallationRequirements,
+    split_scopes,
+)
 from turing.connectors.exceptions import (
     AuthenticationError,
     ConnectorConfigurationError,
@@ -58,11 +63,27 @@ class ZoomConnector(BaseConnector):
 
     connector_type = "zoom"
     display_name = "Zoom"
+    description = "Sync Zoom cloud meeting recordings into Turing for transcription."
+    provider = "Zoom"
+    category = ConnectorCategory.MEETINGS
+    documentation_url = (
+        "https://developers.zoom.us/docs/api/rest/reference/zoom-api/"
+        "methods/#tag/Cloud-Recording"
+    )
     auth_type = ConnectorAuthType.OAUTH2
     supports_oauth = True
     supports_refresh = True
     supports_revoke = True
     supported_sync_types = ("media",)
+    required_scopes = split_scopes(DEFAULT_SCOPES)
+    installation_requirements = InstallationRequirements(
+        oauth_scopes=split_scopes(DEFAULT_SCOPES),
+        messages=(
+            "Configure Zoom OAuth client settings on the host (TURING_ZOOM_*).",
+            "Set TURING_ZOOM_OAUTH_REDIRECT_URI to the Turing OAuth callback.",
+            "Complete OAuth authorization after creating the installation.",
+        ),
+    )
 
     def __init__(
         self,

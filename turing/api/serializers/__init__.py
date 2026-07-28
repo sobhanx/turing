@@ -443,6 +443,7 @@ class ConnectorInstallationSerializer(serializers.ModelSerializer):
 
     auth_status = serializers.SerializerMethodField()
     health = serializers.SerializerMethodField()
+    last_sync = serializers.SerializerMethodField()
 
     class Meta:
         model = ConnectorInstallation
@@ -453,6 +454,7 @@ class ConnectorInstallationSerializer(serializers.ModelSerializer):
             "status",
             "auth_status",
             "health",
+            "last_sync",
             "created_at",
             "updated_at",
         ]
@@ -466,6 +468,18 @@ class ConnectorInstallationSerializer(serializers.ModelSerializer):
     def get_health(self, obj: ConnectorInstallation) -> dict:
         return obj.health_summary()
 
+    def get_last_sync(self, obj: ConnectorInstallation) -> dict | None:
+        job = obj.last_sync()
+        if job is None:
+            return None
+        return {
+            "id": str(job.id),
+            "status": job.status,
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+            "records_processed": job.records_processed,
+            "error": (job.error or "")[:500],
+        }
 
 _INSTALLATION_STATUS_CHOICES = [
     "pending",

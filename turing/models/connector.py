@@ -96,6 +96,10 @@ class ConnectorInstallation(UUIDModel):
     def public_config(self) -> dict:
         return redact_connector_config(self.config)
 
+    def last_sync(self):
+        """Most recent sync job of any status, or None (derived)."""
+        return self.sync_jobs.order_by("-created_at").first()
+
     def last_successful_sync(self):
         """Most recent COMPLETED sync job, or None (derived, not duplicated state)."""
         return (

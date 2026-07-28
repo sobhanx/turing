@@ -399,13 +399,77 @@ Mapping:
 | `media_url` | `RecordingUrl` / custom link fields |
 
 
-## REST API (Phase 4.3.2 / 4.3.5 / 4.3.6)
+## REST API (Phase 4.3.2 / 4.3.5 / 4.3.6 / 4.4.1 / 4.4.2)
 
 Requires capability `manage_config` (org Admin role). Config secrets and OAuth
 tokens are accepted on write paths only and **never** returned in responses.
-GET returns ``auth_status`` (type, has_credentials, expires_at, is_expired) — not
-tokens. PATCH ``{"status": "revoked"}`` runs the revoke lifecycle (clears
-credentials). There is no token read endpoint.
+
+Installation GET/list contract (UI-ready):
+
+| Field | Notes |
+|-------|--------|
+| `id` | UUID |
+| `connector_type` | Registry key |
+| `name` | Display label |
+| `status` | `pending` / `active` / `expired` / `revoked` / `error` |
+| `auth_status` | `auth_type`, `has_credentials`, `expires_at`, `is_expired`, `status` |
+| `health` | Derived: `current_health`, last success/fail timestamps + truncated error |
+| `last_sync` | Latest sync job summary, or `null` |
+| `created_at` / `updated_at` | Timestamps |
+
+Never exposed: credentials, tokens, secrets, raw provider `config`.
+
+### Connector definition model (Phase 4.4.2)
+
+Marketplace metadata is declared on each connector class and surfaced as a
+``ConnectorDefinition`` (never secrets):
+
+| Field | Purpose |
+|-------|---------|
+| `connector_type` | Registry key |
+| `display_name` | Product label |
+| `description` | Short marketplace blurb |
+| `provider` | Vendor / publisher name |
+| `category` | `meetings` / `crm` / `telephony` / `other` |
+| `documentation_url` | Optional docs link |
+| `icon_url` | Optional icon URL |
+| `auth_type` | `oauth2` or `api_key` |
+| `capabilities` | `{oauth, refresh, revoke}` |
+| `supported_sync_types` | e.g. `["media"]` |
+| `required_scopes` | OAuth scopes the connector needs |
+| `installation_requirements` | Structured install schema (below) |
+
+Registry APIs:
+
+| Method | Role |
+|--------|------|
+| `list_available()` / `list_definitions()` | Catalog discovery |
+| `get_definition(type)` | Single connector metadata |
+| `validate_installation_requirements(type, config, scopes_granted=…)` | Pre-install checks |
+
+### Installation requirements schema
+
+```json
+{
+  "oauth_scopes": ["recording:read", "user:read"],
+  "config_fields": [
+    {
+      "key": "account_id",
+      "label": "Account ID",
+      "required": true,
+      "secret": false,
+      "description": "",
+      "validation_message": "Account ID is required."
+    }
+  ],
+  "messages": [
+    "Configure OAuth client credentials on the host."
+  ]
+}
+```
+
+``secret: true`` means the host UI should treat the field as sensitive input —
+responses never include secret *values*.
 
 ### Catalog
 
@@ -416,19 +480,34 @@ GET /api/turing/v1/connectors/
 ```json
 [
   {
-    "type": "zoom",
-    "name": "Zoom",
+    "connector_type": "zoom",
+    "display_name": "Zoom",
+    "provider": "Zoom",
+    "description": "Sync Zoom cloud meeting recordings into Turing for transcription.",
+    "category": "meetings",
+    "documentation_url": "https://developers.zoom.us/...",
+    "icon_url": "",
     "auth_type": "oauth2",
-    "supports_oauth": true,
-    "supports_refresh": true,
-    "supports_revoke": true,
+    "capabilities": {
+      "oauth": true,
+      "refresh": true,
+      "revoke": true
+    },
     "supported_sync_types": ["media"],
-    "available": true
+    "required_scopes": ["recording:read", "user:read:user"],
+    "installation_requirements": {
+      "oauth_scopes": ["recording:read", "user:read:user"],
+      "config_fields": [],
+      "messages": [
+        "Configure Zoom OAuth client settings on the host (TURING_ZOOM_*)."
+      ]
+    }
   }
 ]
 ```
 
-Source: ``ConnectorRegistry`` (no hardcoded vendor list).
+Source: ``ConnectorRegistry.list_available()`` ← ``BaseConnector.definition()``
+(no hardcoded vendor list, no secrets).
 
 ### Installations
 
@@ -437,8 +516,25 @@ Source: ``ConnectorRegistry`` (no hardcoded vendor list).
 | `GET`/`POST` | `/api/turing/v1/connector-installations/` |
 | `GET`/`PATCH`/`DELETE` | `/api/turing/v1/connector-installations/{id}/` |
 | `GET` | `/api/turing/v1/connector-installations/{id}/authorize/` |
+| `POST` | `/api/turing/v1/connector-installations/{id}/activate/` |
+| `POST` | `/api/turing/v1/connector-installations/{id}/revoke/` |
 | `POST` | `/api/turing/v1/connector-installations/{id}/sync/` → `202` |
 | `GET` | `/api/turing/v1/oauth/callback/{connector}/` |
+
+List filters (Phase 4.4.1):
+
+| Query param | Meaning |
+|-------------|---------|
+| `connector_type` | Exact registry type |
+| `status` | Exact installation status |
+| `health` | Derived: `pending` / `healthy` / `degraded` / `unhealthy` / `expired` / `revoked` |
+| `created_at__gte` / `created_at__lte` | Created range |
+| `created_at__date` | Calendar day |
+
+Lifecycle actions use ``ConnectorInstallationService`` (org-scoped via
+``get_object()``), emit domain events, and return the public installation
+serializer (no secrets). PATCH ``{"status": "revoked"}`` still runs the revoke
+lifecycle. There is no token read endpoint.
 
 Create (Zoom → `pending` until OAuth completes):
 
@@ -463,6 +559,8 @@ Authorize response:
 }
 ```
 
+Activate / revoke responses return the full public installation payload.
+
 Sync trigger response:
 
 ```json
@@ -482,10 +580,12 @@ Exposes status, timestamps, `records_processed`, and `error` (org-scoped).
 
 | Event | Meaning |
 |-------|---------|
+| `connector.installation.activated` | Installation marked active |
+| `connector.installation.revoked` | Installation revoked (tokens cleared) |
 | `connector.sync.started` | Sync job created |
 | `connector.sync.completed` | Sync finished successfully |
 | `connector.sync.failed` | Sync failed (payload has `error_code`, not stack traces) |
-| `media.created` | Emitted by ``MediaService`` when Zoom ingest creates media |
+| `media.created` | Emitted by ``MediaService`` when connector ingest creates media |
 
 Emitted via existing ``EventBus`` + durable outbox.
 
@@ -494,9 +594,9 @@ Emitted via existing ``EventBus`` + durable outbox.
 
 Still planned (not in this phase):
 
-- Microsoft Teams / Google Meet
-- CRM call attachment connectors
-- Telephony / contact center recording ingest
+- Additional CRM / telephony connectors
+- Marketplace / product UI (consumes Phase 4.4.1 contracts)
+- CRM write-back / action-item sync
 
 Each adapter lives under ``turing/connectors/<vendor>/`` and registers via
 ``register_builtin_connectors()`` without changing ``ConnectorSyncService``.

@@ -161,13 +161,14 @@ def _installation(org, connector_type="cap-fake", **kwargs) -> ConnectorInstalla
 def test_capability_api_exposes_metadata(admin_client):
     response = admin_client.get("/api/turing/v1/connectors/")
     assert response.status_code == 200
-    by_type = {row["type"]: row for row in response.data}
+    by_type = {row["connector_type"]: row for row in response.data}
     assert "cap-fake" in by_type
     row = by_type["cap-fake"]
-    assert row["supports_oauth"] is False
-    assert row["supports_refresh"] is False
-    assert row["supports_revoke"] is False
+    assert row["capabilities"]["oauth"] is False
+    assert row["capabilities"]["refresh"] is False
+    assert row["capabilities"]["revoke"] is False
     assert row["supported_sync_types"] == ["media", "metadata"]
+    assert "installation_requirements" in row
     assert "secret" not in str(response.data).lower()
 
 

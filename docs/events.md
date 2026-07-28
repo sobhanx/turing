@@ -222,3 +222,8 @@ Connector sync events (Phase 4.3.1) are also supported:
 - `connector.sync.started`
 - `connector.sync.completed`
 - `connector.sync.failed`
+
+Connector installation lifecycle events (Phase 4.4.1):
+
+- `connector.installation.activated`
+- `connector.installation.revoked`

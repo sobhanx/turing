@@ -10,6 +10,11 @@ from django.conf import settings
 from django.utils import timezone
 
 from turing.connectors.base import BaseConnector, ConnectorSyncResult, MediaPullItem
+from turing.connectors.definition import (
+    ConnectorCategory,
+    InstallationRequirements,
+    split_scopes,
+)
 from turing.connectors.exceptions import (
     AuthenticationError,
     ConnectorConfigurationError,
@@ -64,11 +69,27 @@ class SalesforceConnector(BaseConnector):
 
     connector_type = "salesforce"
     display_name = "Salesforce"
+    description = (
+        "Discover Salesforce call and meeting recordings and ingest them into Turing."
+    )
+    provider = "Salesforce"
+    category = ConnectorCategory.CRM
+    documentation_url = "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/"
     auth_type = ConnectorAuthType.OAUTH2
     supports_oauth = True
     supports_refresh = True
     supports_revoke = True
     supported_sync_types = ("media",)
+    required_scopes = split_scopes(DEFAULT_SCOPES)
+    installation_requirements = InstallationRequirements(
+        oauth_scopes=split_scopes(DEFAULT_SCOPES),
+        messages=(
+            "Configure Salesforce OAuth client settings on the host "
+            "(TURING_SALESFORCE_*).",
+            "Set TURING_SALESFORCE_OAUTH_REDIRECT_URI to the Turing OAuth callback.",
+            "Complete OAuth authorization after creating the installation.",
+        ),
+    )
 
     def __init__(
         self,

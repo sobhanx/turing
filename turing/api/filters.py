@@ -1,8 +1,17 @@
 from __future__ import annotations
 
 import django_filters
+from django.db.models import F, OuterRef, Q, Subquery
 
-from turing.models import MediaAsset, ProcessingJob, Transcript, TranscriptAnalysis
+from turing.domain.enums import ConnectorInstallationStatus, ConnectorSyncJobStatus
+from turing.models import (
+    ConnectorInstallation,
+    ConnectorSyncJob,
+    MediaAsset,
+    ProcessingJob,
+    Transcript,
+    TranscriptAnalysis,
+)
 
 
 class MediaAssetFilter(django_filters.FilterSet):
@@ -85,3 +94,68 @@ class TranscriptAnalysisFilter(django_filters.FilterSet):
             "provider": ["exact"],
             "created_at": ["gte", "lte"],
         }
+
+
+class ConnectorInstallationFilter(django_filters.FilterSet):
+    """List filters for UX-ready installation browsing (Phase 4.4.1)."""
+
+    health = django_filters.CharFilter(method="filter_health")
+
+    class Meta:
+        model = ConnectorInstallation
+        fields = {
+            "connector_type": ["exact"],
+            "status": ["exact"],
+            "created_at": ["gte", "lte", "date"],
+        }
+
+    def filter_health(self, queryset, name, value):
+        """
+        Filter by derived ``current_health`` labels.
+
+        Status-driven labels use SQL status filters; healthy/degraded compare
+        latest completed vs failed sync finished_at timestamps.
+        """
+        label = (value or "").strip().lower()
+        if not label:
+            return queryset
+
+        if label == "pending":
+            return queryset.filter(status=ConnectorInstallationStatus.PENDING)
+        if label == "expired":
+            return queryset.filter(status=ConnectorInstallationStatus.EXPIRED)
+        if label == "revoked":
+            return queryset.filter(status=ConnectorInstallationStatus.REVOKED)
+        if label == "unhealthy":
+            return queryset.filter(status=ConnectorInstallationStatus.ERROR)
+        if label not in {"healthy", "degraded"}:
+            return queryset.none()
+
+        # Align with ConnectorInstallation.current_health() for active installs.
+        qs = queryset.filter(status=ConnectorInstallationStatus.ACTIVE)
+        last_ok = (
+            ConnectorSyncJob.objects.filter(
+                installation_id=OuterRef("pk"),
+                status=ConnectorSyncJobStatus.COMPLETED,
+            )
+            .order_by("-finished_at", "-created_at")
+            .values("finished_at")[:1]
+        )
+        last_fail = (
+            ConnectorSyncJob.objects.filter(
+                installation_id=OuterRef("pk"),
+                status=ConnectorSyncJobStatus.FAILED,
+            )
+            .order_by("-finished_at", "-created_at")
+            .values("finished_at")[:1]
+        )
+        qs = qs.annotate(
+            _last_ok_at=Subquery(last_ok),
+            _last_fail_at=Subquery(last_fail),
+        )
+        degraded_q = Q(_last_fail_at__isnull=False) & (
+            Q(_last_ok_at__isnull=True) | Q(_last_fail_at__gte=F("_last_ok_at"))
+        )
+        if label == "degraded":
+            return qs.filter(degraded_q)
+        return qs.exclude(degraded_q)

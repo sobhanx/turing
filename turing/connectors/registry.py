@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Type
+from typing import Any, Sequence, Type
 
 from turing.connectors.base import BaseConnector
+from turing.connectors.definition import ConnectorDefinition, split_scopes
 from turing.connectors.exceptions import ConnectorConfigurationError, ConnectorNotFoundError
 
 
@@ -18,6 +19,8 @@ class ConnectorRegistry:
             raise ConnectorConfigurationError(
                 "Connector class must define a non-empty 'connector_type'."
             )
+        # Validate marketplace metadata at registration time.
+        connector_cls.definition()
         cls._connectors[connector_type] = connector_cls
         return connector_cls
 
@@ -27,6 +30,11 @@ class ConnectorRegistry:
         if connector_cls is None:
             raise ConnectorNotFoundError(f"Unknown connector type '{connector_type}'.")
         return connector_cls
+
+    @classmethod
+    def get_definition(cls, connector_type: str) -> ConnectorDefinition:
+        """Return marketplace metadata for a registered connector type."""
+        return cls.get(connector_type).definition()
 
     @classmethod
     def create(cls, installation) -> BaseConnector:
@@ -41,18 +49,51 @@ class ConnectorRegistry:
     @classmethod
     def list_available(cls) -> list[dict]:
         """Catalog of registered connector types for Admin / APIs (no secrets)."""
-        rows: list[dict] = []
-        for code in cls.types():
-            connector_cls = cls._connectors[code]
-            caps = connector_cls.capability_metadata()
-            rows.append(
-                {
-                    "connector_type": code,
-                    "display_name": getattr(connector_cls, "display_name", "") or code,
-                    **caps,
-                }
-            )
-        return rows
+        return [cls.get_definition(code).to_catalog_dict() for code in cls.types()]
+
+    @classmethod
+    def list_definitions(cls) -> list[ConnectorDefinition]:
+        """Return ConnectorDefinition objects for all registered types."""
+        return [cls.get_definition(code) for code in cls.types()]
+
+    @classmethod
+    def validate_installation_requirements(
+        cls,
+        connector_type: str,
+        config: dict[str, Any] | None = None,
+        *,
+        scopes_granted: Sequence[str] | None = None,
+    ) -> None:
+        """
+        Validate install config / granted scopes against connector definition.
+
+        Raises ``ConnectorConfigurationError`` with field validation messages.
+        Never logs or echoes secret values.
+        """
+        definition = cls.get_definition(connector_type)
+        requirements = definition.installation_requirements
+        cfg = dict(config or {})
+
+        for field_def in requirements.config_fields:
+            if not field_def.required:
+                continue
+            value = cfg.get(field_def.key)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                message = field_def.validation_message or (
+                    f"{field_def.label or field_def.key} is required."
+                )
+                raise ConnectorConfigurationError(message)
+
+        required_scopes = tuple(definition.required_scopes) or tuple(
+            requirements.oauth_scopes
+        )
+        if scopes_granted is not None and required_scopes:
+            granted = set(split_scopes(scopes_granted))
+            missing = [scope for scope in required_scopes if scope not in granted]
+            if missing:
+                raise ConnectorConfigurationError(
+                    "Missing required OAuth scopes: " + ", ".join(missing)
+                )
 
     @classmethod
     def clear(cls) -> None:

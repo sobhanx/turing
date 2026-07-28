@@ -10,6 +10,11 @@ from django.conf import settings
 from django.utils import timezone
 
 from turing.connectors.base import BaseConnector, ConnectorSyncResult, MediaPullItem
+from turing.connectors.definition import (
+    ConnectorCategory,
+    InstallationRequirements,
+    split_scopes,
+)
 from turing.connectors.exceptions import (
     AuthenticationError,
     ConnectorConfigurationError,
@@ -60,11 +65,28 @@ class TeamsConnector(BaseConnector):
 
     connector_type = "teams"
     display_name = "Microsoft Teams"
+    description = (
+        "Sync Microsoft Teams meeting recordings via Graph into Turing."
+    )
+    provider = "Microsoft"
+    category = ConnectorCategory.MEETINGS
+    documentation_url = (
+        "https://learn.microsoft.com/en-us/graph/api/resources/callrecording"
+    )
     auth_type = ConnectorAuthType.OAUTH2
     supports_oauth = True
     supports_refresh = True
     supports_revoke = True
     supported_sync_types = ("media",)
+    required_scopes = split_scopes(DEFAULT_SCOPES)
+    installation_requirements = InstallationRequirements(
+        oauth_scopes=split_scopes(DEFAULT_SCOPES),
+        messages=(
+            "Configure Teams OAuth client settings on the host (TURING_TEAMS_*).",
+            "Set TURING_TEAMS_OAUTH_REDIRECT_URI to the Turing OAuth callback.",
+            "Complete OAuth authorization after creating the installation.",
+        ),
+    )
 
     def __init__(
         self,

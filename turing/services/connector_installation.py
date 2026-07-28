@@ -8,7 +8,12 @@ from django.db import transaction
 from django.utils import timezone
 
 from turing.domain.enums import ConnectorAuthType, ConnectorInstallationStatus
+from turing.domain.events import (
+    connector_installation_activated,
+    connector_installation_revoked,
+)
 from turing.domain.exceptions import ValidationError
+from turing.events.bus import emit_after_commit
 from turing.models import ConnectorCredential, ConnectorInstallation
 from turing.services.credential_encryption import CredentialEncryptionService
 
@@ -35,6 +40,13 @@ class ConnectorInstallationService:
             raise ValidationError("Cannot activate a revoked connector installation.")
         installation.status = ConnectorInstallationStatus.ACTIVE
         installation.save(update_fields=["status", "updated_at"])
+        emit_after_commit(
+            connector_installation_activated(
+                installation_id=str(installation.id),
+                organization_id=installation.organization_id,
+                connector_type=installation.connector_type,
+            )
+        )
         logger.info(
             "Connector installation activated installation_id=%s connector_type=%s",
             installation.id,
@@ -103,6 +115,13 @@ class ConnectorInstallationService:
 
             installation.status = ConnectorInstallationStatus.REVOKED
             installation.save(update_fields=["status", "updated_at"])
+            emit_after_commit(
+                connector_installation_revoked(
+                    installation_id=str(installation.id),
+                    organization_id=installation.organization_id,
+                    connector_type=installation.connector_type,
+                )
+            )
 
         logger.info(
             "Connector installation revoked installation_id=%s connector_type=%s",

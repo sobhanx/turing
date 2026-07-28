@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from turing.api.filters import (
+    ConnectorInstallationFilter,
     MediaAssetFilter,
     ProcessingJobFilter,
     TranscriptAnalysisFilter,
@@ -723,6 +724,14 @@ def _validate_connector_config(*, connector_type: str, config: dict, name: str =
     except ConnectorNotFoundError as exc:
         raise TuringError(str(exc), code="connector_not_found") from exc
 
+    try:
+        ConnectorRegistry.validate_installation_requirements(
+            connector_type,
+            config=config,
+        )
+    except ConnectorError as exc:
+        raise TuringError(str(exc), code=getattr(exc, "code", "connector_error")) from exc
+
     temp = ConnectorInstallation(
         connector_type=connector_type,
         name=name or "tmp",
@@ -738,7 +747,7 @@ def _validate_connector_config(*, connector_type: str, config: dict, name: str =
 
 
 class ConnectorCatalogViewSet(viewsets.ViewSet):
-    """Discover registered connector types (Phase 4.3.2)."""
+    """Discover registered connector types (Phase 4.4.2 marketplace catalog)."""
 
     required_capability = "manage_config"
     read_capability = "manage_config"
@@ -748,20 +757,7 @@ class ConnectorCatalogViewSet(viewsets.ViewSet):
     def list(self, request):
         from turing.connectors.registry import ConnectorRegistry
 
-        data = [
-            {
-                "type": row["connector_type"],
-                "name": row["display_name"],
-                "auth_type": row.get("auth_type", "api_key"),
-                "supports_oauth": bool(row.get("supports_oauth")),
-                "supports_refresh": bool(row.get("supports_refresh")),
-                "supports_revoke": bool(row.get("supports_revoke")),
-                "supported_sync_types": list(row.get("supported_sync_types") or []),
-                "available": True,
-            }
-            for row in ConnectorRegistry.list_available()
-        ]
-        return Response(data)
+        return Response(ConnectorRegistry.list_available())
 
 
 class ConnectorInstallationViewSet(
@@ -772,10 +768,11 @@ class ConnectorInstallationViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Org-scoped connector installation CRUD + sync trigger."""
+    """Org-scoped connector installation CRUD + lifecycle actions."""
 
     queryset = ConnectorInstallation.objects.all().select_related("organization")
     serializer_class = ConnectorInstallationSerializer
+    filterset_class = ConnectorInstallationFilter
     required_capability = "manage_config"
     read_capability = "manage_config"
     permission_classes = [IsAuthenticated, HasTuringCapability]
@@ -784,7 +781,9 @@ class ConnectorInstallationViewSet(
     ordering_fields = ("created_at", "name", "updated_at")
 
     def get_queryset(self):
-        return scope_by_organization(super().get_queryset(), self.request.user)
+        return scope_by_organization(
+            super().get_queryset(), self.request.user
+        ).prefetch_related("sync_jobs")
 
     def get_permissions(self):
         if self.action in {
@@ -794,6 +793,8 @@ class ConnectorInstallationViewSet(
             "destroy",
             "sync",
             "authorize",
+            "activate",
+            "revoke",
         }:
             return [IsAuthenticated(), CanManageConfig()]
         return super().get_permissions()
@@ -935,6 +936,29 @@ class ConnectorInstallationViewSet(
         installation = self.get_object()
         installation.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="activate")
+    def activate(self, request, pk=None):
+        from turing.services.connector_installation import ConnectorInstallationService
+
+        installation = self.get_object()
+        try:
+            installation = ConnectorInstallationService().activate(installation)
+        except TuringError as exc:
+            return _error_response(exc)
+        return Response(ConnectorInstallationSerializer(installation).data)
+
+    @action(detail=True, methods=["post"], url_path="revoke")
+    def revoke(self, request, pk=None):
+        from turing.services.connector_installation import ConnectorInstallationService
+
+        installation = self.get_object()
+        try:
+            installation = ConnectorInstallationService().revoke(installation)
+        except TuringError as exc:
+            return _error_response(exc)
+        installation.refresh_from_db()
+        return Response(ConnectorInstallationSerializer(installation).data)
 
     @action(detail=True, methods=["post"], url_path="sync")
     def sync(self, request, pk=None):

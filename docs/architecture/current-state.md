@@ -90,9 +90,27 @@ Includes:
 - Celery Beat scheduling + temporary sync retries
 
 
-## Current Limitations (post–Phase 4.3.10)
+## Phase 4.4 status
+
+**Phase 4.4.1–4.4.2 connector installation API + marketplace catalog foundation
+are in place.**
+
+Includes:
+
+- UI-ready installation serializer (`auth_status`, `health`, `last_sync`; no secrets)
+- Catalog contract: `connector_type`, `display_name`, `capabilities`,
+  `supported_sync_types`, `installation_requirements`
+- Explicit `activate` / `revoke` / `sync` actions + installation lifecycle events
+- List filters: `connector_type`, `status`, `health`, `created_at`
+- `ConnectorDefinition` marketplace metadata (provider, description, category,
+  scopes, structured install requirements)
+- Registry `get_definition` / `validate_installation_requirements`
+
+
+## Current Limitations (post–Phase 4.4.2)
 
 - No marketplace / product UI for connector install
+- No billing / entitlement / payments / app publishing
 - No CRM write-back / action-item sync
 - No additional CRM or telephony connectors yet
 - Permissions are organization-level (no record-level ACL)

@@ -15,6 +15,8 @@ class EventName:
     CONNECTOR_SYNC_STARTED = "connector.sync.started"
     CONNECTOR_SYNC_COMPLETED = "connector.sync.completed"
     CONNECTOR_SYNC_FAILED = "connector.sync.failed"
+    CONNECTOR_INSTALLATION_ACTIVATED = "connector.installation.activated"
+    CONNECTOR_INSTALLATION_REVOKED = "connector.installation.revoked"
 
 
 # Names allowed on outbound webhook subscriptions (plus ``*`` for all).
@@ -27,6 +29,8 @@ SUPPORTED_OUTBOUND_EVENT_NAMES: frozenset[str] = frozenset(
         EventName.CONNECTOR_SYNC_STARTED,
         EventName.CONNECTOR_SYNC_COMPLETED,
         EventName.CONNECTOR_SYNC_FAILED,
+        EventName.CONNECTOR_INSTALLATION_ACTIVATED,
+        EventName.CONNECTOR_INSTALLATION_REVOKED,
     }
 )
 
@@ -176,6 +180,38 @@ def connector_sync_failed(
             "organization_id": organization_id,
             "connector_type": connector_type,
             "error_code": error_code or "",
+        },
+    )
+
+
+def connector_installation_activated(
+    *,
+    installation_id: str,
+    organization_id: int,
+    connector_type: str,
+) -> DomainEvent:
+    return DomainEvent(
+        name=EventName.CONNECTOR_INSTALLATION_ACTIVATED,
+        payload={
+            "installation_id": str(installation_id),
+            "organization_id": organization_id,
+            "connector_type": connector_type,
+        },
+    )
+
+
+def connector_installation_revoked(
+    *,
+    installation_id: str,
+    organization_id: int,
+    connector_type: str,
+) -> DomainEvent:
+    return DomainEvent(
+        name=EventName.CONNECTOR_INSTALLATION_REVOKED,
+        payload={
+            "installation_id": str(installation_id),
+            "organization_id": organization_id,
+            "connector_type": connector_type,
         },
     )
 

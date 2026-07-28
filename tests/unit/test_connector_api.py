@@ -92,14 +92,26 @@ def test_connector_catalog_listing(client_admin):
     assert response.status_code == 200
     assert response.data == [
         {
-            "type": "api-fake",
-            "name": "API Fake",
+            "connector_type": "api-fake",
+            "display_name": "API Fake",
+            "provider": "",
+            "description": "",
+            "category": "other",
+            "documentation_url": "",
+            "icon_url": "",
             "auth_type": "api_key",
-            "supports_oauth": False,
-            "supports_refresh": False,
-            "supports_revoke": False,
+            "capabilities": {
+                "oauth": False,
+                "refresh": False,
+                "revoke": False,
+            },
             "supported_sync_types": ["media"],
-            "available": True,
+            "required_scopes": [],
+            "installation_requirements": {
+                "oauth_scopes": [],
+                "config_fields": [],
+                "messages": ["api_credentials"],
+            },
         }
     ]
 
