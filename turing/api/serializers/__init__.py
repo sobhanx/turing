@@ -530,3 +530,73 @@ class ConnectorSyncJobSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = fields
+
+
+class SpeechCenterMediaSerializer(serializers.ModelSerializer):
+    """Media summary for Speech Center (no nested external refs)."""
+
+    display_name = serializers.CharField(read_only=True)
+
+    class Meta:
+        model = MediaAsset
+        fields = [
+            "id",
+            "source_type",
+            "use_case",
+            "original_filename",
+            "content_type",
+            "byte_size",
+            "duration_ms",
+            "external_url",
+            "organization",
+            "display_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class SpeechCenterTranscriptSerializer(serializers.ModelSerializer):
+    """Transcript summary for Speech Center (segments live on timeline)."""
+
+    class Meta:
+        model = Transcript
+        fields = [
+            "id",
+            "job",
+            "media",
+            "organization",
+            "language_code",
+            "status",
+            "full_text",
+            "version",
+            "is_primary",
+            "confidence_avg",
+            "word_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class SpeechCenterAnalysisSerializer(serializers.ModelSerializer):
+    """Latest intelligence row for one analysis type."""
+
+    class Meta:
+        model = TranscriptAnalysis
+        fields = [
+            "id",
+            "analysis_type",
+            "content",
+            "provider",
+            "model_name",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class SpeechCenterTimelineAnalysisRefSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    analysis_type = serializers.CharField()
+    provider = serializers.CharField(allow_blank=True)
+    created_at = serializers.DateTimeField()

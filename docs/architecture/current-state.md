@@ -32,6 +32,7 @@ AI Analysis
 - Internal event foundation + durable outbox
 - Outbound signed webhooks (subscriptions + deliveries)
 - Connector framework foundation (installations + sync jobs)
+- Speech Center backend API (host lookup + timeline aggregation)
 - Multi-organization support
 - Admin panel
 - REST API
@@ -116,6 +117,30 @@ Includes:
 - No CRM write-back / action-item sync
 - No additional enterprise CTI adapters beyond Twilio
 - No real-time streaming / agent desktop / QA scoring
+- Permissions are organization-level (no record-level ACL)
+- Celery coupling exists inside services
+
+
+## Phase 4.5 status
+
+**Phase 4.5.1 Speech Center backend API foundation is in place.**
+
+Includes:
+
+- `SpeechCenterService` (external lookup, transcript context, intelligence, timeline)
+- `GET /api/turing/v1/speech-center/` host-object aggregation
+- `GET /api/turing/v1/speech-center/{transcript_id}/timeline/`
+- Docs: `docs/speech-center-api.md`
+
+
+## Current Limitations (post–Phase 4.5.1)
+
+- No frontend Speech Center UI
+- No vector / semantic search
+- No sentiment analysis
+- No marketplace / product UI for connector install
+- No billing / entitlement / payments / app publishing
+- No CRM write-back / action-item sync
 - Permissions are organization-level (no record-level ACL)
 - Celery coupling exists inside services
 

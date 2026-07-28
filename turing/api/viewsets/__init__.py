@@ -29,6 +29,10 @@ from turing.api.serializers import (
     SegmentUpdateSerializer,
     SpeakerRenameSerializer,
     SpeakerSerializer,
+    SpeechCenterAnalysisSerializer,
+    SpeechCenterMediaSerializer,
+    SpeechCenterTimelineAnalysisRefSerializer,
+    SpeechCenterTranscriptSerializer,
     TranscriptAnalysisSerializer,
     TranscriptListSerializer,
     TranscriptRevisionSerializer,
@@ -1155,4 +1159,100 @@ class ConnectorSyncJobViewSet(
             super().get_queryset(),
             self.request.user,
             field="installation__organization_id",
+        )
+
+
+def _serialize_speech_center_context(context: dict) -> dict:
+    analyses_in = context.get("analyses") or {}
+    analyses_out = {}
+    for key, row in analyses_in.items():
+        analyses_out[key] = (
+            SpeechCenterAnalysisSerializer(row).data if row is not None else None
+        )
+    media = context.get("media")
+    transcript = context.get("transcript")
+    return {
+        "media": SpeechCenterMediaSerializer(media).data if media is not None else None,
+        "transcript": (
+            SpeechCenterTranscriptSerializer(transcript).data
+            if transcript is not None
+            else None
+        ),
+        "status": context.get("status"),
+        "speakers": SpeakerSerializer(context.get("speakers") or [], many=True).data,
+        "analyses": analyses_out,
+        "external_references": ExternalReferenceSerializer(
+            context.get("external_references") or [],
+            many=True,
+        ).data,
+    }
+
+
+class SpeechCenterViewSet(viewsets.ViewSet):
+    """
+    Unified Speech Center access for host applications (Phase 4.5.1).
+
+    GET /speech-center/?external_system=&external_type=&external_id=
+    GET /speech-center/{transcript_id}/timeline/
+    """
+
+    required_capability = "view_transcript"
+    read_capability = "view_transcript"
+    permission_classes = [IsAuthenticated, HasTuringCapability]
+    http_method_names = ["get", "head", "options"]
+
+    def list(self, request):
+        from turing.auth.tenancy import resolve_organization
+        from turing.services.speech_center import (
+            SpeechCenterService,
+            require_external_lookup_params,
+        )
+
+        try:
+            system, type_, eid = require_external_lookup_params(
+                external_system=request.query_params.get("external_system"),
+                external_type=request.query_params.get("external_type"),
+                external_id=request.query_params.get("external_id"),
+            )
+            organization = resolve_organization(
+                organization_id=request.query_params.get("organization_id"),
+                user=request.user,
+                capability="view_transcript",
+            )
+            context = SpeechCenterService().get_by_external_reference(
+                organization=organization,
+                external_system=system,
+                external_type=type_,
+                external_id=eid,
+                user=request.user,
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+        return Response(_serialize_speech_center_context(context))
+
+    @action(detail=True, methods=["get"], url_path="timeline")
+    def timeline(self, request, pk=None):
+        from turing.services.speech_center import SpeechCenterService
+
+        service = SpeechCenterService()
+        try:
+            transcript = service.get_transcript_for_user(pk, user=request.user)
+            payload = service.get_timeline(transcript, user=request.user)
+        except TuringError as exc:
+            return _error_response(exc)
+
+        return Response(
+            {
+                "transcript_id": payload["transcript_id"],
+                "status": payload["status"],
+                "speakers": SpeakerSerializer(payload["speakers"], many=True).data,
+                "segments": TranscriptSegmentSerializer(
+                    payload["segments"], many=True
+                ).data,
+                "timestamps": payload["timestamps"],
+                "analysis_references": SpeechCenterTimelineAnalysisRefSerializer(
+                    payload["analysis_references"],
+                    many=True,
+                ).data,
+            }
         )

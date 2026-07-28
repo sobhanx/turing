@@ -13,6 +13,7 @@ from turing.api.viewsets import (
     ProcessingJobViewSet,
     ProviderViewSet,
     SpeakerViewSet,
+    SpeechCenterViewSet,
     TranscriptAnalysisViewSet,
     TranscriptSegmentViewSet,
     TranscriptViewSet,
@@ -32,6 +33,7 @@ router.register(
     ExternalReferenceViewSet,
     basename="turing-external-references",
 )
+router.register(r"v1/speech-center", SpeechCenterViewSet, basename="turing-speech-center")
 router.register(r"v1/providers", ProviderViewSet, basename="turing-providers")
 router.register(r"v1/webhooks", WebhookSubscriptionViewSet, basename="turing-webhooks")
 router.register(
