@@ -1,0 +1,87 @@
+{% load static i18n %}
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ page_title }} · Speech Center</title>
+  {# Reuse Django Admin theme tokens + dark mode #}
+  <link rel="stylesheet" href="{% static 'admin/css/base.css' %}">
+  <link rel="stylesheet" href="{% static 'admin/css/dark_mode.css' %}">
+  <script src="{% static 'admin/js/theme.js' %}"></script>
+  <link rel="stylesheet" href="{% static 'speech_center/app.css' %}">
+</head>
+<body class="speech-center">
+  <div id="container">
+    <header id="header">
+      <div id="branding">
+        <h1 id="site-name"><a href="{% url 'speech_center:dashboard' %}">Speech Center</a></h1>
+      </div>
+      <div id="user-tools">
+        {% if user.is_authenticated %}
+          <span>{{ user.get_username }}</span>
+          ·
+          <a href="{% url 'admin:index' %}">Admin</a>
+          ·
+          <button type="button" class="theme-toggle sc-btn sc-btn-ghost sc-btn-sm" aria-label="Toggle theme">Theme</button>
+          ·
+          <a href="{% url 'admin:logout' %}">Log out</a>
+        {% endif %}
+      </div>
+    </header>
+
+    <div class="sc-layout">
+      <nav class="sc-sidebar" aria-label="Speech Center">
+        <div class="sc-sidebar-title">Navigation</div>
+        <ul>
+          <li class="{% if nav_active == 'dashboard' %}active{% endif %}">
+            <a href="{% url 'speech_center:dashboard' %}">
+              <svg class="sc-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"/></svg>
+              Speech Center
+            </a>
+          </li>
+          <li class="{% if nav_active == 'create' %}active{% endif %}">
+            <a href="{% url 'speech_center:create_transcript' %}">
+              <svg class="sc-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+              Create Transcript
+            </a>
+          </li>
+          <li class="{% if nav_active == 'queue' %}active{% endif %}">
+            <a href="{% url 'speech_center:queue' %}">
+              <svg class="sc-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="18.5" cy="18" r="2.5"/></svg>
+              Processing Queue
+            </a>
+          </li>
+          <li class="{% if nav_active == 'transcripts' %}active{% endif %}">
+            <a href="{% url 'speech_center:transcripts' %}">
+              <svg class="sc-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 4h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V6a2 2 0 0 1 2-2Z"/><path d="M9 9h6M9 13h6"/></svg>
+              Transcripts
+            </a>
+          </li>
+        </ul>
+      </nav>
+
+      <main id="content" class="sc-main">
+        {% if messages %}
+          <ul class="messagelist">
+            {% for message in messages %}
+              <li{% if message.tags %} class="{{ message.tags }}"{% endif %}>{{ message }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+
+        {% block content_title %}
+          {% if page_title %}
+          <div class="sc-page-header">
+            <h1>{{ page_title }}</h1>
+            {% block page_subtitle %}{% endblock %}
+          </div>
+          {% endif %}
+        {% endblock %}
+
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+</body>
+</html>

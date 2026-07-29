@@ -3,6 +3,8 @@ from __future__ import annotations
 from django import forms
 from django.contrib import admin, messages
 from django.core.files.uploadedfile import UploadedFile
+from django.http import HttpResponseRedirect
+from django.urls import reverse
 
 from turing.admin import fa as fa_labels
 from turing.admin.authz import (
@@ -239,3 +241,5 @@ class MediaAssetAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelA
                 f"(language_code={lang_note}).",
                 messages.SUCCESS,
             )
+            # Navigation only: after a successful Go action, open Speech Center home.
+            return HttpResponseRedirect(reverse("speech_center:dashboard"))

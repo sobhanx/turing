@@ -1,0 +1,55 @@
+{% extends "speech_center/base.html" %}
+
+{% block content_title %}{% endblock %}
+
+{% block content %}
+<header class="sc-detail-header">
+  <h1 class="sc-detail-title ltr">
+    {{ media.original_filename|default:media.object_key|default:media.id }}
+  </h1>
+  <ul class="sc-meta">
+    <li><strong>Status</strong> <span class="sc-badge sc-badge-queued">{{ transcript.get_status_display }}</span></li>
+    <li><strong>Language</strong> <span class="ltr">{{ transcript.language_code|default:"—" }}</span></li>
+    <li><strong>Duration</strong> <span class="ltr">{{ duration_display }}</span></li>
+    <li><strong>Created</strong> <span class="ltr sc-ts">{{ transcript.created_at }}</span></li>
+  </ul>
+  <div class="sc-actions" style="margin-top:16px;">
+    <a class="sc-btn" href="{{ segments_url }}">View Segments</a>
+    <a class="sc-btn" href="{{ words_url }}">View Words</a>
+    <a class="sc-btn" href="{{ analysis_url }}">View Analysis</a>
+    <a class="sc-btn sc-btn-primary" href="{{ intelligence_url }}">Open Intelligence</a>
+  </div>
+</header>
+
+<section class="sc-section">
+  <h2>Summary</h2>
+  <div class="sc-section-body">{{ summary_text }}</div>
+</section>
+
+<section class="sc-section">
+  <h2>Speakers</h2>
+  {% if speakers %}
+  <ul class="sc-speakers">
+    {% for speaker in speakers %}
+    <li>
+      <span class="sc-speaker-label ltr">{{ speaker.speaker_label }}</span>
+      <span>{% if speaker.speaker_name %}{{ speaker.speaker_name }}{% else %}—{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="sc-empty" style="padding:12px 0;">No speakers found.</div>
+  {% endif %}
+</section>
+
+<section class="sc-section">
+  <h2>Transcript</h2>
+  <div class="sc-section-body sc-transcript-text">
+    {% if transcript.full_text %}
+      {{ transcript.full_text|linebreaksbr }}
+    {% else %}
+      No transcript available.
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

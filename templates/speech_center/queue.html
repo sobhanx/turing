@@ -1,0 +1,50 @@
+{% extends "speech_center/base.html" %}
+
+{% block page_subtitle %}
+<p>Live status from the existing processing pipeline.</p>
+{% endblock %}
+
+{% block content %}
+{% if jobs %}
+<div class="sc-table-wrap">
+  <table class="sc-table">
+    <thead>
+      <tr>
+        <th>Media</th>
+        <th>Status</th>
+        <th>Provider</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in jobs %}
+      <tr>
+        <td class="ltr">
+          {{ row.job.media.original_filename|default:row.job.media.object_key|default:row.job.media_id }}
+        </td>
+        <td>
+          <span class="sc-badge sc-badge-{{ row.status_css }}">{{ row.status_label }}</span>
+        </td>
+        <td class="ltr">{{ row.job.provider_code }}</td>
+        <td class="ltr sc-ts">{{ row.job.created_at }}</td>
+        <td class="sc-table-actions">
+          {% if row.show_retry %}
+          <form method="post" action="{% url 'speech_center:retry_job' row.job.id %}">
+            {% csrf_token %}
+            <button type="submit" class="sc-btn sc-btn-sm">Retry</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="sc-section sc-empty">
+  <strong>No processing jobs yet</strong>
+  Send media to transcription to see queue activity here.
+</div>
+{% endif %}
+{% endblock %}

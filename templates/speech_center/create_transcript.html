@@ -1,0 +1,52 @@
+{% extends "speech_center/base.html" %}
+
+{% block page_subtitle %}
+<p>Select media already stored in Turing. New files still upload through the existing Admin flow.</p>
+{% endblock %}
+
+{% block content %}
+<div class="sc-toolbar">
+  <p>Choose a file, set language if needed, then send it to transcription.</p>
+  <a class="sc-btn sc-btn-primary" href="{% url 'admin:turing_mediaasset_add' %}">Upload Media</a>
+</div>
+
+{% if media_list %}
+<div class="sc-table-wrap">
+  <table class="sc-table">
+    <thead>
+      <tr>
+        <th>Media</th>
+        <th>Organization</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for media in media_list %}
+      <tr>
+        <td class="ltr">{{ media.original_filename|default:media.object_key|default:media.id }}</td>
+        <td>{{ media.organization }}</td>
+        <td class="ltr sc-ts">{{ media.created_at }}</td>
+        <td class="sc-table-actions">
+          <form class="sc-inline-form" method="post" action="">
+            {% csrf_token %}
+            <input type="hidden" name="media_id" value="{{ media.id }}">
+            <label class="sc-inline-label">
+              Language
+              <input class="ltr" type="text" name="language_code" value="{{ default_language }}" size="6" placeholder="fa">
+            </label>
+            <button type="submit" class="sc-btn sc-btn-primary sc-btn-sm">Send to Transcription</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="sc-section sc-empty">
+  <strong>No media available</strong>
+  Upload a file first, then return here to start transcription.
+</div>
+{% endif %}
+{% endblock %}

@@ -169,6 +169,114 @@ def test_admin_add_creates_media_with_auto_filename(org):
 
 
 @pytest.mark.django_db
+def test_create_transcription_go_redirects_to_speech_center(org, settings):
+    """
+    upload → media changelist (queue/review) → select + Go action
+    → Speech Center home (named route).
+    """
+    from unittest.mock import patch
+
+    from turing.conf import clear_settings_cache
+    from turing.models import PlatformConfiguration, ProcessingJob
+
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    platform = PlatformConfiguration.get_solo()
+    platform.default_language = "en"
+    platform.save(update_fields=["default_language", "updated_at"])
+    clear_settings_cache()
+
+    admin_user = User.objects.create_superuser(
+        username="media-go-flow",
+        email="go@example.com",
+        password="pass",
+    )
+    client = Client()
+    client.force_login(admin_user)
+
+    add_url = reverse("admin:turing_mediaasset_add")
+    upload_resp = client.post(
+        add_url,
+        {
+            "source_type": SourceType.UPLOAD,
+            "use_case": UseCase.GENERIC,
+            "organization": org.pk,
+            "file": SimpleUploadedFile(
+                "go_flow.wav",
+                _wav_bytes(),
+                content_type="audio/wav",
+            ),
+        },
+    )
+    # Post-upload still lands on the admin media queue/review path.
+    assert upload_resp.status_code == 302
+    assert reverse("admin:turing_mediaasset_changelist") in upload_resp["Location"]
+
+    media = MediaAsset.objects.get()
+    changelist = reverse("admin:turing_mediaasset_changelist")
+    with patch(
+        "turing.tasks.transcription.process_transcription_job.delay",
+        return_value=None,
+    ):
+        go_resp = client.post(
+            changelist,
+            {
+                "action": "create_transcription_jobs",
+                "index": 0,
+                "_selected_action": [str(media.pk)],
+            },
+        )
+
+    assert go_resp.status_code == 302
+    assert go_resp["Location"] == reverse("speech_center:dashboard")
+    assert ProcessingJob.objects.filter(media=media).exists()
+
+
+@pytest.mark.django_db
+def test_create_transcription_go_keeps_page_on_validation_error(org):
+    """Failed Go action must not redirect to Speech Center."""
+    from turing.conf import clear_settings_cache
+    from turing.models import PlatformConfiguration, ProcessingJob, SpeechProviderConfig
+
+    platform = PlatformConfiguration.get_solo()
+    platform.default_language = ""
+    platform.save(update_fields=["default_language", "updated_at"])
+    SpeechProviderConfig.objects.filter(code="speechmatics").update(default_language="")
+    clear_settings_cache()
+
+    admin_user = User.objects.create_superuser(
+        username="media-go-fail",
+        email="gofail@example.com",
+        password="pass",
+    )
+    client = Client()
+    client.force_login(admin_user)
+    media = MediaService().create_from_upload(
+        uploaded_file=io.BytesIO(_wav_bytes()),
+        filename="no_lang.wav",
+        content_type="audio/wav",
+        organization=org,
+        uploaded_by=admin_user,
+    )
+
+    changelist = reverse("admin:turing_mediaasset_changelist")
+    go_resp = client.post(
+        changelist,
+        {
+            "action": "create_transcription_jobs",
+            "index": 0,
+            "_selected_action": [str(media.pk)],
+        },
+    )
+    assert go_resp.status_code == 302
+    assert reverse("admin:turing_mediaasset_changelist") in go_resp["Location"]
+    assert reverse("speech_center:dashboard") not in go_resp["Location"]
+    assert ProcessingJob.objects.filter(media=media).count() == 0
+
+    followed = client.get(go_resp["Location"])
+    assert "امکان ایجاد پردازش رونویسی نیست" in followed.content.decode()
+
+
+@pytest.mark.django_db
 def test_media_asset_admin_uses_custom_form():
     admin = MediaAssetAdmin(MediaAsset, AdminSite())
     assert admin.form is MediaAssetForm
