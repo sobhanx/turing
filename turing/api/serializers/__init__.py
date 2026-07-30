@@ -347,6 +347,10 @@ class SegmentUpdateSerializer(serializers.Serializer):
     end_ms = serializers.IntegerField(required=False, min_value=0)
 
 
+class TranscriptEditBodySerializer(serializers.Serializer):
+    body = serializers.CharField(allow_blank=True)
+
+
 class SpeakerRenameSerializer(serializers.Serializer):
     speaker_name = serializers.CharField(max_length=128, required=False, allow_blank=True)
     # Backward-compatible alias.

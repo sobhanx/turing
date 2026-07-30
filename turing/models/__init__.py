@@ -1,6 +1,7 @@
 from turing.models.analysis import TranscriptAnalysis
 from turing.models.media_artifact import MediaProcessingArtifact
 from turing.models.configuration import PlatformConfiguration, SpeechProviderConfig
+from turing.models.export_settings import TranscriptExportSettings
 from turing.models.connector import (
     ConnectorCredential,
     ConnectorInstallation,
@@ -32,6 +33,7 @@ from turing.models.webhook import (
 __all__ = [
     "PlatformConfiguration",
     "SpeechProviderConfig",
+    "TranscriptExportSettings",
     "Organization",
     "MediaAsset",
     "MediaProcessingArtifact",

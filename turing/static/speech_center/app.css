@@ -564,13 +564,151 @@ body.dark-theme .sc-badge-retry-scheduled {
   gap: 8px;
 }
 
-.sc-speakers li {
+.sc-speakers li,
+.sc-speakers-item {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 8px 10px;
   border-radius: var(--sc-radius-sm);
   background: var(--darkened-bg, #f8f9fb);
+}
+
+.sc-speaker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--sc-accent-soft);
+  color: var(--sc-accent);
+  font-weight: 650;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  border: 1px solid color-mix(in srgb, var(--sc-accent) 22%, transparent);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sc-speaker-chip-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 14rem;
+}
+
+.sc-speaker-chip-editable {
+  cursor: pointer;
+  font: inherit;
+  appearance: none;
+  background: var(--sc-accent-soft);
+}
+
+.sc-speaker-chip-editable:hover,
+.sc-speaker-chip-editable:focus-visible {
+  background: color-mix(in srgb, var(--sc-accent) 18%, var(--sc-surface));
+  border-color: color-mix(in srgb, var(--sc-accent) 45%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--sc-accent) 16%, transparent);
+  outline: none;
+}
+
+.sc-speaker-chip-icon {
+  display: inline-flex;
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.sc-speaker-chip-editable:hover .sc-speaker-chip-icon,
+.sc-speaker-chip-editable:focus-visible .sc-speaker-chip-icon {
+  opacity: 0.85;
+  transform: scale(1);
+}
+
+.sc-speaker-chip-saving {
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+}
+
+.sc-speaker-chip.is-saving .sc-speaker-chip-icon {
+  display: none;
+}
+
+.sc-speaker-chip.is-saving .sc-speaker-chip-saving {
+  display: inline !important;
+}
+
+.sc-speaker-chip-readonly {
+  background: var(--darkened-bg, #f3f4f6);
+  color: var(--sc-fg);
+  border-color: var(--sc-border);
+}
+
+.sc-speaker-chip-muted {
+  color: var(--sc-muted);
+}
+
+.sc-speaker-chip-input {
+  font: inherit;
+  font-weight: 650;
+  font-size: 0.78rem;
+  min-width: 6rem;
+  max-width: min(100%, 16rem);
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--sc-accent);
+  background: var(--sc-surface);
+  color: var(--sc-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sc-accent) 14%, transparent);
+}
+
+.sc-speaker-chip-input:disabled {
+  opacity: 0.65;
+}
+
+.sc-toast {
+  position: sticky;
+  top: 8px;
+  z-index: 20;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: var(--sc-radius-sm);
+  font-size: 0.875rem;
+  font-weight: 550;
+  box-shadow: var(--sc-shadow-hover);
+}
+
+.sc-toast[data-tone="success"] {
+  background: color-mix(in srgb, #059669 12%, var(--sc-surface));
+  color: #065f46;
+  border: 1px solid color-mix(in srgb, #059669 28%, transparent);
+}
+
+.sc-toast[data-tone="error"] {
+  background: color-mix(in srgb, #dc2626 12%, var(--sc-surface));
+  color: #991b1b;
+  border: 1px solid color-mix(in srgb, #dc2626 28%, transparent);
+}
+
+html[data-theme="dark"] .sc-toast[data-tone="success"],
+body.dark-theme .sc-toast[data-tone="success"] {
+  color: #a7f3d0;
+}
+
+html[data-theme="dark"] .sc-toast[data-tone="error"],
+body.dark-theme .sc-toast[data-tone="error"] {
+  color: #fecaca;
+}
+
+[dir="rtl"] .sc-speaker-chip-editable {
+  flex-direction: row-reverse;
+}
+
+[dir="rtl"] .sc-speakers-item {
+  flex-direction: row-reverse;
 }
 
 .sc-speaker-label {
@@ -1340,6 +1478,106 @@ body.dark-theme .sc-selected-hint {
   font-size: 0.95rem;
 }
 
+.sc-transcript-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.sc-transcript-toolbar h2 {
+  margin: 0;
+}
+
+.sc-transcript-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.sc-transcript-edit-icon {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.sc-transcript-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* `display: flex` above would otherwise override the HTML `hidden` attribute. */
+.sc-transcript-edit[hidden] {
+  display: none !important;
+}
+
+.sc-transcript-textarea {
+  width: 100%;
+  min-height: min(60vh, 520px);
+  resize: vertical;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  padding: 14px 16px;
+  border-radius: var(--sc-radius-sm);
+  border: 1px solid var(--sc-border);
+  background: var(--sc-bg);
+  color: var(--sc-fg);
+  box-shadow: inset 0 1px 2px color-mix(in srgb, var(--sc-fg) 4%, transparent);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sc-transcript-textarea:focus {
+  outline: none;
+  border-color: var(--sc-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sc-accent) 14%, transparent);
+}
+
+.sc-transcript-textarea:read-only {
+  opacity: 0.75;
+}
+
+.sc-transcript-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.sc-transcript-save-btn.is-saving {
+  min-width: 5.5rem;
+}
+
+.sc-transcript-save-spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: sc-spin 0.7s linear infinite;
+}
+
+@keyframes sc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sc-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .sc-viewer-insights h2 {
   margin-top: 18px;
 }
@@ -1380,13 +1618,8 @@ body.dark-theme .sc-selected-hint {
   color: var(--sc-muted);
 }
 
-.sc-speaker-chip {
-  display: inline-block;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--sc-accent-soft);
-  color: var(--sc-accent);
-  font-weight: 650;
+.sc-timeline-meta .sc-speaker-chip {
+  font-size: 0.76rem;
 }
 
 .sc-timeline-text {

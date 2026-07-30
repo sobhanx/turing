@@ -34,6 +34,7 @@ from turing.api.serializers import (
     SpeechCenterTimelineAnalysisRefSerializer,
     SpeechCenterTranscriptSerializer,
     TranscriptAnalysisSerializer,
+    TranscriptEditBodySerializer,
     TranscriptListSerializer,
     TranscriptRevisionSerializer,
     TranscriptSegmentSerializer,
@@ -301,7 +302,10 @@ class TranscriptViewSet(
             return [IsAuthenticated(), CanEditTranscript()]
         if self.action == "approve":
             return [IsAuthenticated(), CanApproveTranscript()]
-        if self.action == "external_references" and self.request.method == "POST":
+        if self.action in {"external_references", "edit_body"} and self.request.method in {
+            "POST",
+            "PATCH",
+        }:
             return [IsAuthenticated(), CanEditTranscript()]
         return super().get_permissions()
 
@@ -310,6 +314,52 @@ class TranscriptViewSet(
         transcript = self.get_object()
         return Response(
             TranscriptRevisionSerializer(transcript.revisions.all(), many=True).data
+        )
+
+    @action(detail=True, methods=["patch"], url_path="edit-body")
+    def edit_body(self, request, pk=None):
+        """Bulk-update transcript text from Speech Center editor body."""
+        from turing.ui.speech_center.presentation import format_duration_ms
+
+        transcript = self.get_object()
+        serializer = TranscriptEditBodySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = TranscriptService()
+        try:
+            updated = service.update_editor_body(
+                transcript,
+                serializer.validated_data["body"],
+                edited_by=request.user,
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+
+        segment_rows = []
+        for seg in updated.segments.select_related("speaker").order_by("sequence"):
+            speaker = seg.speaker
+            segment_rows.append(
+                {
+                    "start_display": format_duration_ms(seg.start_ms),
+                    "text": seg.text,
+                    "speaker_id": str(speaker.id) if speaker is not None else "",
+                    "speaker_label": (
+                        speaker.speaker_label if speaker is not None else "—"
+                    ),
+                    "speaker_name": (
+                        speaker.speaker_name if speaker is not None else ""
+                    ),
+                    "display_name": (
+                        speaker.resolved_name if speaker is not None else "—"
+                    ),
+                }
+            )
+        return Response(
+            {
+                "id": str(updated.id),
+                "full_text": updated.full_text,
+                "edit_body": service.format_editor_body(updated),
+                "segments": segment_rows,
+            }
         )
 
     @action(detail=True, methods=["get", "post"], url_path="external-references")

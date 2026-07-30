@@ -1,6 +1,7 @@
 from turing.admin import analysis  # noqa: F401
 from turing.admin import configuration  # noqa: F401
 from turing.admin import connectors  # noqa: F401
+from turing.admin import export_settings  # noqa: F401
 from turing.admin import external_reference  # noqa: F401
 from turing.admin import job  # noqa: F401
 from turing.admin import media  # noqa: F401

@@ -1,4 +1,5 @@
 {% extends "speech_center/base.html" %}
+{% load static %}
 
 {% block content_title %}{% endblock %}
 
@@ -15,15 +16,17 @@
   </ul>
 </header>
 
-<div class="sc-viewer">
+<div id="sc-speaker-toast" class="sc-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+
+<div class="sc-viewer" id="sc-transcript-viewer">
   <aside class="sc-viewer-side" aria-label="Speakers">
     <h2>Speakers</h2>
     {% if speakers %}
     <ul class="sc-speakers">
       {% for speaker in speakers %}
-      <li>
+      <li class="sc-speakers-item">
         <span class="sc-speaker-label ltr">{{ speaker.speaker_label }}</span>
-        <span>{% if speaker.speaker_name %}{{ speaker.speaker_name }}{% else %}—{% endif %}</span>
+        {% include "speech_center/_speaker_chip.html" with speaker_id=speaker.id speaker_label=speaker.speaker_label speaker_name=speaker.speaker_name display_name=speaker.resolved_name can_edit=can_edit_speakers %}
       </li>
       {% endfor %}
     </ul>
@@ -33,25 +36,61 @@
   </aside>
 
   <section class="sc-viewer-main" aria-label="Transcript timeline">
-    <h2>Transcript</h2>
-    {% if segments %}
-    <ol class="sc-timeline">
-      {% for seg in segments %}
-      <li class="sc-timeline-item">
-        <div class="sc-timeline-meta">
-          <time class="ltr">{{ seg.start_display }}</time>
-          <span class="sc-speaker-chip ltr">{{ seg.speaker_label }}</span>
-        </div>
-        <p class="sc-timeline-text">{{ seg.text }}</p>
-      </li>
-      {% endfor %}
-    </ol>
-    {% elif transcript.full_text %}
-    <div class="sc-section-body sc-transcript-text">
-      {{ transcript.full_text|linebreaksbr }}
+    <div class="sc-transcript-toolbar">
+      <h2>Transcript</h2>
+      {% if can_edit_transcript %}
+      <button
+        type="button"
+        id="sc-transcript-edit-btn"
+        class="sc-btn sc-btn-sm sc-btn-ghost sc-transcript-edit-btn"
+      >
+        <span class="sc-transcript-edit-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </span>
+        Edit Transcript
+      </button>
+      {% endif %}
     </div>
-    {% else %}
-    <p class="sc-empty-inline">No transcript available.</p>
+
+    <div id="sc-transcript-read">
+      {% if segments %}
+      <ol class="sc-timeline" id="sc-transcript-timeline">
+        {% for seg in segments %}
+        <li class="sc-timeline-item" data-segment-index="{{ forloop.counter0 }}">
+          <div class="sc-timeline-meta">
+            <time class="ltr sc-timeline-time">{{ seg.start_display }}</time>
+            {% include "speech_center/_speaker_chip.html" with speaker_id=seg.speaker_id speaker_label=seg.speaker_label speaker_name=seg.speaker_name display_name=seg.display_name can_edit=can_edit_speakers %}
+          </div>
+          <p class="sc-timeline-text">{{ seg.text }}</p>
+        </li>
+        {% endfor %}
+      </ol>
+      {% elif transcript.full_text %}
+      <div class="sc-section-body sc-transcript-text" id="sc-transcript-fulltext">
+        {{ transcript.full_text|linebreaksbr }}
+      </div>
+      {% else %}
+      <p class="sc-empty-inline" id="sc-transcript-empty">No transcript available.</p>
+      {% endif %}
+    </div>
+
+    {% if can_edit_transcript %}
+    <div id="sc-transcript-edit" class="sc-transcript-edit" hidden>
+      <label class="sc-sr-only" for="sc-transcript-textarea">Edit transcript</label>
+      <textarea
+        id="sc-transcript-textarea"
+        class="sc-transcript-textarea"
+        dir="auto"
+        rows="18"
+      >{{ transcript_edit_body }}</textarea>
+      <div class="sc-transcript-edit-actions">
+        <button type="button" id="sc-transcript-save" class="sc-btn sc-btn-sm sc-btn-primary sc-transcript-save-btn">
+          <span class="sc-transcript-save-label">Save</span>
+          <span class="sc-transcript-save-spinner" hidden aria-hidden="true"></span>
+        </button>
+        <button type="button" id="sc-transcript-cancel" class="sc-btn sc-btn-sm sc-transcript-cancel-btn">Cancel</button>
+      </div>
+    </div>
     {% endif %}
   </section>
 
@@ -76,4 +115,13 @@
     </div>
   </aside>
 </div>
+
+{{ speaker_edit_config_json|json_script:"sc-speaker-edit-config" }}
+{% if can_edit_speakers %}
+<script src="{% static 'speech_center/speaker_edit.js' %}"></script>
+{% endif %}
+{{ transcript_edit_config_json|json_script:"sc-transcript-edit-config" }}
+{% if can_edit_transcript %}
+<script src="{% static 'speech_center/transcript_edit.js' %}"></script>
+{% endif %}
 {% endblock %}

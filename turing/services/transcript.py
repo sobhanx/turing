@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from django.contrib.auth.models import AbstractBaseUser
 from django.db import IntegrityError, connection, transaction
@@ -31,6 +32,8 @@ from turing.models import (
 from turing.providers.types import NormalizedTranscript
 
 logger = logging.getLogger(__name__)
+
+_EDITOR_BLOCK_SPLIT = re.compile(r"\n\s*\n")
 
 
 class TranscriptService:
@@ -358,6 +361,136 @@ class TranscriptService:
             lines.append(f"{prefix}{seg.text}".strip())
         transcript.full_text = "\n".join(lines)
         return transcript.full_text
+
+    @staticmethod
+    def _format_editor_timestamp(start_ms: int | None) -> str:
+        if start_ms is None:
+            return "00:00"
+        total_seconds = max(0, int(start_ms)) // 1000
+        minutes, seconds = divmod(total_seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        if hours:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
+
+    def format_editor_body(self, transcript: Transcript) -> str:
+        """Serialize transcript segments for Speech Center full-text editing."""
+        segments = list(
+            transcript.segments.select_related("speaker").order_by("sequence")
+        )
+        if not segments:
+            return transcript.full_text or ""
+
+        blocks: list[str] = []
+        for seg in segments:
+            timestamp = self._format_editor_timestamp(seg.start_ms)
+            speaker = seg.speaker
+            if speaker is not None:
+                label = speaker.speaker_label
+                display = speaker.resolved_name
+                if display and display != label:
+                    header = f"[{timestamp}] {display} ({label})"
+                else:
+                    header = f"[{timestamp}] {label}"
+            else:
+                header = f"[{timestamp}]"
+            text = seg.text or ""
+            blocks.append(f"{header}\n{text}" if text else header)
+        return "\n\n".join(blocks)
+
+    @staticmethod
+    def _parse_editor_blocks(body: str) -> list[str]:
+        """Parse editor body into segment text blocks (headers are not applied)."""
+        normalized = (body or "").strip("\n")
+        if not normalized.strip():
+            return []
+
+        texts: list[str] = []
+        for raw_block in _EDITOR_BLOCK_SPLIT.split(normalized):
+            block = raw_block.strip("\n")
+            if not block:
+                continue
+            lines = block.split("\n")
+            header = lines[0].strip()
+            if not header.startswith("["):
+                raise ValidationError(
+                    "Each segment must start with a timestamp line like [00:01]."
+                )
+            text = "\n".join(lines[1:]).strip("\n") if len(lines) > 1 else ""
+            texts.append(text)
+        return texts
+
+    @transaction.atomic
+    def update_editor_body(
+        self,
+        transcript: Transcript,
+        body: str,
+        *,
+        edited_by: AbstractBaseUser | None = None,
+    ) -> Transcript:
+        """Apply a Speech Center full-text edit (one revision, bulk segment update)."""
+        assert_transcript_editable(transcript.status)
+        if edited_by is not None:
+            from turing.auth.tenancy import assert_organization_access
+
+            assert_organization_access(
+                edited_by,
+                transcript.organization,
+                capability="edit_transcript",
+            )
+
+        segments = list(
+            transcript.segments.select_related("speaker").order_by("sequence")
+        )
+        if not segments:
+            transcript.full_text = body
+            transcript.word_count = len((body or "").split())
+            transcript.version += 1
+            transcript.save(
+                update_fields=["full_text", "word_count", "version", "updated_at"]
+            )
+            self._create_revision(
+                transcript,
+                source=RevisionSource.HUMAN,
+                change_summary="Transcript edited",
+                created_by=edited_by,
+                diff={"full_text": body},
+            )
+            self._reindex_after_speaker_rename(transcript)
+            return transcript
+
+        parsed_texts = self._parse_editor_blocks(body)
+        if len(parsed_texts) != len(segments):
+            raise ValidationError(
+                f"Expected {len(segments)} segment blocks separated by blank lines, "
+                f"got {len(parsed_texts)}."
+            )
+
+        changes: list[dict[str, str]] = []
+        for segment, new_text in zip(segments, parsed_texts, strict=True):
+            if segment.text != new_text:
+                changes.append(
+                    {"segment_id": str(segment.id), "text": new_text}
+                )
+            segment.text = new_text
+            segment.is_edited = True
+            segment.save(update_fields=["text", "is_edited", "updated_at"])
+
+        self.recompute_full_text(transcript)
+        transcript.word_count = count_words_in_segments(transcript.segments.all())
+        transcript.version += 1
+        transcript.save(
+            update_fields=["full_text", "word_count", "version", "updated_at"]
+        )
+        self._create_revision(
+            transcript,
+            source=RevisionSource.HUMAN,
+            change_summary="Transcript edited",
+            created_by=edited_by,
+            diff={"segments": changes} if changes else {"segments": "unchanged"},
+        )
+        self._reindex_after_speaker_rename(transcript)
+        return transcript
 
     def iter_speaker_turns(
         self,

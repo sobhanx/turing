@@ -1,0 +1,25 @@
+{% if speaker_id and can_edit %}
+<button
+  type="button"
+  class="sc-speaker-chip sc-speaker-chip-editable"
+  data-speaker-id="{{ speaker_id }}"
+  data-speaker-label="{{ speaker_label }}"
+  data-speaker-name="{{ speaker_name }}"
+  aria-label="Edit speaker {{ display_name }}"
+>
+  <span class="sc-speaker-chip-text ltr">{{ display_name }}</span>
+  <span class="sc-speaker-chip-icon" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+  </span>
+  <span class="sc-speaker-chip-saving" hidden aria-hidden="true">…</span>
+</button>
+{% elif speaker_id %}
+<span
+  class="sc-speaker-chip sc-speaker-chip-readonly"
+  data-speaker-id="{{ speaker_id }}"
+>
+  <span class="sc-speaker-chip-text ltr">{{ display_name }}</span>
+</span>
+{% else %}
+<span class="sc-speaker-chip sc-speaker-chip-readonly sc-speaker-chip-muted ltr">—</span>
+{% endif %}

@@ -6,6 +6,7 @@ from django.dispatch import receiver
 
 from turing.domain.enums import TuringRole
 from turing.models.configuration import PlatformConfiguration, SpeechProviderConfig
+from turing.models.export_settings import TranscriptExportSettings
 from turing.models.organization import Organization
 
 
@@ -16,6 +17,7 @@ def seed_turing_defaults(sender, **kwargs) -> None:
         return
 
     PlatformConfiguration.get_solo()
+    TranscriptExportSettings.get_global()
     default_org = Organization.get_default()
     SpeechProviderConfig.objects.get_or_create(
         code="speechmatics",

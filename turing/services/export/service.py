@@ -11,8 +11,11 @@ from django.contrib.auth.models import AbstractBaseUser
 from turing.auth.tenancy import assert_organization_access
 from turing.domain.exceptions import NotFoundError, ValidationError
 from turing.models import Transcript
+from turing.models.export_settings import TranscriptExportSettings
 from turing.services.export.base import BaseExporter, ExportRegistry
-from turing.services.export.document import ExportDocument, SpeakerTurn
+from turing.services.export.context import apply_settings_to_document
+from turing.services.export.document import ActionItem, ExportDocument, SpeakerTurn
+from turing.services.export import labels as export_labels
 from turing.services.export.text import is_rtl_language
 from turing.services.transcript import TranscriptService
 
@@ -33,6 +36,26 @@ def _format_duration_ms(duration_ms: int | None) -> str:
     if hours:
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
     return f"{minutes:02d}:{seconds:02d}"
+
+
+def _format_timestamp_ms(start_ms: int | None) -> str:
+    if start_ms is None:
+        return ""
+    total_seconds = max(0, int(start_ms)) // 1000
+    minutes, seconds = divmod(total_seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def _format_dt(value) -> str:
+    if value is None:
+        return "—"
+    if getattr(value, "tzinfo", None) is not None:
+        value = value.astimezone(timezone.utc)
+    return value.strftime("%Y-%m-%d %H:%M UTC")
+
 
 @dataclass(frozen=True)
 class ExportResult:
@@ -128,11 +151,7 @@ class ExportService:
             s.resolved_name
             for s in transcript.speakers.all().order_by("speaker_label")
         ]
-        turns = [
-            SpeakerTurn(speaker_name=name, text=text)
-            for name, text in self.transcripts.iter_speaker_turns(transcript)
-            if text
-        ]
+        turns = self._build_timed_turns(transcript)
         body = self.transcripts.format_export_body(transcript)
 
         media_name = ""
@@ -145,10 +164,42 @@ class ExportService:
             )
             duration_ms = media.duration_ms
 
-        project_title = (org.name if org is not None else "") or "Speech Center"
-        transcript_title = media_name or f"Transcript {transcript.pk}"
+        project_title = (org.name if org is not None else "") or export_labels.DEFAULT_PROJECT
+        transcript_title = media_name or f"{export_labels.SECTION_TRANSCRIPT} {transcript.pk}"
 
-        return ExportDocument(
+        provider = "—"
+        job = getattr(transcript, "job", None)
+        if job is not None and getattr(job, "provider_code", None):
+            provider = str(job.provider_code)
+
+        word_count = int(getattr(transcript, "word_count", 0) or 0)
+        if word_count <= 0 and transcript.full_text:
+            word_count = len(transcript.full_text.split())
+
+        settings = TranscriptExportSettings.resolve_for_organization(
+            org if org is not None else None
+        )
+
+        if (
+            settings.show_ai_summary
+            or settings.show_key_topics
+            or settings.show_action_items
+            or settings.show_decisions
+            or settings.show_keywords
+        ):
+            summary, decisions, topics, keywords, action_items = self._load_intelligence(
+                transcript
+            )
+        else:
+            summary, decisions, topics, keywords, action_items = (
+                "",
+                [],
+                [],
+                [],
+                [],
+            )
+
+        document = ExportDocument(
             transcript_id=str(transcript.pk),
             project_title=project_title,
             transcript_title=transcript_title,
@@ -161,7 +212,114 @@ class ExportService:
             turns=turns,
             body_text=body,
             rtl=rtl,
+            created_at_display=_format_dt(getattr(transcript, "created_at", None)),
+            provider=provider,
+            speaker_count=len(speakers),
+            word_count=word_count,
+            summary=summary,
+            decisions=decisions,
+            topics=topics,
+            keywords=keywords,
+            action_items=action_items,
         )
+        return apply_settings_to_document(
+            document,
+            settings=settings,
+            created_at=getattr(transcript, "created_at", None),
+        )
+
+    def _build_timed_turns(self, transcript: Transcript) -> list[SpeakerTurn]:
+        """
+        Build speaker turns with start timestamps.
+
+        Same merge rules as ``TranscriptService.iter_speaker_turns``; adds
+        ``start_display`` from the first segment of each merged turn.
+        """
+        current_name: str | None = None
+        current_parts: list[str] = []
+        current_start: int | None = None
+        has_turn = False
+        pending: list[SpeakerTurn] = []
+
+        def flush() -> None:
+            nonlocal has_turn, current_parts, current_name, current_start
+            if not has_turn:
+                return
+            text = " ".join(p for p in current_parts if p).strip()
+            if text:
+                pending.append(
+                    SpeakerTurn(
+                        speaker_name=current_name or "",
+                        text=text,
+                        start_display=_format_timestamp_ms(current_start),
+                    )
+                )
+            current_parts = []
+            has_turn = False
+            current_start = None
+
+        for seg in transcript.segments.select_related("speaker").order_by("sequence"):
+            name = ""
+            if seg.speaker_id:
+                name = seg.speaker.resolved_name
+            text = (seg.text or "").strip()
+            if not text:
+                continue
+            if has_turn and name == current_name:
+                current_parts.append(text)
+                continue
+            flush()
+            current_name = name
+            current_parts = [text]
+            current_start = seg.start_ms
+            has_turn = True
+        flush()
+        return pending
+
+    def _load_intelligence(
+        self, transcript: Transcript
+    ) -> tuple[str, list[str], list[str], list[str], list[ActionItem]]:
+        """Read existing analysis rows without regenerating AI content."""
+        summary_text = ""
+        decisions: list[str] = []
+        topics: list[str] = []
+        keywords: list[str] = []
+        action_items: list[ActionItem] = []
+
+        try:
+            from turing.services.speech_center import SpeechCenterService
+
+            intel = SpeechCenterService().get_latest_intelligence(transcript)
+        except Exception:  # noqa: BLE001 — export must not fail if analyses missing
+            return summary_text, decisions, topics, keywords, action_items
+
+        summary_payload = intel.get("summary")
+        if isinstance(summary_payload, dict):
+            summary_text = str(summary_payload.get("summary") or "").strip()
+            raw_points = summary_payload.get("main_points") or []
+            if isinstance(raw_points, list):
+                decisions = [str(p).strip() for p in raw_points if str(p).strip()]
+
+        topics_payload = intel.get("topics")
+        if isinstance(topics_payload, list):
+            topics = [str(t).strip() for t in topics_payload if str(t).strip()]
+            keywords = list(topics)
+
+        actions_payload = intel.get("action_items")
+        if isinstance(actions_payload, list):
+            for item in actions_payload:
+                if not isinstance(item, dict):
+                    continue
+                task = str(item.get("task") or "").strip()
+                if not task:
+                    continue
+                owner = str(item.get("owner") or "").strip()
+                deadline = str(item.get("deadline") or "").strip()
+                action_items.append(
+                    ActionItem(task=task, owner=owner, deadline=deadline)
+                )
+
+        return summary_text, decisions, topics, keywords, action_items
 
     def _load_authorized(
         self,

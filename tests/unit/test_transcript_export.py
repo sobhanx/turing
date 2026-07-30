@@ -20,6 +20,7 @@ from turing.models import (
     TuringMembership,
 )
 from turing.services.export import ExportService
+from turing.services.export import labels as L
 from turing.services.export.document import ExportDocument, SpeakerTurn
 from turing.services.export.pdf import PDFExporter
 from turing.services.export.service import ensure_supported_format
@@ -253,6 +254,8 @@ def test_speech_center_export_ui_and_download(export_setup, client):
 def test_pdf_exporter_includes_metadata_fields(export_setup):
     from datetime import datetime, timezone
 
+    from turing.services.export.document import ActionItem
+
     doc = ExportDocument(
         transcript_id="x",
         project_title="Acme",
@@ -263,10 +266,101 @@ def test_pdf_exporter_includes_metadata_fields(export_setup):
         duration_display="02:05",
         generated_at=datetime(2026, 7, 29, tzinfo=timezone.utc),
         speakers=["Alex"],
-        turns=[SpeakerTurn("Alex", "Hello world")],
+        turns=[SpeakerTurn("Alex", "Hello world", start_display="00:00")],
         body_text="Alex\n\nHello world",
         rtl=False,
+        created_at_display="2026-07-29 10:00 UTC",
+        provider="speechmatics",
+        speaker_count=1,
+        word_count=2,
+        summary="We discussed the contract.",
+        decisions=["Approve the proposal"],
+        topics=["contract", "timeline"],
+        keywords=["contract", "timeline"],
+        action_items=[ActionItem(task="Send quote", owner="Alex")],
     )
     buf = io.BytesIO()
     PDFExporter().write(doc, buf)
     assert buf.getvalue().startswith(b"%PDF")
+
+
+@pytest.mark.django_db
+def test_export_document_includes_timed_turns_and_stats(export_setup):
+    transcript = export_setup["transcript"]
+    doc = ExportService().build_document(transcript)
+    assert doc.rtl is True
+    assert doc.speaker_count == 2
+    assert doc.duration_display == "02:05"
+    assert doc.turns
+    assert doc.turns[0].start_display == "00:00"
+    assert doc.turns[0].speaker_name == "علی"
+    assert any(t.speaker_name == "مریم" for t in doc.turns)
+
+
+@pytest.mark.django_db
+def test_export_document_includes_intelligence(export_setup):
+    from turing.domain.enums import AnalysisType
+    from turing.models import TranscriptAnalysis, TranscriptExportSettings
+
+    settings = TranscriptExportSettings.get_global()
+    settings.show_ai_summary = True
+    settings.show_key_topics = True
+    settings.show_action_items = True
+    settings.show_decisions = True
+    settings.show_keywords = True
+    settings.save()
+
+    transcript = export_setup["transcript"]
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=transcript.organization,
+        analysis_type=AnalysisType.SUMMARY,
+        content={
+            "summary": "جلسه درباره قرارداد بود.",
+            "main_points": ["قرارداد تایید شد"],
+        },
+        provider="fake",
+        model_name="fake-v1",
+    )
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=transcript.organization,
+        analysis_type=AnalysisType.TOPICS,
+        content=["قرارداد", "بودجه"],
+        provider="fake",
+        model_name="fake-v1",
+    )
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=transcript.organization,
+        analysis_type=AnalysisType.ACTION_ITEMS,
+        content=[{"task": "ارسال پیشنهاد", "owner": "علی", "deadline": None}],
+        provider="fake",
+        model_name="fake-v1",
+    )
+    doc = ExportService().build_document(transcript)
+    assert "قرارداد" in doc.summary
+    assert "قرارداد تایید شد" in doc.decisions
+    assert "بودجه" in doc.topics
+    assert doc.action_items[0].task == "ارسال پیشنهاد"
+    assert doc.action_items[0].owner == "علی"
+
+    pdf = ExportService().export_transcript(
+        transcript, "pdf", user=export_setup["viewer"]
+    )
+    assert b"".join(pdf.chunks).startswith(b"%PDF")
+
+    docx = ExportService().export_transcript(
+        transcript, "docx", user=export_setup["viewer"]
+    )
+    data = b"".join(docx.chunks)
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+        footer_names = [n for n in zf.namelist() if "footer" in n]
+        footer_xml = "".join(zf.read(n).decode("utf-8") for n in footer_names)
+    assert L.REPORT_TITLE in xml
+    assert L.SECTION_EXECUTIVE_SUMMARY in xml
+    assert L.SECTION_ACTION_ITEMS in xml
+    assert L.FOOTER_GENERATED_BY in footer_xml
+    assert "ارسال پیشنهاد" in xml
+    assert "w:bidi" in xml

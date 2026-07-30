@@ -159,7 +159,7 @@ LOCALE_PATHS = [
     for d in (_TURING_PKG_DIR / "locale", BASE_DIR / "locale")
     if d.is_dir()
 ]
-TIME_ZONE = os.environ.get("DJANGO_TIME_ZONE", "UTC")
+TIME_ZONE = "Asia/Tehran"
 USE_I18N = True
 USE_TZ = True
 

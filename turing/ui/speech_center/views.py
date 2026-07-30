@@ -9,9 +9,11 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
+from turing.auth.roles import user_has_capability
 from turing.auth.tenancy import (
     organization_ids_for,
     scope_by_organization,
+    user_is_global_bypass,
     user_sees_all_organizations,
 )
 from turing.domain.enums import AnalysisType, UseCase
@@ -27,6 +29,7 @@ from turing.services.export.service import ensure_supported_format
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
 from turing.services.speech_center import SpeechCenterService
+from turing.services.transcript import TranscriptService
 from turing.ui.speech_center.auth import require_turing_capability
 from turing.ui.speech_center.presentation import (
     can_show_retry,
@@ -418,14 +421,31 @@ def transcript_detail(request, transcript_id):
             {
                 "start_display": format_duration_ms(seg.start_ms),
                 "text": seg.text,
+                "speaker_id": str(speaker.id) if speaker is not None else "",
                 "speaker_label": (
                     speaker.speaker_label if speaker is not None else "—"
                 ),
                 "speaker_name": (
+                    speaker.speaker_name if speaker is not None else ""
+                ),
+                "display_name": (
                     speaker.resolved_name if speaker is not None else "—"
                 ),
             }
         )
+    can_edit_speakers = user_is_global_bypass(request.user) or user_has_capability(
+        request.user,
+        "edit_transcript",
+        organization=transcript.organization,
+    )
+    can_edit_transcript = can_edit_speakers
+    speaker_api_base = reverse("turing-speakers-detail", args=["00000000-0000-0000-0000-000000000000"])
+    speaker_api_base = speaker_api_base.rsplit("/", 2)[0] + "/"
+    transcript_edit_url = reverse(
+        "turing-transcripts-edit-body",
+        args=[transcript.pk],
+    )
+    transcript_edit_body = TranscriptService().format_editor_body(transcript)
     analysis_url = (
         reverse("admin:turing_transcriptanalysis_changelist")
         + f"?transcript__id__exact={tid}"
@@ -464,6 +484,19 @@ def transcript_detail(request, transcript_id):
                 "speech_center:export_transcript",
                 args=[transcript.pk, "docx"],
             ),
+            "can_edit_speakers": can_edit_speakers,
+            "can_edit_transcript": can_edit_transcript,
+            "transcript_edit_body": transcript_edit_body,
+            "speaker_edit_config_json": {
+                "speakersApiBase": speaker_api_base,
+                "canEdit": can_edit_speakers,
+                "csrfToken": get_token(request),
+            },
+            "transcript_edit_config_json": {
+                "editBodyUrl": transcript_edit_url,
+                "canEdit": can_edit_transcript,
+                "csrfToken": get_token(request),
+            },
         },
     )
 

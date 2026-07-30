@@ -9,9 +9,10 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 
 from turing.domain.enums import JobStatus, TranscriptStatus, UseCase
-from turing.models import Organization, ProcessingJob, Transcript
+from turing.models import Organization, ProcessingJob, Speaker, Transcript, TranscriptSegment
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
+from turing.services.transcript import TranscriptService
 from turing.ui.speech_center.presentation import job_display_status
 
 User = get_user_model()
@@ -224,6 +225,122 @@ def test_queue_and_transcripts_pages(sc_client, sc_media, sc_user):
     assert "Export PDF" in body
     assert "Export DOCX" in body
     assert "admin/turing/transcriptsegment/" in body
+
+
+@pytest.fixture
+def sc_transcript_with_speakers(db, sc_media, sc_user):
+    job = JobOrchestrator().create_transcription_job(
+        media=sc_media,
+        created_by=sc_user,
+        language_code="en",
+        auto_enqueue=False,
+    )
+    transcript = Transcript.objects.create(
+        job=job,
+        media=sc_media,
+        organization=sc_media.organization,
+        status=TranscriptStatus.DRAFT,
+        language_code="en",
+        full_text="S1: Hello\nS1: World",
+    )
+    speaker = Speaker.objects.create(
+        transcript=transcript,
+        speaker_label="S1",
+        speaker_name="",
+    )
+    TranscriptSegment.objects.create(
+        transcript=transcript,
+        speaker=speaker,
+        sequence=0,
+        start_ms=0,
+        end_ms=500,
+        text="Hello",
+    )
+    TranscriptSegment.objects.create(
+        transcript=transcript,
+        speaker=speaker,
+        sequence=1,
+        start_ms=500,
+        end_ms=1000,
+        text="World",
+    )
+    return transcript
+
+
+@pytest.mark.django_db
+def test_transcript_detail_renders_editable_speaker_chips(
+    sc_client, sc_transcript_with_speakers
+):
+    transcript = sc_transcript_with_speakers
+    resp = sc_client.get(
+        reverse("speech_center:transcript_detail", args=[transcript.id])
+    )
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "sc-speaker-chip-editable" in body
+    assert "sc-speaker-edit-config" in body
+    assert "speech_center/speaker_edit.js" in body
+    assert 'data-speaker-id="' in body
+    assert "Edit speaker S1" in body
+    assert body.count("sc-speaker-chip-editable") >= 2
+
+
+@pytest.mark.django_db
+def test_transcript_speaker_rename_via_existing_api(sc_client, sc_transcript_with_speakers):
+    transcript = sc_transcript_with_speakers
+    speaker = transcript.speakers.get(speaker_label="S1")
+    patch = sc_client.patch(
+        f"/api/turing/v1/speakers/{speaker.id}/",
+        data='{"speaker_name": "Alice"}',
+        content_type="application/json",
+    )
+    assert patch.status_code == 200
+    speaker.refresh_from_db()
+    assert speaker.speaker_name == "Alice"
+    detail = sc_client.get(
+        reverse("speech_center:transcript_detail", args=[transcript.id])
+    )
+    body = detail.content.decode()
+    assert "Alice" in body
+    assert body.count("Alice") >= 2
+
+
+@pytest.mark.django_db
+def test_transcript_detail_renders_transcript_edit_controls(
+    sc_client, sc_transcript_with_speakers
+):
+    transcript = sc_transcript_with_speakers
+    resp = sc_client.get(
+        reverse("speech_center:transcript_detail", args=[transcript.id])
+    )
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Edit Transcript" in body
+    assert "sc-transcript-edit-config" in body
+    assert "speech_center/transcript_edit.js" in body
+    assert 'id="sc-transcript-textarea"' in body
+    assert 'id="sc-transcript-edit"' in body
+    assert 'id="sc-transcript-edit" class="sc-transcript-edit" hidden>' in body
+    assert 'id="sc-transcript-read"' in body
+    assert "[00:00]" in body
+
+
+@pytest.mark.django_db
+def test_transcript_edit_body_api(sc_client, sc_transcript_with_speakers):
+    transcript = sc_transcript_with_speakers
+    service = TranscriptService()
+    body = service.format_editor_body(transcript)
+    updated_body = body.replace("Hello", "Hi there")
+    patch = sc_client.patch(
+        reverse("turing-transcripts-edit-body", args=[transcript.id]),
+        data={"body": updated_body},
+        content_type="application/json",
+    )
+    assert patch.status_code == 200
+    payload = patch.json()
+    assert payload["segments"][0]["text"] == "Hi there"
+    transcript.refresh_from_db()
+    assert "Hi there" in transcript.full_text
 
 
 @pytest.mark.django_db
