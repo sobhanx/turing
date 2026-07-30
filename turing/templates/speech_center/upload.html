@@ -1,0 +1,116 @@
+{% extends "speech_center/base.html" %}
+
+{% block page_subtitle %}
+<p>Add an audio file to Turing. Filename and type are taken from the selected file.</p>
+{% endblock %}
+
+{% block content %}
+<section class="sc-section sc-upload">
+  <form method="post" enctype="multipart/form-data" class="sc-upload-form" id="sc-upload-form">
+    {% csrf_token %}
+
+    <div class="sc-dropzone" id="sc-dropzone" tabindex="0" role="button" aria-label="Choose audio file">
+      <input
+        type="file"
+        name="file"
+        id="sc-file-input"
+        class="sc-dropzone-input"
+        accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm"
+        required
+      >
+      <div class="sc-dropzone-body">
+        <span class="sc-dropzone-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3"/></svg>
+        </span>
+        <p class="sc-dropzone-title">Drop audio here, or click to browse</p>
+        <p class="sc-dropzone-hint" id="sc-file-hint">WAV, MP3, M4A, OGG, FLAC, or WebM</p>
+        <p class="sc-dropzone-file ltr" id="sc-file-name" hidden></p>
+      </div>
+    </div>
+
+    <label class="sc-field">
+      <span class="sc-field-label">Organization</span>
+      <select name="organization_id" class="sc-select" required {% if not organizations %}disabled{% endif %}>
+        {% if not organizations %}
+          <option value="">No organizations available</option>
+        {% else %}
+          {% for org in organizations %}
+            <option value="{{ org.id }}" {% if default_organization_id == org.id|stringformat:"s" %}selected{% endif %}>
+              {{ org.name }}
+            </option>
+          {% endfor %}
+        {% endif %}
+      </select>
+    </label>
+
+    <div class="sc-upload-actions">
+      <button type="submit" class="sc-btn sc-btn-primary" {% if not organizations %}disabled{% endif %}>
+        Upload
+      </button>
+    </div>
+  </form>
+</section>
+
+<script>
+(function () {
+  var zone = document.getElementById("sc-dropzone");
+  var input = document.getElementById("sc-file-input");
+  var nameEl = document.getElementById("sc-file-name");
+  var hintEl = document.getElementById("sc-file-hint");
+  if (!zone || !input) return;
+
+  function formatBytes(n) {
+    if (!n && n !== 0) return "";
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1048576).toFixed(1) + " MB";
+  }
+
+  function showFile(file) {
+    if (!file || !nameEl) return;
+    nameEl.hidden = false;
+    nameEl.textContent = file.name + (file.size ? " · " + formatBytes(file.size) : "");
+    if (hintEl) hintEl.hidden = true;
+  }
+
+  input.addEventListener("change", function () {
+    if (input.files && input.files[0]) showFile(input.files[0]);
+  });
+
+  zone.addEventListener("click", function (e) {
+    if (e.target === input) return;
+    input.click();
+  });
+
+  zone.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      input.click();
+    }
+  });
+
+  ["dragenter", "dragover"].forEach(function (evt) {
+    zone.addEventListener(evt, function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.add("is-dragover");
+    });
+  });
+  ["dragleave", "drop"].forEach(function (evt) {
+    zone.addEventListener(evt, function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      zone.classList.remove("is-dragover");
+    });
+  });
+  zone.addEventListener("drop", function (e) {
+    var files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length) return;
+    var dt = new DataTransfer();
+    dt.items.add(files[0]);
+    input.files = dt.files;
+    showFile(files[0]);
+  });
+})();
+</script>
+{% endblock %}

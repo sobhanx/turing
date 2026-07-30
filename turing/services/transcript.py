@@ -244,6 +244,7 @@ class TranscriptService:
             created_by=edited_by,
             diff={"segment_id": str(segment.id), "text": segment.text},
         )
+        self._reindex_after_speaker_rename(transcript)
         return segment
 
     @transaction.atomic
@@ -358,6 +359,88 @@ class TranscriptService:
         transcript.full_text = "\n".join(lines)
         return transcript.full_text
 
+    def iter_speaker_turns(
+        self,
+        transcript: Transcript,
+        *,
+        merge_consecutive: bool = True,
+    ):
+        """
+        Yield ``(speaker_name, text)`` turns in segment order.
+
+        Used by export renderers so PDF/DOCX/TXT share one dialogue model.
+        Consecutive segments with the same speaker are merged by default.
+        """
+        current_name: str | None = None
+        current_parts: list[str] = []
+        has_turn = False
+
+        def flush():
+            nonlocal has_turn, current_parts, current_name
+            if not has_turn:
+                return
+            text = " ".join(p for p in current_parts if p).strip()
+            yield_name = current_name or ""
+            current_parts = []
+            has_turn = False
+            return yield_name, text
+
+        pending: list[tuple[str, str]] = []
+        for seg in transcript.segments.select_related("speaker").order_by("sequence"):
+            name = ""
+            if seg.speaker_id:
+                name = seg.speaker.resolved_name
+            text = (seg.text or "").strip()
+            if not text:
+                continue
+            if (
+                merge_consecutive
+                and has_turn
+                and name == current_name
+            ):
+                current_parts.append(text)
+                continue
+            if has_turn:
+                flushed = flush()
+                if flushed is not None:
+                    pending.append(flushed)
+            current_name = name
+            current_parts = [text]
+            has_turn = True
+        if has_turn:
+            flushed = flush()
+            if flushed is not None:
+                pending.append(flushed)
+        yield from pending
+
+    def format_export_body(
+        self,
+        transcript: Transcript,
+        *,
+        merge_consecutive: bool = True,
+    ) -> str:
+        """
+        Export-friendly dialogue body:
+
+            Speaker Name
+
+            Text...
+
+            Next Speaker
+
+            Text...
+        """
+        blocks: list[str] = []
+        for speaker_name, text in self.iter_speaker_turns(
+            transcript, merge_consecutive=merge_consecutive
+        ):
+            if not text:
+                continue
+            if speaker_name:
+                blocks.append(f"{speaker_name}\n\n{text}")
+            else:
+                blocks.append(text)
+        return "\n\n".join(blocks)
     @transaction.atomic
     def submit_for_review(
         self,

@@ -11,10 +11,12 @@ logger = logging.getLogger(__name__)
     bind=True,
     name="turing.tasks.webhooks.process_provider_webhook_event",
     acks_late=True,
-    max_retries=0,
+    max_retries=8,
+    autoretry_for=(),
 )
 def process_provider_webhook_event(self, notification_data: dict) -> str:
     """Process a normalized provider webhook notification asynchronously."""
+    from turing.domain.exceptions import ProviderError
     from turing.services.transcription import TranscriptionService
     from turing.webhooks.types import ProviderNotification
 
@@ -22,7 +24,32 @@ def process_provider_webhook_event(self, notification_data: dict) -> str:
     service = TranscriptionService()
     try:
         return service.ingest_provider_notification(notification)
-    except Exception:
+    except ProviderError as exc:
+        if getattr(exc, "retryable", False) and self.request.retries < self.max_retries:
+            countdown = min(300, 2 ** int(self.request.retries))
+            logger.warning(
+                "Retryable webhook processing failure for %s job %s (retry in %ss)",
+                notification.provider_code,
+                notification.external_job_id,
+                countdown,
+            )
+            raise self.retry(exc=exc, countdown=countdown)
+        logger.exception(
+            "Webhook processing failed for %s job %s",
+            notification.provider_code,
+            notification.external_job_id,
+        )
+        raise
+    except Exception as exc:
+        if self.request.retries < self.max_retries:
+            countdown = min(300, 2 ** int(self.request.retries))
+            logger.warning(
+                "Transient webhook processing failure for %s job %s (retry in %ss)",
+                notification.provider_code,
+                notification.external_job_id,
+                countdown,
+            )
+            raise self.retry(exc=exc, countdown=countdown)
         logger.exception(
             "Webhook processing failed for %s job %s",
             notification.provider_code,

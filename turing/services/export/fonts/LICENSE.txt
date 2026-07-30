@@ -1,0 +1,4 @@
+DejaVu Fonts — Copyright (c) 2003 by Bitstream, Inc. All Rights Reserved.
+Copyright (c) 2006 by Tavmjong Bah. All Rights Reserved.
+Fonts are under the Bitstream Vera / DejaVu Fonts license.
+Source: https://dejavu-fonts.github.io/

@@ -26,8 +26,6 @@ from turing.connectors.salesforce.client import SalesforceClient
 from turing.connectors.salesforce.oauth import DEFAULT_SCOPES, SalesforceOAuthClient
 from turing.domain.enums import ConnectorAuthType, UseCase
 from turing.services.connector_installation import ConnectorInstallationService
-from turing.services.external_reference import ExternalReferenceService
-from turing.services.media import MediaService
 from turing.services.oauth_state import OAuthStateService
 
 logger = logging.getLogger(__name__)
@@ -362,79 +360,35 @@ class SalesforceConnector(BaseConnector):
                 f"Salesforce pull_media failed: {exc}"
             ) from exc
 
-        org = self.installation.organization
-        media_service = MediaService()
-        refs = ExternalReferenceService()
-        created_items: list[MediaPullItem] = []
-        skipped = 0
+        from turing.connectors.media_ingest import sync_media_pull_items
 
-        for item in items:
-            if not item.source_url:
-                skipped += 1
-                continue
-            external_type = str(
+        def _auth():
+            token = self._decrypt_access_token()
+            if token:
+                return {"Authorization": f"Bearer {token}"}, None
+            return None, None
+
+        def _type(item):
+            return str(
                 (item.metadata or {}).get("external_type") or "call"
             ).strip() or "call"
-            existing = refs.lookup(
-                organization=org,
-                external_system=EXTERNAL_SYSTEM,
-                external_type=external_type,
-                external_id=item.external_id,
-            )
-            if existing.filter(media__isnull=False).exists():
-                skipped += 1
-                continue
-            use_case = (
-                UseCase.MEETING if external_type == "meeting" else UseCase.CRM_CALL
-            )
-            try:
-                asset = media_service.create_from_url(
-                    url=item.source_url,
-                    use_case=use_case,
-                    organization=org,
-                    original_filename=item.filename
-                    or f"salesforce-{item.external_id}.mp3",
-                    metadata={
-                        "connector": EXTERNAL_SYSTEM,
-                        "connector_installation_id": str(self.installation.id),
-                        "salesforce": {
-                            k: v
-                            for k, v in (item.metadata or {}).items()
-                            if k
-                            not in {
-                                "api_token",
-                                "token",
-                                "secret",
-                                "access_token",
-                                "refresh_token",
-                            }
-                        },
-                    },
-                )
-                refs.attach_to_media(
-                    asset,
-                    external_system=EXTERNAL_SYSTEM,
-                    external_type=external_type,
-                    external_id=item.external_id,
-                    metadata={
-                        "topic": (item.metadata or {}).get("topic", ""),
-                        "who_id": (item.metadata or {}).get("who_id", ""),
-                        "what_id": (item.metadata or {}).get("what_id", ""),
-                    },
-                )
-                created_items.append(item)
-            except Exception as exc:  # noqa: BLE001
-                logger.exception(
-                    "Salesforce sync failed creating media for record %s",
-                    item.external_id,
-                )
-                raise ConnectorSyncError(
-                    f"Failed to ingest Salesforce recording "
-                    f"'{item.external_id}': {exc}"
-                ) from exc
 
-        return ConnectorSyncResult(
-            records_processed=len(created_items),
-            media_items=created_items,
-            details={"skipped": skipped, "discovered": len(items)},
+        def _use_case(item):
+            return UseCase.MEETING if _type(item) == "meeting" else UseCase.CRM_CALL
+
+        return sync_media_pull_items(
+            installation=self.installation,
+            items=items,
+            external_system=EXTERNAL_SYSTEM,
+            external_type=_type,
+            use_case=_use_case,
+            metadata_namespace="salesforce",
+            default_filename=lambda item: f"salesforce-{item.external_id}.mp3",
+            download_auth=_auth,
+            attach_metadata=lambda item: {
+                "topic": (item.metadata or {}).get("topic", ""),
+                "who_id": (item.metadata or {}).get("who_id", ""),
+                "what_id": (item.metadata or {}).get("what_id", ""),
+            },
         )
+

@@ -42,12 +42,22 @@ dependencies = [
 s3 = ["boto3>=1.34"]
 azure = ["django-storages[azure]>=1.14"]
 gcs = ["django-storages[google]>=1.14"]
+export = [
+    "reportlab>=4.0",
+    "python-docx>=1.1",
+    "arabic-reshaper>=3.0",
+    "python-bidi>=0.4.2",
+]
 dev = [
     "pytest>=8.0",
     "pytest-django>=4.8",
     "factory-boy>=3.3",
     "responses>=0.25",
     "python-dotenv>=1.0",
+    "reportlab>=4.0",
+    "python-docx>=1.1",
+    "arabic-reshaper>=3.0",
+    "python-bidi>=0.4.2",
 ]
 postgres = ["psycopg[binary]>=3.1"]
 media = ["mutagen>=1.47"]
@@ -59,6 +69,14 @@ Homepage = "https://github.com/turing/django-turing"
 [tool.setuptools.packages.find]
 include = ["turing*"]
 exclude = ["config*", "tests*"]
+
+[tool.setuptools.package-data]
+"turing" = [
+    "templates/**/*",
+    "locale/**/*",
+    "static/**/*",
+]
+"turing.services.export" = ["fonts/*.ttf", "fonts/LICENSE.txt"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"

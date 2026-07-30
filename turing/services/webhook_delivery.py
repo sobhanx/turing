@@ -168,11 +168,28 @@ class WebhookDeliveryService:
         timeout = float(settings.outbound_webhook_timeout_seconds)
 
         try:
+            from turing.security.urls import assert_safe_public_http_url
+
+            assert_safe_public_http_url(
+                subscription.url, purpose="Webhook URL", resolve_dns=True
+            )
+        except Exception as exc:  # noqa: BLE001
+            return self._record_failure(
+                delivery_id,
+                error=f"Unsafe webhook URL: {exc}",
+                status_code=None,
+                body_preview="",
+                max_attempts=max_attempts,
+                network_error=True,
+            )
+
+        try:
             response = requests.post(
                 subscription.url,
                 data=body,
                 headers=headers,
                 timeout=timeout,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             return self._record_failure(

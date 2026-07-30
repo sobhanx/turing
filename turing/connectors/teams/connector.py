@@ -27,8 +27,6 @@ from turing.connectors.teams.oauth import DEFAULT_SCOPES, TeamsOAuthClient
 from turing.connectors.teams.serializers import pick_primary_recording
 from turing.domain.enums import ConnectorAuthType, UseCase
 from turing.services.connector_installation import ConnectorInstallationService
-from turing.services.external_reference import ExternalReferenceService
-from turing.services.media import MediaService
 from turing.services.oauth_state import OAuthStateService
 
 logger = logging.getLogger(__name__)
@@ -317,71 +315,26 @@ class TeamsConnector(BaseConnector):
         except Exception as exc:  # noqa: BLE001
             raise ConnectorSyncError(f"Teams pull_media failed: {exc}") from exc
 
-        org = self.installation.organization
-        media_service = MediaService()
-        refs = ExternalReferenceService()
-        created_items: list[MediaPullItem] = []
-        skipped = 0
+        from turing.connectors.media_ingest import sync_media_pull_items
 
-        for item in items:
-            if not item.source_url:
-                skipped += 1
-                continue
-            existing = refs.lookup(
-                organization=org,
-                external_system=EXTERNAL_SYSTEM,
-                external_type=EXTERNAL_TYPE,
-                external_id=item.external_id,
-            )
-            if existing.filter(media__isnull=False).exists():
-                skipped += 1
-                continue
-            try:
-                asset = media_service.create_from_url(
-                    url=item.source_url,
-                    use_case=UseCase.MEETING,
-                    organization=org,
-                    original_filename=item.filename
-                    or f"teams-{item.external_id}.mp4",
-                    metadata={
-                        "connector": EXTERNAL_SYSTEM,
-                        "connector_installation_id": str(self.installation.id),
-                        "teams": {
-                            k: v
-                            for k, v in (item.metadata or {}).items()
-                            if k
-                            not in {
-                                "api_token",
-                                "token",
-                                "secret",
-                                "access_token",
-                                "refresh_token",
-                            }
-                        },
-                    },
-                )
-                refs.attach_to_media(
-                    asset,
-                    external_system=EXTERNAL_SYSTEM,
-                    external_type=EXTERNAL_TYPE,
-                    external_id=item.external_id,
-                    metadata={
-                        "meeting_id": (item.metadata or {}).get("meeting_id", ""),
-                        "topic": (item.metadata or {}).get("topic", ""),
-                    },
-                )
-                created_items.append(item)
-            except Exception as exc:  # noqa: BLE001
-                logger.exception(
-                    "Teams sync failed creating media for recording %s",
-                    item.external_id,
-                )
-                raise ConnectorSyncError(
-                    f"Failed to ingest Teams recording '{item.external_id}': {exc}"
-                ) from exc
+        def _auth():
+            token = self._decrypt_access_token()
+            if token:
+                return {"Authorization": f"Bearer {token}"}, None
+            return None, None
 
-        return ConnectorSyncResult(
-            records_processed=len(created_items),
-            media_items=created_items,
-            details={"skipped": skipped, "discovered": len(items)},
+        return sync_media_pull_items(
+            installation=self.installation,
+            items=items,
+            external_system=EXTERNAL_SYSTEM,
+            external_type=EXTERNAL_TYPE,
+            use_case=UseCase.MEETING,
+            metadata_namespace="teams",
+            default_filename=lambda item: f"teams-{item.external_id}.mp4",
+            download_auth=_auth,
+            attach_metadata=lambda item: {
+                "meeting_id": (item.metadata or {}).get("meeting_id", ""),
+                "topic": (item.metadata or {}).get("topic", ""),
+            },
         )
+

@@ -57,7 +57,10 @@ class JobOrchestrator:
             )
 
         if idempotency_key:
-            existing = ProcessingJob.objects.filter(idempotency_key=idempotency_key).first()
+            existing = ProcessingJob.objects.filter(
+                organization=media.organization,
+                idempotency_key=idempotency_key,
+            ).first()
             if existing:
                 return existing
 
@@ -88,7 +91,8 @@ class JobOrchestrator:
         except IntegrityError:
             if idempotency_key:
                 existing = ProcessingJob.objects.filter(
-                    idempotency_key=idempotency_key
+                    organization=media.organization,
+                    idempotency_key=idempotency_key,
                 ).first()
                 if existing:
                     return existing

@@ -37,11 +37,13 @@ class ProcessingAttemptInline(PersianInlineMixin, admin.TabularInline):
 class ProcessingLogInline(PersianInlineMixin, admin.TabularInline):
     model = ProcessingLog
     extra = 0
+    max_num = 25
     verbose_name = fa_labels.MODEL_TITLES["ProcessingLog"][0]
     verbose_name_plural = fa_labels.MODEL_TITLES["ProcessingLog"][1]
     readonly_fields = ("level", "message", "context", "created_at")
     can_delete = False
     ordering = ("-created_at",)
+    show_change_link = True
 
 
 @admin.register(ProcessingJob)
@@ -67,6 +69,8 @@ class ProcessingJobAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.Mod
     list_filter = ("status", "capability", "provider_code", "organization", "created_at")
     search_fields = ("id", "external_job_id", "idempotency_key", "error_code", "tenant_key")
     autocomplete_fields = ("organization",)
+    list_select_related = ("media", "organization", "created_by")
+    list_per_page = 50
     readonly_fields = (
         "external_job_id",
         "attempt_count",

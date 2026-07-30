@@ -109,9 +109,12 @@ class WebhookSubscription(UUIDModel):
         if not url:
             raise ValidationError({"url": "URL is required."})
         try:
-            _http_https_url(url)
+            from turing.security.urls import django_validate_safe_webhook_url
+
+            django_validate_safe_webhook_url(url)
         except ValidationError as exc:
-            raise ValidationError({"url": "Enter a valid http(s) URL."}) from exc
+            messages = getattr(exc, "messages", None) or [str(exc)]
+            raise ValidationError({"url": messages}) from exc
         events = self.subscribed_events
         if events is None:
             self.subscribed_events = []

@@ -66,6 +66,7 @@ from turing.models import (
     WebhookDelivery,
     WebhookSubscription,
 )
+from turing.services.export import ExportService
 from turing.services.external_reference import ExternalReferenceService
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
@@ -414,6 +415,44 @@ class TranscriptViewSet(
         except TuringError as exc:
             return Response({"detail": exc.message, "code": exc.code}, status=400)
         return Response(TranscriptSerializer(updated).data)
+
+    @action(detail=True, methods=["get"], url_path="export/pdf")
+    def export_pdf(self, request, pk=None):
+        """On-demand PDF download (not persisted)."""
+        return self._export_file_response(request, "pdf")
+
+    @action(detail=True, methods=["get"], url_path="export/docx")
+    def export_docx(self, request, pk=None):
+        """On-demand DOCX download (not persisted)."""
+        return self._export_file_response(request, "docx")
+
+    def _export_file_response(self, request, format_code: str):
+        from django.http import StreamingHttpResponse
+
+        transcript = self.get_object()
+        try:
+            result = ExportService().export_transcript(
+                transcript,
+                format_code,
+                user=request.user,
+            )
+        except TuringError as exc:
+            return _error_response(exc)
+        except RuntimeError as exc:
+            return Response(
+                {"detail": str(exc), "code": "export_dependency_missing"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        response = StreamingHttpResponse(
+            streaming_content=result.chunks,
+            content_type=result.content_type,
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="{result.filename}"'
+        )
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 class TranscriptSegmentViewSet(
@@ -937,9 +976,18 @@ class ConnectorInstallationViewSet(
         return Response(ConnectorInstallationSerializer(installation).data)
 
     def destroy(self, request, *args, **kwargs):
+        """Revoke credentials and soft-revoke — do not hard-delete the row."""
+        from turing.services.connector_installation import ConnectorInstallationService
+
         installation = self.get_object()
-        installation.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        try:
+            installation = ConnectorInstallationService().revoke(installation)
+        except TuringError as exc:
+            return _error_response(exc)
+        return Response(
+            ConnectorInstallationSerializer(installation).data,
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=True, methods=["post"], url_path="activate")
     def activate(self, request, pk=None):

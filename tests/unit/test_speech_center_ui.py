@@ -61,7 +61,70 @@ def test_dashboard_renders(sc_client):
     assert "Send to Transcription" in content
     assert "View Status" in content
     assert "Speech Center" in content
-    assert reverse("admin:turing_mediaasset_add") in content
+    assert reverse("speech_center:upload_media") in content
+    assert reverse("admin:turing_mediaasset_add") not in content
+
+
+@pytest.mark.django_db
+def test_upload_page_renders_minimal_form(sc_client):
+    resp = sc_client.get(reverse("speech_center:upload_media"))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert 'name="file"' in body
+    assert 'name="organization_id"' in body
+    assert "Upload" in body
+    assert "original_filename" not in body
+    assert "checksum" not in body
+    assert "object_key" not in body
+    assert "source_type" not in body
+    assert "storage" not in body.lower() or "storage provider" not in body.lower()
+
+
+@pytest.mark.django_db
+def test_upload_creates_media_via_media_service(sc_client, sc_user):
+    import wave
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from turing.models import MediaAsset
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"\x00\x00" * 1600)
+    org = Organization.get_default()
+    url = reverse("speech_center:upload_media")
+    resp = sc_client.post(
+        url,
+        {
+            "organization_id": str(org.id),
+            "file": SimpleUploadedFile(
+                "pipeline_upload.wav",
+                buf.getvalue(),
+                content_type="audio/wav",
+            ),
+        },
+    )
+    assert resp.status_code == 302
+    assert resp["Location"] == reverse("speech_center:create_transcript")
+    media = MediaAsset.objects.get(original_filename="pipeline_upload.wav")
+    assert media.organization_id == org.id
+    assert media.uploaded_by_id == sc_user.id
+    assert media.content_type
+    assert media.byte_size > 0
+
+
+@pytest.mark.django_db
+def test_upload_requires_file(sc_client):
+    org = Organization.get_default()
+    resp = sc_client.post(
+        reverse("speech_center:upload_media"),
+        {"organization_id": str(org.id)},
+    )
+    assert resp.status_code == 302
+    assert resp["Location"] == reverse("speech_center:upload_media")
 
 
 @pytest.mark.django_db
@@ -107,6 +170,8 @@ def test_queue_and_transcripts_pages(sc_client, sc_media, sc_user):
     assert "View Words" in body
     assert "View Analysis" in body
     assert "Open Intelligence" in body
+    assert "Export PDF" in body
+    assert "Export DOCX" in body
     assert "admin/turing/transcriptsegment/" in body
 
 

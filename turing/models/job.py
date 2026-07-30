@@ -106,9 +106,9 @@ class ProcessingJob(UUIDModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["idempotency_key"],
+                fields=["organization", "idempotency_key"],
                 condition=~models.Q(idempotency_key=""),
-                name="turing_job_idempotency_key_uniq",
+                name="turing_job_org_idempotency_key_uniq",
             ),
         ]
         verbose_name = "Processing job"

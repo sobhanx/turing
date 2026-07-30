@@ -26,7 +26,6 @@ from turing.connectors.telephony.serializers import (
     normalize_call as normalize_call_payload,
 )
 from turing.domain.enums import ConnectorAuthType, UseCase
-from turing.services.external_reference import ExternalReferenceService
 from turing.services.media import MediaService
 
 logger = logging.getLogger(__name__)
@@ -122,6 +121,7 @@ class TelephonyConnector(BaseConnector):
         Ingest discovered call recordings via MediaService + ExternalReference.
 
         Idempotent on ``(organization, external_system, call, external_id)``.
+        Prefers authenticated download into Turing storage.
         """
         try:
             items = self.pull_media()
@@ -132,75 +132,31 @@ class TelephonyConnector(BaseConnector):
                 f"Telephony pull_media failed: {exc}"
             ) from exc
 
-        org = self.installation.organization
-        media_service = MediaService()
-        refs = ExternalReferenceService()
-        created_items: list[MediaPullItem] = []
-        skipped = 0
+        from turing.connectors.media_ingest import sync_media_pull_items
+
         system = self.external_system or DEFAULT_EXTERNAL_SYSTEM
 
-        for item in items:
-            if not item.source_url:
-                skipped += 1
-                continue
-            existing = refs.lookup(
-                organization=org,
-                external_system=system,
-                external_type=EXTERNAL_TYPE_CALL,
-                external_id=item.external_id,
-            )
-            if existing.filter(media__isnull=False).exists():
-                skipped += 1
-                continue
-            try:
-                meta = dict(item.metadata or {})
-                asset = media_service.create_from_url(
-                    url=item.source_url,
-                    use_case=UseCase.CRM_CALL,
-                    organization=org,
-                    original_filename=item.filename
-                    or f"{system}-{item.external_id}.mp3",
-                    metadata={
-                        "connector": system,
-                        "connector_installation_id": str(self.installation.id),
-                        "telephony": {
-                            k: v
-                            for k, v in meta.items()
-                            if k
-                            not in {
-                                "api_token",
-                                "token",
-                                "secret",
-                                "access_token",
-                                "refresh_token",
-                            }
-                        },
-                    },
-                )
-                refs.attach_to_media(
-                    asset,
-                    external_system=system,
-                    external_type=EXTERNAL_TYPE_CALL,
-                    external_id=item.external_id,
-                    metadata={
-                        "caller": meta.get("caller", ""),
-                        "callee": meta.get("callee", ""),
-                        "started_at": meta.get("started_at", ""),
-                        "duration": meta.get("duration"),
-                    },
-                )
-                created_items.append(item)
-            except Exception as exc:  # noqa: BLE001
-                logger.exception(
-                    "Telephony sync failed creating media for call %s",
-                    item.external_id,
-                )
-                raise ConnectorSyncError(
-                    f"Failed to ingest telephony call '{item.external_id}': {exc}"
-                ) from exc
+        def _auth():
+            return self._recording_download_auth()
 
-        return ConnectorSyncResult(
-            records_processed=len(created_items),
-            media_items=created_items,
-            details={"skipped": skipped, "discovered": len(items)},
+        return sync_media_pull_items(
+            installation=self.installation,
+            items=items,
+            external_system=system,
+            external_type=EXTERNAL_TYPE_CALL,
+            use_case=UseCase.CRM_CALL,
+            metadata_namespace="telephony",
+            default_filename=lambda item: f"{system}-{item.external_id}.mp3",
+            download_auth=_auth,
+            attach_metadata=lambda item: {
+                "caller": (item.metadata or {}).get("caller", ""),
+                "callee": (item.metadata or {}).get("callee", ""),
+                "started_at": (item.metadata or {}).get("started_at", ""),
+                "duration": (item.metadata or {}).get("duration"),
+            },
         )
+
+    def _recording_download_auth(self):
+        """Optional Basic/Bearer auth for recording downloads. Override in vendors."""
+        return None, None
+

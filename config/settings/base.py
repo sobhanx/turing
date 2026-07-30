@@ -116,10 +116,19 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "config.urls"
 
+import turing as _turing_pkg
+
+_TURING_PKG_DIR = Path(_turing_pkg.__file__).resolve().parent
+
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates"],
+        # Prefer packaged templates; keep optional host override dir if present.
+        "DIRS": [
+            d
+            for d in (_TURING_PKG_DIR / "templates", BASE_DIR / "templates")
+            if d.is_dir()
+        ],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -145,7 +154,11 @@ LANGUAGES = [
     ("fa", "Persian"),
     ("en", "English"),
 ]
-LOCALE_PATHS = [BASE_DIR / "locale"]
+LOCALE_PATHS = [
+    d
+    for d in (_TURING_PKG_DIR / "locale", BASE_DIR / "locale")
+    if d.is_dir()
+]
 TIME_ZONE = os.environ.get("DJANGO_TIME_ZONE", "UTC")
 USE_I18N = True
 USE_TZ = True

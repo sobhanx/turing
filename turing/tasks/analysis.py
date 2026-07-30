@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
     bind=True,
     name="turing.tasks.analysis.generate_transcript_analysis",
     acks_late=True,
-    max_retries=0,
+    max_retries=5,
 )
 def generate_transcript_analysis(self, transcript_id: str) -> str:
     """Generate default AI analyses for a completed transcript."""
@@ -27,14 +27,20 @@ def generate_transcript_analysis(self, transcript_id: str) -> str:
     service = TranscriptAnalysisService()
     try:
         analyses = service.generate_default_suite(transcript)
-    except ProviderError:
+    except ProviderError as exc:
         logger.exception("AI analysis provider error for transcript %s", transcript_id)
+        if getattr(exc, "retryable", False) and self.request.retries < self.max_retries:
+            countdown = min(300, 2 ** int(self.request.retries))
+            raise self.retry(exc=exc, countdown=countdown)
         raise
     except TuringError:
         logger.exception("AI analysis aborted for transcript %s", transcript_id)
         raise
-    except Exception:
+    except Exception as exc:
         logger.exception("AI analysis unexpected error for transcript %s", transcript_id)
+        if self.request.retries < self.max_retries:
+            countdown = min(300, 2 ** int(self.request.retries))
+            raise self.retry(exc=exc, countdown=countdown)
         raise
 
     return f"created:{len(analyses)}"

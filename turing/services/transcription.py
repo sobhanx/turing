@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from turing.conf import get_turing_settings
-from turing.domain.enums import ArtifactStatus, JobStatus, LogLevel, RevisionSource
+from turing.domain.enums import ArtifactStatus, JobStatus, LogLevel, RevisionSource, SourceType
 from turing.domain.exceptions import ProviderError, TuringError
 from turing.domain.pipeline import (
     PollAction,
@@ -786,7 +786,14 @@ class TranscriptionService:
             ),
         )
 
-        if media.source_type == "url" and media.external_url and not use_artifact:
+        # Pure URL assets (no stored object) may be fetched by the provider.
+        # Uploaded/connector-downloaded assets must use Turing storage below.
+        if (
+            media.source_type == SourceType.URL
+            and media.external_url
+            and not use_artifact
+            and not media.object_key
+        ):
             request.media_url = media.external_url
             return request
 
@@ -828,7 +835,13 @@ class TranscriptionService:
                 media.file.close()
             return request
 
-        if media.external_url:
+        # Last resort: remote URL media only. Do not use provenance URLs stored
+        # on UPLOAD assets (e.g. connector source_url) when local bytes failed.
+        if (
+            media.source_type == SourceType.URL
+            and media.external_url
+            and not media.object_key
+        ):
             request.media_url = media.external_url
             return request
 

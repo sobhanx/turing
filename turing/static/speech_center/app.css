@@ -625,6 +625,116 @@ body.dark-theme .sc-badge-retry-scheduled {
   text-align: left;
 }
 
+/* Upload page */
+.sc-upload {
+  max-width: 520px;
+}
+
+.sc-upload-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.sc-dropzone {
+  position: relative;
+  display: block;
+  padding: 28px 20px;
+  border: 1.5px dashed color-mix(in srgb, var(--sc-accent) 35%, var(--sc-border));
+  border-radius: var(--sc-radius);
+  background: color-mix(in srgb, var(--sc-accent) 4%, var(--sc-surface));
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+  outline: none;
+}
+
+.sc-dropzone:hover,
+.sc-dropzone:focus-visible,
+.sc-dropzone.is-dragover {
+  border-color: var(--sc-accent);
+  background: var(--sc-accent-soft);
+}
+
+.sc-dropzone-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  font-size: 0;
+}
+
+.sc-dropzone-body {
+  pointer-events: none;
+  text-align: center;
+}
+
+.sc-dropzone-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: var(--sc-accent-soft);
+  color: var(--sc-accent);
+}
+
+.sc-dropzone-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.sc-dropzone-title {
+  margin: 0 0 4px;
+  font-size: 0.975rem;
+  font-weight: 600;
+  color: var(--sc-fg);
+}
+
+.sc-dropzone-hint {
+  margin: 0;
+  font-size: 0.825rem;
+  color: var(--sc-muted);
+}
+
+.sc-dropzone-file {
+  margin: 10px 0 0;
+  font-size: 0.875rem;
+  font-weight: 550;
+  color: var(--sc-accent);
+}
+
+.sc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sc-field-label {
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--sc-muted);
+}
+
+.sc-select {
+  padding: 10px 12px;
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius-sm);
+  background: var(--sc-surface);
+  color: var(--sc-fg);
+  font-size: 0.925rem;
+}
+
+.sc-upload-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
 @media (max-width: 860px) {
   .sc-cards {
     grid-template-columns: 1fr;

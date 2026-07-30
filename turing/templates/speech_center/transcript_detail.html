@@ -52,4 +52,15 @@
     {% endif %}
   </div>
 </section>
+
+<section class="sc-section">
+  <h2>Export</h2>
+  <p class="sc-section-body" style="margin-bottom:12px;color:var(--sc-muted);font-size:0.9rem;">
+    Download an on-demand copy. Files are generated when you click — nothing is stored permanently.
+  </p>
+  <div class="sc-actions">
+    <a class="sc-btn sc-btn-primary" href="{{ export_pdf_url }}">Export PDF</a>
+    <a class="sc-btn" href="{{ export_docx_url }}">Export DOCX</a>
+  </div>
+</section>
 {% endblock %}

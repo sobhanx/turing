@@ -135,6 +135,8 @@ class MediaAssetAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelA
         "uploaded_by",
         "created_at",
     )
+    list_select_related = ("organization", "uploaded_by")
+    list_per_page = 50
     list_filter = (
         "organization",
         "use_case",

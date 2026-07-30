@@ -1,13 +1,13 @@
 {% extends "speech_center/base.html" %}
 
 {% block page_subtitle %}
-<p>Select media already stored in Turing. New files still upload through the existing Admin flow.</p>
+<p>Select media already stored in Turing. Upload new files from Upload Media.</p>
 {% endblock %}
 
 {% block content %}
 <div class="sc-toolbar">
   <p>Choose a file, set language if needed, then send it to transcription.</p>
-  <a class="sc-btn sc-btn-primary" href="{% url 'admin:turing_mediaasset_add' %}">Upload Media</a>
+  <a class="sc-btn sc-btn-primary" href="{% url 'speech_center:upload_media' %}">Upload Media</a>
 </div>
 
 {% if media_list %}

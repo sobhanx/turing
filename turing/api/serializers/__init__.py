@@ -410,15 +410,14 @@ class WebhookSubscriptionWriteSerializer(serializers.Serializer):
 
     def validate_url(self, value: str) -> str:
         from django.core.exceptions import ValidationError as DjangoValidationError
-        from django.core.validators import URLValidator
+
+        from turing.security.urls import django_validate_safe_webhook_url
 
         url = (value or "").strip()
-        validator = URLValidator(schemes=["http", "https"])
         try:
-            validator(url)
+            return django_validate_safe_webhook_url(url)
         except DjangoValidationError as exc:
-            raise serializers.ValidationError("Enter a valid http(s) URL.") from exc
-        return url
+            raise serializers.ValidationError(exc.messages) from exc
 
     def validate_subscribed_events(self, value: list) -> list[str]:
         from turing.domain.events import SUPPORTED_OUTBOUND_EVENT_NAMES

@@ -155,8 +155,10 @@ def test_installation_crud_hides_config(client_admin):
     assert "config" not in patched.data
 
     deleted = client_admin.delete(f"/api/turing/v1/connector-installations/{inst_id}/")
-    assert deleted.status_code == 204
-    assert not ConnectorInstallation.objects.filter(pk=inst_id).exists()
+    assert deleted.status_code == 200
+    assert deleted.data["status"] == ConnectorInstallationStatus.REVOKED
+    inst = ConnectorInstallation.objects.get(pk=inst_id)
+    assert inst.status == ConnectorInstallationStatus.REVOKED
 
 
 @pytest.mark.django_db

@@ -204,3 +204,9 @@ class TwilioConnector(TelephonyConnector):
         except ConnectorError as exc:
             raise ConnectorSyncError(str(exc)) from exc
         return super().sync()
+
+    def _recording_download_auth(self):
+        account_sid, auth_token, _api_base = self._resolve_credentials()
+        if account_sid and auth_token:
+            return None, (account_sid, auth_token)
+        return None, None
