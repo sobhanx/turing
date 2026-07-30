@@ -209,6 +209,25 @@ def sync_media_pull_items(
                 external_id=item.external_id,
                 metadata=ref_meta,
             )
+            # Vendor-independent Meeting → Recording → MediaAsset layer.
+            # Failures here must not undo media/ExternalReference (log + continue).
+            try:
+                from turing.services.meeting import MeetingService
+
+                MeetingService().ingest_from_pull_item(
+                    organization=org,
+                    provider=external_system,
+                    item=item,
+                    media=asset,
+                    connector_installation=installation,
+                )
+            except Exception as meeting_exc:  # noqa: BLE001
+                logger.warning(
+                    "Meeting/Recording upsert failed for %s/%s: %s",
+                    external_system,
+                    item.external_id,
+                    meeting_exc,
+                )
             created_items.append(item)
         except Exception as exc:  # noqa: BLE001
             logger.exception(

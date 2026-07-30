@@ -118,6 +118,25 @@ class ExternalReferenceTarget(models.TextChoices):
     TRANSCRIPT = "transcript", "Transcript"
 
 
+class MeetingStatus(models.TextChoices):
+    """Lifecycle of a vendor-independent meeting session."""
+
+    SCHEDULED = "scheduled", "Scheduled"
+    LIVE = "live", "Live"
+    ENDED = "ended", "Ended"
+    CANCELLED = "cancelled", "Cancelled"
+    UNKNOWN = "unknown", "Unknown"
+
+
+class RecordingStatus(models.TextChoices):
+    """Lifecycle of a meeting recording before/during media ingest."""
+
+    DISCOVERED = "discovered", "Discovered"
+    INGESTING = "ingesting", "Ingesting"
+    INGESTED = "ingested", "Ingested"
+    FAILED = "failed", "Failed"
+
+
 class OutboxEventStatus(models.TextChoices):
     """Durable outbox delivery lifecycle (Phase 4.2.1)."""
 

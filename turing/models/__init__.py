@@ -10,6 +10,7 @@ from turing.models.embedding import Embedding
 from turing.models.external_reference import ExternalReference
 from turing.models.job import ProcessingAttempt, ProcessingJob, ProcessingLog
 from turing.models.media import MediaAsset
+from turing.models.meeting import Meeting, Recording
 from turing.models.membership import TuringMembership
 from turing.models.organization import Organization
 from turing.models.outbox import OutboxEvent
@@ -34,6 +35,8 @@ __all__ = [
     "Organization",
     "MediaAsset",
     "MediaProcessingArtifact",
+    "Meeting",
+    "Recording",
     "ProcessingJob",
     "ProcessingAttempt",
     "ProcessingLog",

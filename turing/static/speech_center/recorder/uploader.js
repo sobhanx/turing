@@ -10,10 +10,8 @@
   var STEPS = [
     "preparing",
     "uploading",
-    "queued",
-    "processing",
-    "transcript",
-    "completed",
+    "complete",
+    "redirecting",
   ];
 
   function RecorderUploader(options) {
@@ -21,6 +19,7 @@
     this.redirectUrl = options.redirectUrl;
     this.csrfToken = options.csrfToken;
     this.maxUploadBytes = options.maxUploadBytes || 0;
+    this.uploadSource = options.uploadSource || "recorder";
     this.onProgress = options.onProgress || function () {};
     this.onStep = options.onStep || function () {};
     this.onError = options.onError || function () {};
@@ -52,6 +51,7 @@
     var formData = new FormData();
     formData.append("organization_id", organizationId);
     formData.append("file", file, file.name);
+    formData.append("upload_source", self.uploadSource || "recorder");
     if (self.csrfToken) {
       formData.append("csrfmiddlewaretoken", self.csrfToken);
     }
@@ -78,14 +78,16 @@
 
       xhr.onload = function () {
         if (xhr.status >= 200 && xhr.status < 400) {
-          // Upload created MediaAsset; remaining pipeline stages are unchanged
-          // (Create Transcript → Queue). Mark upload-complete for the UI strip.
-          self.onStep("queued", 100);
+          self.onStep("complete", 100);
           var loc =
             xhr.responseURL && xhr.responseURL !== self.uploadUrl
               ? xhr.responseURL
               : self.redirectUrl;
-          resolve({ redirectUrl: loc || self.redirectUrl, status: xhr.status });
+          resolve({
+            redirectUrl: loc || self.redirectUrl,
+            status: xhr.status,
+            filename: file.name,
+          });
           return;
         }
         var msg = "Upload failed (" + xhr.status + ").";

@@ -125,11 +125,23 @@ def upload_media(request):
             messages.error(request, str(exc))
             return redirect("speech_center:upload_media")
 
-        messages.success(
-            request,
-            f"Uploaded {media.original_filename or media.id}.",
+        display_name = media.original_filename or str(media.id)
+        is_recorder = (
+            (request.POST.get("upload_source") or "").strip().lower() == "recorder"
         )
-        return redirect("speech_center:create_transcript")
+        if is_recorder:
+            messages.success(
+                request,
+                f"Recording uploaded successfully: {display_name}.",
+            )
+        else:
+            messages.success(
+                request,
+                f"Uploaded {display_name}.",
+            )
+        # Preselect on Create Transcript so the new asset is obvious.
+        create_url = reverse("speech_center:create_transcript")
+        return redirect(f"{create_url}?selected={media.id}")
 
     recorder_cfg = recorder_client_config()
     recorder_cfg.update(
@@ -185,13 +197,22 @@ def create_transcript(request):
     from turing.conf import get_turing_settings
 
     settings = get_turing_settings()
+    selected_media_id = (request.GET.get("selected") or "").strip()
+    media_list = list(media_qs[:100])
+    if selected_media_id:
+        # Surface the just-uploaded asset at the top of the list.
+        selected_rows = [m for m in media_list if str(m.id) == selected_media_id]
+        other_rows = [m for m in media_list if str(m.id) != selected_media_id]
+        media_list = selected_rows + other_rows
+
     return render(
         request,
         "speech_center/create_transcript.html",
         {
             "page_title": "Create Transcript",
             "nav_active": "create",
-            "media_list": media_qs[:100],
+            "media_list": media_list,
+            "selected_media_id": selected_media_id,
             "default_language": settings.default_language or "",
         },
     )

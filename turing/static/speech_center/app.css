@@ -912,9 +912,55 @@ body.dark-theme .sc-badge-retry-scheduled {
   border: 1px solid color-mix(in srgb, #dc2626 28%, transparent);
 }
 
+.sc-rec-banner-ok {
+  background: color-mix(in srgb, #059669 12%, transparent);
+  color: #065f46;
+  border: 1px solid color-mix(in srgb, #059669 28%, transparent);
+  font-weight: 600;
+}
+
 html[data-theme="dark"] .sc-rec-banner-danger,
 body.dark-theme .sc-rec-banner-danger {
   color: #fecaca;
+}
+
+html[data-theme="dark"] .sc-rec-banner-ok,
+body.dark-theme .sc-rec-banner-ok {
+  color: #a7f3d0;
+}
+
+.sc-row-selected {
+  background: color-mix(in srgb, var(--sc-accent) 10%, transparent) !important;
+  box-shadow: inset 3px 0 0 var(--sc-accent);
+}
+
+.sc-badge-selected {
+  display: inline-block;
+  margin-inline-start: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  vertical-align: middle;
+  background: var(--sc-accent-soft);
+  color: var(--sc-accent);
+  border: 1px solid color-mix(in srgb, var(--sc-accent) 28%, transparent);
+}
+
+.sc-selected-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: var(--sc-radius-sm);
+  background: color-mix(in srgb, #059669 10%, transparent);
+  color: #065f46;
+  border: 1px solid color-mix(in srgb, #059669 24%, transparent);
+  font-size: 0.9rem;
+  font-weight: 550;
+}
+
+html[data-theme="dark"] .sc-selected-hint,
+body.dark-theme .sc-selected-hint {
+  color: #a7f3d0;
 }
 
 .sc-rec-progress {

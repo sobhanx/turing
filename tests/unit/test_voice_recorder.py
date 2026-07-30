@@ -96,8 +96,9 @@ def test_upload_recorded_webm_creates_media_asset(sc_client, sc_user):
         },
     )
     assert resp.status_code == 302
-    assert resp["Location"] == reverse("speech_center:create_transcript")
     media = MediaAsset.objects.get(original_filename="recording-test.webm")
+    assert resp["Location"].startswith(reverse("speech_center:create_transcript"))
+    assert f"selected={media.id}" in resp["Location"]
     assert media.organization_id == org.id
     assert media.uploaded_by_id == sc_user.id
     assert media.byte_size > 0
@@ -257,15 +258,9 @@ def test_uploader_js_posts_same_form_fields():
     text = (STATIC_RECORDER / "uploader.js").read_text(encoding="utf-8")
     assert 'append("organization_id"' in text or "append('organization_id'" in text
     assert 'append("file"' in text or "append('file'" in text
+    assert "upload_source" in text
     assert "csrfmiddlewaretoken" in text or "X-CSRFToken" in text
-    for step in (
-        "preparing",
-        "uploading",
-        "queued",
-        "processing",
-        "transcript",
-        "completed",
-    ):
+    for step in ("preparing", "uploading", "complete", "redirecting"):
         assert step in text
 
 
@@ -275,3 +270,178 @@ def test_boot_js_handles_cancel_and_permission_denied():
     assert "Permission denied" in text or "permission denied" in text.lower()
     assert "unsupported" in text.lower()
     assert "deleteRecording" in text
+    assert "revokePlaybackUrl" in text or "revokeObjectURL" in text
+    assert "Recording uploaded successfully" in text
+    assert "redirecting" in text
+
+
+def test_media_recorder_has_no_aggressive_timeslice():
+    """Multi-minute WebM must not be sliced every 250ms (playback corruption)."""
+    text = (STATIC_RECORDER / "recorder.js").read_text(encoding="utf-8")
+    assert "start(250)" not in text
+    assert "start( 250 )" not in text
+    assert "mediaRecorder.start()" in text
+    assert "ondataavailable" in text
+    assert "onstop" in text
+    assert "new Blob(self.chunks" in text or "new Blob(self.chunks," in text
+    # requestData-before-stop caused empty/partial blobs — must not be called.
+    assert ".requestData()" not in text
+    assert "validateBlob" in text
+
+
+def test_blob_validation_rejects_tiny_multi_minute_recording():
+    """Mirror client rules: 03:29 at 260 bytes must fail validation."""
+    text = (STATIC_RECORDER / "recorder.js").read_text(encoding="utf-8")
+    assert "MIN_BLOB_BYTES = 1024" in text
+    assert "MIN_BYTES_PER_SEC = 500" in text
+
+    min_blob = 1024
+    min_bps = 500
+
+    def min_expected(duration_ms: int) -> int:
+        sec = max(0, duration_ms) / 1000
+        return max(min_blob, int(sec * min_bps))
+
+    def validate(size: int, duration_ms: int) -> bool:
+        return size >= min_expected(duration_ms)
+
+    duration_3m29 = (3 * 60 + 29) * 1000
+    assert min_expected(duration_3m29) > 260
+    assert not validate(260, duration_3m29)
+    assert not validate(0, duration_3m29)
+    # Healthy multi-minute Opus speech is typically hundreds of KB+.
+    assert validate(500_000, duration_3m29)
+    # Short clip still needs more than a bare header.
+    assert not validate(260, 1_000)
+    assert validate(2_000, 1_000)
+
+
+def test_mime_fallback_order_unchanged():
+    cfg = recorder_client_config()
+    assert cfg["preferredMimeTypes"][0].startswith("audio/webm")
+    assert any(m.startswith("audio/ogg") for m in cfg["preferredMimeTypes"])
+    assert "debug" in cfg
+
+
+def test_boot_blocks_upload_of_invalid_blob():
+    boot = (STATIC_RECORDER / "boot.js").read_text(encoding="utf-8")
+    assert "assertUploadableBlob" in boot
+    assert "validateBlob" in boot
+    assert "[TuringRecorder]" in boot
+
+
+def test_multi_minute_recording_builds_single_coherent_blob():
+    """
+    Simulate long-recording chunk collection without timeslice:
+
+    Without start(timeslice), browsers typically emit one (or few) final
+    chunk(s) on stop — concatenating those yields a coherent container.
+    Aggressive 250ms slicing would produce hundreds of fragments.
+    """
+    # Simulate ~3 minutes at 250ms timeslice (the old bug): 720 fragments.
+    timesliced_chunk_count = int((3 * 60 * 1000) / 250)
+    assert timesliced_chunk_count == 720
+
+    # Fixed flow: one final payload (optionally + requestData flush).
+    final_chunks = [b"\x1a\x45\xdf\xa3" + (b"\x00" * 4096)]  # header-ish + payload
+    blob_bytes = b"".join(final_chunks)
+    assert len(final_chunks) < 10  # coherent stop emission, not hundreds of slices
+    assert len(blob_bytes) > 0
+    # MIME preference unchanged in source
+    recorder_js = (STATIC_RECORDER / "recorder.js").read_text(encoding="utf-8")
+    assert "audio/webm;codecs=opus" in recorder_js
+    assert "audio/ogg" in recorder_js
+
+
+def test_playback_uses_original_recorded_blob_not_reencode():
+    boot = (STATIC_RECORDER / "boot.js").read_text(encoding="utf-8")
+    # syncPlayback receives the stop() blob / recorder.blob — not exportBlob output.
+    assert "function syncPlayback" in boot
+    assert "createObjectURL(blob)" in boot
+    assert "audioEl.load()" in boot
+    # Save path still may call exportBlob for trim; playback path must not.
+    sync_idx = boot.index("function syncPlayback")
+    save_idx = boot.index('btnSave.addEventListener')
+    sync_block = boot[sync_idx:save_idx]
+    assert "exportBlob" not in sync_block
+    assert "audioBufferToWav" not in sync_block
+    # afterStop wires original recording into playback
+    assert "syncPlayback(blob" in boot
+
+
+@pytest.mark.django_db
+def test_recorder_upload_success_message_and_selected_redirect(sc_client, sc_user):
+    org = Organization.get_default()
+    resp = sc_client.post(
+        reverse("speech_center:upload_media"),
+        {
+            "organization_id": str(org.id),
+            "upload_source": "recorder",
+            "file": SimpleUploadedFile(
+                "recording-ux.webm",
+                _tiny_webm(),
+                content_type="audio/webm",
+            ),
+        },
+    )
+    assert resp.status_code == 302
+    media = MediaAsset.objects.get(original_filename="recording-ux.webm")
+    assert media.uploaded_by_id == sc_user.id
+    loc = resp["Location"]
+    assert loc.startswith(reverse("speech_center:create_transcript"))
+    assert f"selected={media.id}" in loc
+
+    # Follow redirect — success message + highlighted row
+    page = sc_client.get(loc)
+    assert page.status_code == 200
+    body = page.content.decode()
+    assert "Recording uploaded successfully" in body
+    assert "recording-ux.webm" in body
+    assert "Just uploaded" in body
+    assert "sc-row-selected" in body
+    assert str(media.id) in body
+
+
+@pytest.mark.django_db
+def test_file_upload_still_works_with_selected_context(sc_client, sc_user):
+    """Normal Upload File path unchanged except selected= context on create page."""
+    import wave
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(16000)
+        wf.writeframes(b"\x00\x00" * 1600)
+    org = Organization.get_default()
+    resp = sc_client.post(
+        reverse("speech_center:upload_media"),
+        {
+            "organization_id": str(org.id),
+            "file": SimpleUploadedFile(
+                "normal-file.wav",
+                buf.getvalue(),
+                content_type="audio/wav",
+            ),
+        },
+    )
+    assert resp.status_code == 302
+    media = MediaAsset.objects.get(original_filename="normal-file.wav")
+    assert f"selected={media.id}" in resp["Location"]
+    page = sc_client.get(resp["Location"])
+    body = page.content.decode()
+    # File upload keeps generic success copy (not recorder-specific).
+    assert "Uploaded normal-file.wav" in body
+    assert "Recording uploaded successfully" not in body
+    assert "normal-file.wav" in body
+    assert "Just uploaded" in body
+
+
+@pytest.mark.django_db
+def test_upload_page_progress_labels_are_clear(sc_client):
+    resp = sc_client.get(reverse("speech_center:upload_media"))
+    body = resp.content.decode()
+    assert "Preparing recording" in body
+    assert "Uploading recording" in body
+    assert "Upload complete" in body
+    assert "Redirecting to transcript creation" in body

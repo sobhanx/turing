@@ -108,12 +108,15 @@ def test_upload_creates_media_via_media_service(sc_client, sc_user):
         },
     )
     assert resp.status_code == 302
-    assert resp["Location"] == reverse("speech_center:create_transcript")
+    loc = resp["Location"]
+    assert loc.startswith(reverse("speech_center:create_transcript"))
+    assert "selected=" in loc
     media = MediaAsset.objects.get(original_filename="pipeline_upload.wav")
     assert media.organization_id == org.id
     assert media.uploaded_by_id == sc_user.id
     assert media.content_type
     assert media.byte_size > 0
+    assert str(media.id) in loc
 
 
 @pytest.mark.django_db

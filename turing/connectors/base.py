@@ -19,6 +19,8 @@ class MediaPullItem:
     Descriptor for media discovered by a connector.
 
     Host/provider adapters map these into ``MediaService`` create paths later.
+    Optional ``meeting_external_id`` lets connectors normalize into
+    Meeting → Recording → MediaAsset without vendor fields on MediaAsset.
     No transcript text or secrets belong here.
     """
 
@@ -26,6 +28,7 @@ class MediaPullItem:
     source_url: str = ""
     filename: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+    meeting_external_id: str = ""
 
 
 @dataclass

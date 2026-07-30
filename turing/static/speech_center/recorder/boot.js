@@ -178,13 +178,31 @@
             s === "uploading" && typeof pct === "number" ? pct + "%" : "";
         }
       });
-      // Pipeline stages after upload are handled by Create Transcript / Queue.
-      if (step === "queued") {
-        ["processing", "transcript", "completed"].forEach(function (s) {
-          var li = progressEl.querySelector('[data-step="' + s + '"]');
-          if (li) li.classList.remove("is-active");
-        });
+    }
+
+    function showSuccess(filename) {
+      var el = $("sc-rec-success");
+      if (!el) return;
+      el.hidden = false;
+      el.textContent = filename
+        ? "Recording uploaded successfully: " + filename
+        : "Recording uploaded successfully";
+    }
+
+    function devLog(payload) {
+      if (!config || !config.debug) return;
+      if (typeof console !== "undefined" && console.info) {
+        console.info("[TuringRecorder]", payload);
       }
+    }
+
+    function assertUploadableBlob(blob, durationMs) {
+      var result = VoiceRecorder.validateBlob(blob, durationMs);
+      if (!result.ok) {
+        setError(result.message);
+        return false;
+      }
+      return true;
     }
 
     if (!VoiceRecorder.isSupported()) {
@@ -266,25 +284,51 @@
       redirectUrl: config.redirectUrl,
       csrfToken: config.csrfToken,
       maxUploadBytes: config.maxUploadBytes,
+      uploadSource: "recorder",
       onStep: setStep,
       onProgress: function () {},
       onError: setError,
     });
 
+    var playbackObjectUrl = null;
+
+    function revokePlaybackUrl() {
+      if (playbackObjectUrl) {
+        URL.revokeObjectURL(playbackObjectUrl);
+        playbackObjectUrl = null;
+      }
+      if (audioEl) {
+        audioEl.removeAttribute("src");
+        try {
+          audioEl.load();
+        } catch (_e) {
+          /* ignore */
+        }
+      }
+    }
+
     function syncPlayback(blob) {
       if (!audioEl || !blob) return;
-      if (audioEl.src) URL.revokeObjectURL(audioEl.src);
-      audioEl.src = URL.createObjectURL(blob);
+      // Always play the original recorded blob — never a re-encoded/trim export.
+      revokePlaybackUrl();
+      playbackObjectUrl = URL.createObjectURL(blob);
+      audioEl.src = playbackObjectUrl;
       audioEl.hidden = false;
+      try {
+        audioEl.load();
+      } catch (_e) {
+        /* ignore */
+      }
     }
 
     function afterStop(blob) {
-      syncPlayback(blob);
+      // Playback source must remain the recorder's original blob.
+      syncPlayback(blob || recorder.blob);
       if (durEl) {
         durEl.textContent = VoiceRecorder.formatDuration(recorder.elapsedMs);
       }
       if (wave) {
-        wave.loadBlob(blob).catch(function () {
+        wave.loadBlob(blob || recorder.blob).catch(function () {
           setError(
             "Waveform preview unavailable for this format. You can still upload the full recording."
           );
@@ -308,33 +352,48 @@
     });
     if (btnStop) {
       btnStop.addEventListener("click", function () {
-        recorder.stop().then(afterStop);
+        recorder.stop().then(function (blob) {
+          var validation = VoiceRecorder.validateBlob(blob, recorder.elapsedMs);
+          devLog(
+            Object.assign(recorder.getDebugSnapshot(), {
+              event: "stop",
+              validation: validation,
+            })
+          );
+          afterStop(blob);
+          if (!validation.ok) {
+            setError(validation.message);
+            if (btnSave) btnSave.disabled = true;
+            return;
+          }
+          setError("");
+          if (btnSave) {
+            btnSave.disabled = !!(orgSelect && orgSelect.disabled);
+          }
+        });
       });
     }
     if (btnDelete) {
       btnDelete.addEventListener("click", function () {
-        if (audioEl && audioEl.src) {
-          URL.revokeObjectURL(audioEl.src);
-          audioEl.removeAttribute("src");
-          audioEl.hidden = true;
-        }
+        revokePlaybackUrl();
+        if (audioEl) audioEl.hidden = true;
         recorder.deleteRecording();
         if (wave) wave.reset();
         if (timerEl) timerEl.textContent = "00:00";
         if (durEl) durEl.textContent = "00:00";
         if (progressEl) progressEl.hidden = true;
+        if (btnSave) btnSave.disabled = !!(orgSelect && orgSelect.disabled);
         setError("");
       });
     }
     if (btnAgain) {
       btnAgain.addEventListener("click", function () {
-        if (audioEl && audioEl.src) {
-          URL.revokeObjectURL(audioEl.src);
-          audioEl.removeAttribute("src");
-          audioEl.hidden = true;
-        }
+        revokePlaybackUrl();
+        if (audioEl) audioEl.hidden = true;
         if (wave) wave.reset();
         if (progressEl) progressEl.hidden = true;
+        if (btnSave) btnSave.disabled = !!(orgSelect && orgSelect.disabled);
+        setError("");
         recorder.recordAgain().catch(function (err) {
           setError((err && err.message) || "Could not restart recording.");
         });
@@ -347,6 +406,10 @@
           setError("Nothing to upload yet.");
           return;
         }
+        if (!assertUploadableBlob(recorder.blob, recorder.elapsedMs)) {
+          if (btnSave) btnSave.disabled = true;
+          return;
+        }
         var orgId = orgSelect ? orgSelect.value : "";
         setStep("preparing", 0);
         var exportPromise = wave
@@ -354,24 +417,43 @@
           : Promise.resolve(recorder.blob);
         exportPromise
           .then(function (blob) {
+            // Duration gate uses wall-clock recording time; size must still be sane.
+            if (!assertUploadableBlob(blob, recorder.elapsedMs)) {
+              throw new Error(
+                "Recording export produced an incomplete file. Please record again."
+              );
+            }
             var mime = (blob && blob.type) || recorder.mimeType || "audio/webm";
             var ext =
               mime.indexOf("wav") !== -1
                 ? "wav"
                 : VoiceRecorder.extensionForMime(mime);
-            var file = new File(
-              [blob],
+            var filename =
               "recording-" +
-                new Date().toISOString().replace(/[:.]/g, "-") +
-                "." +
-                ext,
-              { type: mime, lastModified: Date.now() }
+              new Date().toISOString().replace(/[:.]/g, "-") +
+              "." +
+              ext;
+            var file = new File([blob], filename, {
+              type: mime,
+              lastModified: Date.now(),
+            });
+            devLog(
+              Object.assign(recorder.getDebugSnapshot(filename), {
+                event: "upload",
+                uploadBytes: file.size,
+                selectedMime: mime,
+              })
             );
             return uploader.uploadFile(file, orgId);
           })
           .then(function (result) {
-            setStep("queued", 100);
-            global.location.href = result.redirectUrl || config.redirectUrl;
+            showSuccess(result.filename);
+            setStep("complete", 100);
+            setStep("redirecting", 100);
+            var target = result.redirectUrl || config.redirectUrl;
+            global.setTimeout(function () {
+              global.location.href = target;
+            }, 450);
           })
           .catch(function (err) {
             setError((err && err.message) || "Upload failed.");

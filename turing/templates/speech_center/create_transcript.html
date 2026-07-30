@@ -1,14 +1,20 @@
 {% extends "speech_center/base.html" %}
 
 {% block page_subtitle %}
-<p>Select media already stored in Turing. Upload new files from Upload Media.</p>
+<p>Select media already stored in Turing. Upload new files from Upload Content.</p>
 {% endblock %}
 
 {% block content %}
 <div class="sc-toolbar">
   <p>Choose a file, set language if needed, then send it to transcription.</p>
-  <a class="sc-btn sc-btn-primary" href="{% url 'speech_center:upload_media' %}">Upload Media</a>
+  <a class="sc-btn sc-btn-primary" href="{% url 'speech_center:upload_media' %}">Upload Content</a>
 </div>
+
+{% if selected_media_id %}
+<p class="sc-selected-hint" role="status">
+  Your uploaded recording is highlighted below — send it to transcription when ready.
+</p>
+{% endif %}
 
 {% if media_list %}
 <div class="sc-table-wrap">
@@ -23,8 +29,14 @@
     </thead>
     <tbody>
       {% for media in media_list %}
-      <tr>
-        <td class="ltr">{{ media.original_filename|default:media.object_key|default:media.id }}</td>
+      <tr class="{% if selected_media_id == media.id|stringformat:'s' %}sc-row-selected{% endif %}"
+          {% if selected_media_id == media.id|stringformat:'s' %}aria-current="true"{% endif %}>
+        <td class="ltr">
+          {{ media.original_filename|default:media.object_key|default:media.id }}
+          {% if selected_media_id == media.id|stringformat:'s' %}
+            <span class="sc-badge sc-badge-selected">Just uploaded</span>
+          {% endif %}
+        </td>
         <td>{{ media.organization }}</td>
         <td class="ltr sc-ts">{{ media.created_at }}</td>
         <td class="sc-table-actions">
@@ -33,9 +45,13 @@
             <input type="hidden" name="media_id" value="{{ media.id }}">
             <label class="sc-inline-label">
               Language
-              <input class="ltr" type="text" name="language_code" value="{{ default_language }}" size="6" placeholder="fa">
+              <input class="ltr" type="text" name="language_code" value="{{ default_language }}" size="6" placeholder="fa"
+                {% if selected_media_id == media.id|stringformat:'s' %}autofocus{% endif %}>
             </label>
-            <button type="submit" class="sc-btn sc-btn-primary sc-btn-sm">Send to Transcription</button>
+            <button type="submit" class="sc-btn sc-btn-primary sc-btn-sm"
+              {% if selected_media_id == media.id|stringformat:'s' %}data-selected-upload="1"{% endif %}>
+              Send to Transcription
+            </button>
           </form>
         </td>
       </tr>
