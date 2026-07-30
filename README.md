@@ -1,54 +1,63 @@
 # Turing
 
+🇮🇷 Persian documentation: [README.fa.md](README.fa.md)
 
-Named after Alan Turing, a pioneer of computer science and artificial intelligence.
-Turing represents our goal of building intelligent systems that can process and understand human communication.
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![Django](https://img.shields.io/badge/django-4.2%2B-092E20.svg)](https://www.djangoproject.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Status](https://img.shields.io/badge/status-beta-orange.svg)](https://pypi.org/project/django-turing/)
 
+**Turing** is a reusable Django package for speech intelligence — upload audio, transcribe speech, review structured transcripts, and derive AI insights. One engine powers meetings, CRM calls, interviews, and voice files across host products without forking the platform per customer.
 
-Reusable Django **speech intelligence** package.
+Named after Alan Turing, the project reflects a goal of building systems that process and understand human communication at scale.
 
-Turing is the shared speech intelligence core for host products. The same engine supports meeting transcription, CRM call transcription, interviews, and voice file processing without forking the platform per company.
+## Features
 
-Phase 1 provides a shared transcription engine that host Django projects can install and run: upload audio, transcribe with Speechmatics, store an editable transcript (segments, speakers, revisions), and manage the flow from Django Admin (and a REST API).
+- **Media ingestion** — Upload audio or register external URLs; S3-compatible object storage and signed URLs
+- **Speech-to-text** — Batch transcription via Speechmatics with speaker diarization
+- **Async processing** — Celery pipeline with idempotent submit, poll, and persist
+- **Structured transcripts** — Segments, speakers, word-level timing, confidence, and revision history
+- **Review workflow** — Human editing with audit trail and approval states
+- **AI analyses** — Summary, topics, and action items derived without mutating source text
+- **Multi-tenancy** — Organizations, memberships, and API queryset scoping
+- **REST API** — Media, jobs, transcripts, analyses, search, connectors, and webhooks
+- **Speech Center** — Demo UI and host-facing API for transcript lookup and intelligence
+- **Connectors** — OAuth integrations (Zoom, Teams, Google Meet, Salesforce, Twilio, and more)
+- **Semantic search & RAG** — Segment embeddings and question-answering over transcripts
 
-**Phase 2.1** adds a production async pipeline: Celery tasks for submit → poll (non-blocking backoff) → fetch/persist, with idempotent retries.
+## Architecture
 
-**Phase 2.3** splits Django settings into local vs production modules with env-based secrets and HTTPS cookie hardening. See [docs/deployment.md](docs/deployment.md).
+```text
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐     ┌──────────────┐
+│   Upload /  │     │    Audio     │     │     STT     │     │  Transcript  │
+│  Connector  │ ──► │  preparation │ ──► │  (batch)    │ ──► │  + speakers  │
+└─────────────┘     └──────────────┘     └─────────────┘     └──────┬───────┘
+                                                                    │
+                    ┌──────────────┐     ┌──────────────┐           ▼
+                    │   Export /   │ ◄── │  AI analysis │ ◄── Review & edit
+                    │   webhooks   │     │  + search    │
+                    └──────────────┘     └──────────────┘
+```
 
-**Phase 2.4** encrypts provider API keys at rest and masks them in Admin (DB secret → env fallback).
+For design decisions, module map, and limitations, see [docs/architecture.md](docs/architecture.md).
 
-**Phase 2.6** upgrades transcripts into structured intelligence (words, confidence, review workflow, search). **Phase 3.2** adds AI-derived analyses (summary, action items, topics) linked to transcripts without mutating raw content. See [docs/transcript-intelligence.md](docs/transcript-intelligence.md).
+## Tech Stack
 
-**Phase 2.7** adds organization-based ownership, memberships, API queryset scoping, and correct approve/review capabilities. See [docs/authorization-tenancy.md](docs/authorization-tenancy.md).
-
-**Phase 2.8** hardens the async pipeline: submit claiming, provider-aware cancel, persist race safety, and lifecycle transition checks. See [docs/async-pipeline.md](docs/async-pipeline.md).
-
-**Phase 2.9** adds production object storage (S3-compatible), signed URLs, and streaming uploads. See [docs/media-storage.md](docs/media-storage.md) and [docs/deployment.md](docs/deployment.md).
-
-## Current status
-
-- Audio upload → Speechmatics batch transcription → transcript persistence
-- Timestamped segments and speaker labels
-- Human editing with revision history
-- Live validation: **Persian (`fa`) speech transcription** succeeded end-to-end
-- Async Celery pipeline (auto-enqueue); sync CLI remains a debug fallback
-- Designed as an installable app, not a single-company product
-
-Not included yet: real-time streaming, CRM/meeting product integrations, multi-provider STT, AI summarization/analytics, or file export.
-
-## Tech stack
-
-| Layer | Choice |
-|-------|--------|
-| Framework | Django |
+| Layer | Technology |
+|-------|------------|
+| Framework | Django 4.2+ |
 | API | Django REST Framework |
-| Async jobs | Celery + Redis (**required** for production auto-processing) |
+| Background jobs | Celery + Redis |
 | STT provider | Speechmatics Batch API |
-| Database | SQLite (local demo) / PostgreSQL (recommended for real deploys) |
+| Database | SQLite (local) / PostgreSQL (production) |
+| Storage | Local filesystem or S3-compatible backends |
 
-## Installation (demo project)
+## Installation
+
+**Requirements:** Python 3.11+, Redis (for Celery in production).
 
 ```bash
+git clone <repository-url>
 cd turing
 pip install -e ".[dev]"
 python manage.py migrate
@@ -56,128 +65,103 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Default settings module: `config.settings` (local). Local HTTP development still works without a strong `DJANGO_SECRET_KEY`.
+- **Admin:** http://127.0.0.1:8000/admin/
+- **API base:** http://127.0.0.1:8000/api/turing/v1/
+- **Speech Center UI:** http://127.0.0.1:8000/speech-center/
 
-For production, use `config.settings.production` and required env vars — see [docs/deployment.md](docs/deployment.md).
+Default settings: `config.settings` (local development).
 
-Admin: http://127.0.0.1:8000/admin/  
-API base: http://127.0.0.1:8000/api/turing/v1/
-
-### Use as a package in another Django project
+### Install as a package in another Django project
 
 ```python
 INSTALLED_APPS = [
-    # ...
-    "rest_framework",
-    "django_filters",
-    "turing.apps.TuringConfig",
+  # ...
+  "rest_framework",
+  "django_filters",
+  "turing.apps.TuringConfig",
 ]
 
 urlpatterns += [
-    path("api/turing/", include("turing.api.urls")),
+  path("api/turing/", include("turing.api.urls")),
 ]
 ```
 
-Run migrations for the `turing` app in the host project.
+Run `turing` migrations in the host project.
+
+## Quick Start
+
+1. Open **Admin → Speech provider configs** and set your Speechmatics API key.
+2. Upload audio under **Media assets** (or use the Speech Center upload page).
+3. Create a **Processing job** with a language code (e.g. `fa`, `en`).
+4. Start a Celery worker (production path):
+
+   ```bash
+   celery -A config worker -l info -Q turing.default,turing.high,turing.export
+   ```
+
+5. When the job completes, open the **Transcript** — segments, speakers, and optional AI analyses are available via Admin and the REST API.
+
+With `Platform configuration → auto_enqueue` enabled (default), jobs are scheduled automatically after creation.
 
 ## Configuration
 
-Speechmatics credentials are managed in **Django Admin** (encrypted at rest; no source-code edits required):
+| Area | Where to configure |
+|------|-------------------|
+| Provider credentials | Admin → Speech provider configs (encrypted at rest) |
+| Defaults (language, upload limits) | Admin → Platform configuration |
+| Production secrets & TLS | Environment variables — see [docs/deployment.md](docs/deployment.md) |
+| Object storage | `django-storages` / S3 settings — see [docs/media-storage.md](docs/media-storage.md) |
 
-1. **Speech provider configs** → `speechmatics` → set **API key** (shown masked after save)
-2. Optionally adjust **Platform configuration** (default provider, default language, upload limits, allowed audio extensions, auto-enqueue)
-
-Supported uploads by default: **mp3, wav, m4a, webm, ogg** (see [docs/media-storage.md](docs/media-storage.md)).
-
-Environment fallback (optional):
+Optional environment fallback:
 
 ```bash
-export TURING_SPEECHMATICS_API_KEY=...
+export TURING_SPEECHMATICS_API_KEY=your-key
 ```
 
 Priority: **database secret → environment variable → configuration error**.
 
-### Main Admin sections
+Supported audio formats by default: `mp3`, `wav`, `m4a`, `webm`, `ogg`.
 
-| Section | Purpose |
-|---------|---------|
-| Speech provider configs | Provider credentials and defaults |
-| Platform configuration | Engine-wide processing / API defaults |
-| Media assets | Upload audio (or register an external URL) |
-| Processing jobs | Job status, retries, logs |
-| Transcripts | Segments, speakers, revisions, review |
-| Organizations | Tenant / data-ownership boundary |
-| Turing memberships | User ↔ Organization ↔ role (Admin, Reviewer, Editor, …) |
+## REST API
 
-## Basic workflow
-
-```text
-Upload audio (Admin or API)
-    → Create transcription job (language e.g. fa / en)
-    → Auto-enqueue Celery pipeline (if auto_enqueue enabled)
-         submit → poll (backoff) → fetch/persist
-    → Review transcript (segments + speakers)
-    → Edit text / rename speakers
-    → Revision history recorded
-```
-
-### Celery worker (production path)
-
-```bash
-# Redis must be running (CELERY_BROKER_URL)
-celery -A config worker -l info -Q turing.default,turing.high,turing.export
-```
-
-With `Platform configuration.auto_enqueue=True` (default), job creation schedules processing automatically — no manual `turing_process_job` in normal use.
-
-See [docs/async-pipeline.md](docs/async-pipeline.md) for task names, backoff settings, and idempotency. Provider webhooks (Phase 3.1) are documented in [docs/webhooks.md](docs/webhooks.md).
-
-### Sync fallback (debug only)
-
-```bash
-python manage.py turing_process_job <job-uuid>
-```
-
-**Note:** Set **Platform configuration → Default language** to `fa` for Persian (or pass `language_code` when creating a job). Admin bulk “Create transcription jobs” uses that default and will refuse to create jobs if no language is configured.
-
-### Example: create a Persian job (shell)
-
-```python
-from turing.models import MediaAsset
-from turing.services import JobOrchestrator
-
-media = MediaAsset.objects.get(pk="<media-uuid>")
-job = JobOrchestrator().create_transcription_job(
-    media=media,
-    language_code="fa",
-    options={"diarization": True},
-    # auto_enqueue=True by default → Celery submit task is scheduled
-)
-print(job.id)
-```
-
-## REST API (Phase 1)
-
-Authenticated endpoints under `/api/turing/v1/`:
+Authenticated endpoints under `/api/turing/v1/` (session or token auth):
 
 | Resource | Path |
 |----------|------|
-| Media | `POST/GET /media/` |
-| Jobs | `POST/GET /jobs/`, `retry/`, `cancel/`, `logs/` |
-| Transcripts | `GET /transcripts/`, `.../revisions/`, `.../submit_review/` |
-| Segments | `GET/PATCH /segments/{id}/` |
-| Speakers | `GET/PATCH /speakers/{id}/` |
-| Providers | `GET /providers/` |
+| Media | `/media/` |
+| Jobs | `/jobs/` (`retry`, `cancel`, `logs`) |
+| Transcripts | `/transcripts/` (`revisions`, `submit_review`) |
+| Segments & speakers | `/segments/`, `/speakers/` |
+| Analyses | `/analyses/` |
+| Speech Center | `/speech-center/` (lookup, timeline, intelligence, ask) |
+| Search | `/search/` |
+| Connectors | `/connectors/` |
+| Webhooks | `/webhooks/` |
+| Providers | `/providers/` |
 
-Use session auth or DRF Token authentication.
+Provider callbacks: `POST /api/turing/v1/webhooks/speechmatics/`
 
-## Roadmap (later phases)
+## Documentation
 
-- Transcript attachment parsing from webhook body (Phase 3.1b)
-- Export (TXT / DOCX / PDF)
-- CRM and meeting product integrations (host apps on top of the same engine)
-- Additional STT providers and AI capabilities (summarization, analytics, etc.)
+| Document | Description |
+|----------|-------------|
+| [docs/architecture.md](docs/architecture.md) | System design and module map |
+| [docs/deployment.md](docs/deployment.md) | Production settings and operations |
+| [docs/async-pipeline.md](docs/async-pipeline.md) | Celery tasks, retries, idempotency |
+| [docs/media-storage.md](docs/media-storage.md) | Uploads, storage backends, signed URLs |
+| [docs/webhooks.md](docs/webhooks.md) | Inbound provider and outbound delivery |
+| [docs/authorization-tenancy.md](docs/authorization-tenancy.md) | Organizations, roles, API scoping |
+
+Additional guides: [transcript intelligence](docs/transcript-intelligence.md), [Speech Center API](docs/speech-center-api.md), [semantic search](docs/search.md), [connectors](docs/connectors.md), [audio ingestion](docs/audio-ingestion.md), [events](docs/events.md).
+
+## Roadmap
+
+- Real-time streaming transcription
+- Additional STT and embedding providers
+- Deeper CRM and meeting product integrations
+- Marketplace UI for connector installation
+- Billing and entitlement layer
 
 ## License
 
-MIT (see package metadata).
+MIT — see [package metadata](pyproject.toml).
