@@ -76,8 +76,32 @@ def test_upload_page_has_file_and_record_tabs(sc_client):
     assert "speech_center/recorder/uploader.js" in body
     assert "sc-recorder-config" in body
     assert "Permission" in body or "Microphone" in body
-    assert "Start Recording" in body
+    assert 'id="sc-rec-start"' in body
+    assert "Start" in body
     assert "Save &amp; Upload" in body or "Save & Upload" in body
+    assert 'id="sc-rec-org"' in body
+    assert "Ready to record" in body
+    assert "Preparing audio" in body
+    assert "Uploading file" in body
+    assert "Creating transcript" in body
+
+
+@pytest.mark.django_db
+def test_recorder_org_selector_matches_upload_orgs(sc_client, sc_user):
+    org = Organization.get_default()
+    resp = sc_client.get(reverse("speech_center:upload_media"))
+    body = resp.content.decode()
+    assert 'id="sc-file-org"' in body
+    assert 'id="sc-rec-org"' in body
+    assert str(org.id) in body
+    # Recorder posts through the same Speech Center upload URL (no parallel path).
+    boot = (STATIC_RECORDER / "boot.js").read_text(encoding="utf-8")
+    assert "uploadFile" in boot
+    assert "requireOrg" in boot
+    assert "organizationId" in boot or "orgId" in boot
+    assert "Ready to record" in boot
+    assert "Recording in progress" in boot
+    assert "Review your recording" in boot
 
 
 @pytest.mark.django_db
@@ -441,7 +465,9 @@ def test_file_upload_still_works_with_selected_context(sc_client, sc_user):
 def test_upload_page_progress_labels_are_clear(sc_client):
     resp = sc_client.get(reverse("speech_center:upload_media"))
     body = resp.content.decode()
-    assert "Preparing recording" in body
-    assert "Uploading recording" in body
+    assert "Preparing audio" in body
+    assert "Uploading file" in body
     assert "Upload complete" in body
-    assert "Redirecting to transcript creation" in body
+    assert "Creating transcript" in body
+    assert 'id="sc-rec-progress-fill"' in body
+    assert "sc-rec-card" in body

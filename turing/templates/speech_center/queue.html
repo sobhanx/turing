@@ -1,46 +1,61 @@
 {% extends "speech_center/base.html" %}
 
 {% block page_subtitle %}
-<p>Live status from the existing processing pipeline.</p>
+<p>Live status from the existing processing pipeline. This page refreshes automatically.</p>
 {% endblock %}
 
 {% block content %}
 {% if jobs %}
-<div class="sc-table-wrap">
-  <table class="sc-table">
-    <thead>
-      <tr>
-        <th>Media</th>
-        <th>Status</th>
-        <th>Provider</th>
-        <th>Created</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for row in jobs %}
-      <tr>
-        <td class="ltr">
+<div class="sc-queue-list" data-sc-poll="{{ poll_seconds }}">
+  {% for row in jobs %}
+  <article class="sc-queue-card">
+    <header class="sc-queue-card-head">
+      <div>
+        <h2 class="sc-queue-title ltr">
           {{ row.job.media.original_filename|default:row.job.media.object_key|default:row.job.media_id }}
-        </td>
-        <td>
-          <span class="sc-badge sc-badge-{{ row.status_css }}">{{ row.status_label }}</span>
-        </td>
-        <td class="ltr">{{ row.job.provider_code }}</td>
-        <td class="ltr sc-ts">{{ row.job.created_at }}</td>
-        <td class="sc-table-actions">
-          {% if row.show_retry %}
-          <form method="post" action="{% url 'speech_center:retry_job' row.job.id %}">
-            {% csrf_token %}
-            <button type="submit" class="sc-btn sc-btn-sm">Retry</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
+        </h2>
+        <p class="sc-queue-meta ltr">
+          {{ row.job.provider_code }} · {{ row.job.created_at }}
+        </p>
+      </div>
+      <span class="sc-badge sc-badge-{{ row.status_css }}">{{ row.status_label }}</span>
+    </header>
+
+    <div class="sc-progress-bar" aria-hidden="true">
+      <span class="sc-progress-fill" style="width: {{ row.progress_pct }}%"></span>
+    </div>
+
+    <ol class="sc-pipeline" aria-label="Processing pipeline">
+      {% for step in row.pipeline %}
+      <li class="is-{{ step.state }}">
+        <span class="sc-pipeline-mark" aria-hidden="true">
+          {% if step.state == "done" %}✓{% elif step.state == "failed" %}!{% elif step.state == "active" %}●{% else %}○{% endif %}
+        </span>
+        {{ step.label }}
+      </li>
       {% endfor %}
-    </tbody>
-  </table>
+    </ol>
+
+    {% if row.show_retry %}
+    <form method="post" action="{% url 'speech_center:retry_job' row.job.id %}" class="sc-queue-actions">
+      {% csrf_token %}
+      <button type="submit" class="sc-btn sc-btn-sm">Retry</button>
+    </form>
+    {% endif %}
+  </article>
+  {% endfor %}
 </div>
+<script>
+(function () {
+  var root = document.querySelector("[data-sc-poll]");
+  if (!root) return;
+  var seconds = parseInt(root.getAttribute("data-sc-poll") || "0", 10);
+  if (!seconds || seconds < 3) return;
+  var hasActive = !!root.querySelector(".sc-pipeline .is-active, .sc-badge-processing, .sc-badge-queued, .sc-badge-preparing, .sc-badge-uploading, .sc-badge-submitted, .sc-badge-retry-scheduled");
+  if (!hasActive) return;
+  setTimeout(function () { window.location.reload(); }, seconds * 1000);
+})();
+</script>
 {% else %}
 <div class="sc-section sc-empty">
   <strong>No processing jobs yet</strong>

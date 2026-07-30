@@ -1,53 +1,109 @@
 {% extends "speech_center/base.html" %}
 
-{% block page_subtitle %}
-<p>Upload audio, run transcription, and review results — using your existing Turing pipeline.</p>
-{% endblock %}
+{% block content_title %}{% endblock %}
 
 {% block content %}
-<div class="sc-cards">
-  <article class="sc-card sc-card--primary">
-    <span class="sc-card-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3"/></svg>
-    </span>
-    <h2>Upload Content</h2>
-    <p>Upload a file or record audio in the browser — same MediaAsset pipeline.</p>
-    <div class="sc-card-actions">
-      <a class="sc-btn sc-btn-primary" href="{{ upload_url }}">Upload / Record</a>
-    </div>
-  </article>
+<section class="sc-hero" aria-label="Welcome">
+  <p class="sc-hero-eyebrow">Speech Center</p>
+  <h1 class="sc-hero-title">Hello, {{ welcome_name }}</h1>
+  <p class="sc-hero-lead">
+    Manage your recordings, transcripts and meeting intelligence.
+  </p>
+</section>
 
-  <article class="sc-card">
-    <span class="sc-card-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v10"/><path d="M8 9a4 4 0 0 0 8 0"/><path d="M5 14v1a7 7 0 0 0 14 0v-1"/><path d="M12 18v3"/></svg>
-    </span>
-    <h2>Send to Transcription</h2>
-    <p>Send stored media to the transcription pipeline.</p>
-    <div class="sc-card-actions">
-      <a class="sc-btn" href="{{ create_url }}">Send to Transcription</a>
-    </div>
-  </article>
+<section class="sc-section" aria-label="Quick actions">
+  <h2 class="sc-section-heading">Quick Actions</h2>
+  <div class="sc-cards sc-cards-actions">
+    <a class="sc-card sc-card-link sc-card--primary" href="{{ upload_url }}">
+      <span class="sc-card-kicker">+ Upload Audio</span>
+      <p>Add a file to the media library.</p>
+    </a>
+    <a class="sc-card sc-card-link" href="{{ record_url }}">
+      <span class="sc-card-kicker">+ Record Audio</span>
+      <p>Capture directly in the browser.</p>
+    </a>
+    <a class="sc-card sc-card-link" href="{{ meetings_url }}">
+      <span class="sc-card-kicker">+ Import Meeting</span>
+      <p>Prepare meeting imports (coming soon).</p>
+    </a>
+  </div>
+</section>
 
-  <article class="sc-card">
-    <span class="sc-card-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-    </span>
-    <h2>Processing Status</h2>
-    <p>Track queued, preparing, and processing jobs in real time.</p>
-    <div class="sc-card-actions">
-      <a class="sc-btn" href="{{ queue_url }}">View Status</a>
-    </div>
-  </article>
+<section class="sc-section" aria-label="Recent activity">
+  <div class="sc-section-head">
+    <h2 class="sc-section-heading">Recent Activity</h2>
+    <a class="sc-btn sc-btn-ghost sc-btn-sm" href="{{ queue_url }}">View Status</a>
+  </div>
 
-  <article class="sc-card">
-    <span class="sc-card-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 4h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V6a2 2 0 0 1 2-2Z"/><path d="M9 9h6M9 13h4"/></svg>
-    </span>
-    <h2>Transcripts</h2>
-    <p>Open completed and in-progress transcripts for review.</p>
-    <div class="sc-card-actions">
-      <a class="sc-btn" href="{{ transcripts_url }}">Open</a>
-    </div>
-  </article>
-</div>
+  <div class="sc-activity-grid">
+    <article class="sc-activity-panel">
+      <h3>Recent recordings</h3>
+      {% if recent_media %}
+      <ul class="sc-activity-list">
+        {% for media in recent_media %}
+        <li>
+          <span class="ltr">{{ media.original_filename|default:media.object_key|default:media.id }}</span>
+          <span class="sc-activity-meta ltr">{{ media.created_at }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="sc-empty-inline">No recordings yet. Upload or record to get started.</p>
+      {% endif %}
+      <div class="sc-card-actions">
+        <a class="sc-btn sc-btn-sm" href="{{ upload_url }}">Upload Content</a>
+      </div>
+    </article>
+
+    <article class="sc-activity-panel">
+      <h3>Processing status</h3>
+      {% if recent_jobs %}
+      <ul class="sc-activity-list">
+        {% for row in recent_jobs %}
+        <li class="sc-activity-job">
+          <div class="sc-activity-job-top">
+            <span class="ltr">{{ row.media_name }}</span>
+            <span class="sc-badge sc-badge-{{ row.status_css }}">{{ row.status_label }}</span>
+          </div>
+          <div class="sc-progress-bar" aria-hidden="true">
+            <span class="sc-progress-fill" style="width: {{ row.progress_pct }}%"></span>
+          </div>
+          <ol class="sc-pipeline sc-pipeline-compact">
+            {% for step in row.pipeline %}
+            <li class="is-{{ step.state }}">{{ step.label }}{% if step.state == "done" %} ✓{% endif %}</li>
+            {% endfor %}
+          </ol>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="sc-empty-inline">No jobs in the queue yet.</p>
+      {% endif %}
+      <div class="sc-card-actions">
+        <a class="sc-btn sc-btn-sm" href="{{ create_url }}">Send to Transcription</a>
+      </div>
+    </article>
+
+    <article class="sc-activity-panel">
+      <h3>Recent transcripts</h3>
+      {% if recent_transcripts %}
+      <ul class="sc-activity-list">
+        {% for row in recent_transcripts %}
+        <li>
+          <a class="ltr" href="{% url 'speech_center:transcript_detail' row.transcript.id %}">
+            {{ row.media_name }}
+          </a>
+          <span class="sc-badge sc-badge-queued">{{ row.transcript.get_status_display }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="sc-empty-inline">Transcripts will appear here when ready.</p>
+      {% endif %}
+      <div class="sc-card-actions">
+        <a class="sc-btn sc-btn-sm" href="{{ transcripts_url }}">Open</a>
+      </div>
+    </article>
+  </div>
+</section>
 {% endblock %}

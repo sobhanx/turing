@@ -13,54 +13,67 @@
     <li><strong>Duration</strong> <span class="ltr">{{ duration_display }}</span></li>
     <li><strong>Created</strong> <span class="ltr sc-ts">{{ transcript.created_at }}</span></li>
   </ul>
-  <div class="sc-actions" style="margin-top:16px;">
-    <a class="sc-btn" href="{{ segments_url }}">View Segments</a>
-    <a class="sc-btn" href="{{ words_url }}">View Words</a>
-    <a class="sc-btn" href="{{ analysis_url }}">View Analysis</a>
-    <a class="sc-btn sc-btn-primary" href="{{ intelligence_url }}">Open Intelligence</a>
-  </div>
 </header>
 
-<section class="sc-section">
-  <h2>Summary</h2>
-  <div class="sc-section-body">{{ summary_text }}</div>
-</section>
-
-<section class="sc-section">
-  <h2>Speakers</h2>
-  {% if speakers %}
-  <ul class="sc-speakers">
-    {% for speaker in speakers %}
-    <li>
-      <span class="sc-speaker-label ltr">{{ speaker.speaker_label }}</span>
-      <span>{% if speaker.speaker_name %}{{ speaker.speaker_name }}{% else %}—{% endif %}</span>
-    </li>
-    {% endfor %}
-  </ul>
-  {% else %}
-  <div class="sc-empty" style="padding:12px 0;">No speakers found.</div>
-  {% endif %}
-</section>
-
-<section class="sc-section">
-  <h2>Transcript</h2>
-  <div class="sc-section-body sc-transcript-text">
-    {% if transcript.full_text %}
-      {{ transcript.full_text|linebreaksbr }}
+<div class="sc-viewer">
+  <aside class="sc-viewer-side" aria-label="Speakers">
+    <h2>Speakers</h2>
+    {% if speakers %}
+    <ul class="sc-speakers">
+      {% for speaker in speakers %}
+      <li>
+        <span class="sc-speaker-label ltr">{{ speaker.speaker_label }}</span>
+        <span>{% if speaker.speaker_name %}{{ speaker.speaker_name }}{% else %}—{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
     {% else %}
-      No transcript available.
+    <p class="sc-empty-inline">No speakers found.</p>
     {% endif %}
-  </div>
-</section>
+  </aside>
 
-<section class="sc-section">
-  <h2>Export</h2>
-  <p class="sc-section-body" style="margin-bottom:12px;color:var(--sc-muted);font-size:0.9rem;">
-    Download an on-demand copy. Files are generated when you click — nothing is stored permanently.
-  </p>
-  <div class="sc-actions">
-    <a class="sc-btn sc-btn-primary" href="{{ export_pdf_url }}">Export PDF</a>
-    <a class="sc-btn" href="{{ export_docx_url }}">Export DOCX</a>
-  </div>
-</section>
+  <section class="sc-viewer-main" aria-label="Transcript timeline">
+    <h2>Transcript</h2>
+    {% if segments %}
+    <ol class="sc-timeline">
+      {% for seg in segments %}
+      <li class="sc-timeline-item">
+        <div class="sc-timeline-meta">
+          <time class="ltr">{{ seg.start_display }}</time>
+          <span class="sc-speaker-chip ltr">{{ seg.speaker_label }}</span>
+        </div>
+        <p class="sc-timeline-text">{{ seg.text }}</p>
+      </li>
+      {% endfor %}
+    </ol>
+    {% elif transcript.full_text %}
+    <div class="sc-section-body sc-transcript-text">
+      {{ transcript.full_text|linebreaksbr }}
+    </div>
+    {% else %}
+    <p class="sc-empty-inline">No transcript available.</p>
+    {% endif %}
+  </section>
+
+  <aside class="sc-viewer-side sc-viewer-insights" aria-label="Insights">
+    <h2>Summary</h2>
+    <div class="sc-insight-block">{{ summary_text|linebreaksbr }}</div>
+
+    <h2>Keywords</h2>
+    <div class="sc-insight-block">{{ topics_text|linebreaksbr }}</div>
+
+    <h2>Actions</h2>
+    <div class="sc-insight-block">{{ actions_text|linebreaksbr }}</div>
+
+    <h2>Insights</h2>
+    <div class="sc-actions sc-actions-stack">
+      <a class="sc-btn sc-btn-sm" href="{{ segments_url }}">View Segments</a>
+      <a class="sc-btn sc-btn-sm" href="{{ words_url }}">View Words</a>
+      <a class="sc-btn sc-btn-sm" href="{{ analysis_url }}">View Analysis</a>
+      <a class="sc-btn sc-btn-primary sc-btn-sm" href="{{ intelligence_url }}">Open Intelligence</a>
+      <a class="sc-btn sc-btn-sm" href="{{ export_pdf_url }}">Export PDF</a>
+      <a class="sc-btn sc-btn-sm" href="{{ export_docx_url }}">Export DOCX</a>
+    </div>
+  </aside>
+</div>
 {% endblock %}

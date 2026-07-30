@@ -1,0 +1,40 @@
+{% extends "speech_center/base.html" %}
+
+{% block page_subtitle %}
+<p>Meeting import foundation — provider integrations are not connected yet.</p>
+{% endblock %}
+
+{% block content %}
+<section class="sc-section" aria-label="Meetings">
+  <div class="sc-toolbar">
+    <p>Schedule and track meeting recordings here once providers are wired.</p>
+    <button type="button" class="sc-btn sc-btn-primary" disabled title="Coming soon">+ New Meeting</button>
+  </div>
+
+  <div class="sc-cards sc-cards-actions">
+    {% for provider in providers %}
+    <article class="sc-card">
+      <span class="sc-card-kicker">Provider</span>
+      <h2>{{ provider.name }}</h2>
+      <p>{{ provider.status }}</p>
+      <div class="sc-card-actions">
+        <button type="button" class="sc-btn sc-btn-sm" disabled>Connect</button>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="sc-section" aria-label="Status legend">
+  <h2 class="sc-section-heading">Status</h2>
+  <ul class="sc-status-legend">
+    {% for item in sample_statuses %}
+    <li><span class="sc-badge sc-badge-{{ item.css }}">{{ item.label }}</span></li>
+    {% endfor %}
+  </ul>
+  <div class="sc-empty" style="margin-top:16px;">
+    <strong>No meetings yet</strong>
+    This page is a UI foundation only. Alocom, Zoom, and Teams will plug in later without changing the media pipeline.
+  </div>
+</section>
+{% endblock %}

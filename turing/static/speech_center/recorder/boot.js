@@ -130,11 +130,15 @@
     var audioEl = $("sc-rec-playback");
     var trimLabel = $("sc-rec-trim-label");
     var progressEl = $("sc-rec-progress");
-    var orgSelect = document.querySelector(
+    var progressWrap = $("sc-rec-progress-wrap");
+    var progressFill = $("sc-rec-progress-fill");
+    var formatEl = $("sc-rec-format");
+    var sizeEl = $("sc-rec-size");
+    var orgLabel = $("sc-rec-org-label");
+    var fileOrgSelect = $("sc-file-org");
+    var orgSelect = $("sc-rec-org") || document.querySelector(
       '#sc-panel-record [name="organization_id"], #sc-rec-org'
     );
-    // Prefer shared org select if present in record panel
-    orgSelect = $("sc-rec-org") || orgSelect;
 
     var btnStart = $("sc-rec-start");
     var btnPause = $("sc-rec-pause");
@@ -143,6 +147,66 @@
     var btnDelete = $("sc-rec-delete");
     var btnAgain = $("sc-rec-again");
     var btnSave = $("sc-rec-save");
+    var btnPlay = $("sc-rec-play-focus");
+    var btnTrim = $("sc-rec-trim-focus");
+
+    var STATUS_LABELS = {
+      idle: "Ready to record",
+      requesting: "Requesting microphone…",
+      recording: "Recording in progress",
+      paused: "Recording paused",
+      stopped: "Review your recording",
+      denied: "Permission denied",
+      unsupported: "Unsupported",
+      uploading: "Uploading",
+      completed: "Recording uploaded successfully",
+      failed: "Upload failed",
+    };
+
+    var STEP_FILL = {
+      preparing: 18,
+      uploading: 55,
+      complete: 82,
+      redirecting: 100,
+    };
+
+    function formatBytes(n) {
+      n = Number(n) || 0;
+      if (n < 1024) return n + " B";
+      if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+      return (n / 1048576).toFixed(1) + " MB";
+    }
+
+    function mimeToFormat(mime) {
+      mime = String(mime || "").toLowerCase();
+      if (mime.indexOf("webm") >= 0) return "WebM";
+      if (mime.indexOf("ogg") >= 0) return "Ogg";
+      if (mime.indexOf("wav") >= 0) return "WAV";
+      if (mime.indexOf("mp4") >= 0 || mime.indexOf("m4a") >= 0) return "MP4";
+      return mime || "Audio";
+    }
+
+    function updateOrgLabel() {
+      if (!orgLabel || !orgSelect) return;
+      var opt = orgSelect.options[orgSelect.selectedIndex];
+      orgLabel.textContent = opt && opt.value ? opt.textContent : "—";
+    }
+
+    function syncOrgSelects(source) {
+      var value = source && source.value ? source.value : "";
+      if (orgSelect && source !== orgSelect) orgSelect.value = value;
+      if (fileOrgSelect && source !== fileOrgSelect) fileOrgSelect.value = value;
+      updateOrgLabel();
+    }
+
+    function requireOrg() {
+      if (!orgSelect || !orgSelect.value) {
+        setError("Select an organization before recording or uploading.");
+        if (orgSelect) orgSelect.focus();
+        return false;
+      }
+      return true;
+    }
 
     function setError(msg) {
       if (!errorEl) return;
@@ -153,6 +217,10 @@
       }
       errorEl.hidden = false;
       errorEl.textContent = msg;
+      if (statusEl) {
+        statusEl.textContent = STATUS_LABELS.failed;
+        statusEl.dataset.state = "failed";
+      }
     }
 
     function setPermission(text, tone) {
@@ -161,8 +229,15 @@
       permEl.dataset.tone = tone || "neutral";
     }
 
+    function setStatus(state) {
+      if (!statusEl) return;
+      statusEl.textContent = STATUS_LABELS[state] || state;
+      statusEl.dataset.state = state;
+    }
+
     function setStep(step, pct) {
       if (!progressEl) return;
+      if (progressWrap) progressWrap.hidden = false;
       progressEl.hidden = false;
       var items = progressEl.querySelectorAll("[data-step]");
       var order = RecorderUploader.STEPS;
@@ -178,6 +253,24 @@
             s === "uploading" && typeof pct === "number" ? pct + "%" : "";
         }
       });
+      if (progressFill) {
+        var fill = STEP_FILL[step] || 0;
+        if (step === "uploading" && typeof pct === "number") {
+          fill = Math.min(78, 40 + Math.round(pct * 0.38));
+        }
+        progressFill.style.width = fill + "%";
+      }
+      if (step === "preparing" || step === "uploading" || step === "redirecting") {
+        setStatus("uploading");
+      } else if (step === "complete") {
+        setStatus("completed");
+      }
+    }
+
+    function hideProgress() {
+      if (progressWrap) progressWrap.hidden = true;
+      if (progressEl) progressEl.hidden = true;
+      if (progressFill) progressFill.style.width = "0%";
     }
 
     function showSuccess(filename) {
@@ -187,6 +280,7 @@
       el.textContent = filename
         ? "Recording uploaded successfully: " + filename
         : "Recording uploaded successfully";
+      setStatus("completed");
     }
 
     function devLog(payload) {
@@ -216,31 +310,19 @@
       preferredMimeTypes: config.preferredMimeTypes,
       onStateChange: function (state) {
         root.dataset.state = state;
-        if (statusEl) {
-          var labels = {
-            idle: "Ready",
-            requesting: "Requesting microphone…",
-            recording: "Recording",
-            paused: "Paused",
-            stopped: "Review",
-            denied: "Permission denied",
-            unsupported: "Unsupported",
-          };
-          statusEl.textContent = labels[state] || state;
-          statusEl.dataset.state = state;
-        }
+        setStatus(state);
         if (state === "denied") {
-          setPermission("Microphone permission denied", "danger");
+          setPermission("Microphone: Denied ✗", "danger");
           setError(
             "Microphone access was denied. Allow the microphone in your browser settings and try again."
           );
         } else if (state === "requesting") {
-          setPermission("Requesting permission…", "warn");
-        } else if (state === "recording" || state === "paused") {
-          setPermission("Microphone allowed", "ok");
-          setError("");
+          setPermission("Microphone: Requesting…", "warn");
+        } else if (state === "recording" || state === "paused" || state === "stopped") {
+          setPermission("Microphone: Allowed ✓", "ok");
+          if (state !== "stopped") setError("");
         } else if (state === "idle") {
-          setPermission("Microphone ready", "ok");
+          setPermission("Microphone: Ready", "ok");
         }
 
         var recording = state === "recording";
@@ -254,7 +336,15 @@
         if (btnDelete) btnDelete.disabled = !(stopped || recording || paused);
       },
       onTick: function (ms, label) {
-        if (timerEl) timerEl.textContent = label;
+        if (!timerEl) return;
+        var totalSec = Math.floor(Math.max(0, ms) / 1000);
+        var h = Math.floor(totalSec / 3600);
+        var m = Math.floor((totalSec % 3600) / 60);
+        var s = totalSec % 60;
+        function pad(n) {
+          return (n < 10 ? "0" : "") + n;
+        }
+        timerEl.textContent = pad(h) + ":" + pad(m) + ":" + pad(s);
       },
       onError: function (err) {
         setError((err && err.message) || "Recording error");
@@ -324,9 +414,13 @@
     function afterStop(blob) {
       // Playback source must remain the recorder's original blob.
       syncPlayback(blob || recorder.blob);
+      var active = blob || recorder.blob;
       if (durEl) {
         durEl.textContent = VoiceRecorder.formatDuration(recorder.elapsedMs);
       }
+      if (formatEl) formatEl.textContent = mimeToFormat(active && active.type);
+      if (sizeEl) sizeEl.textContent = formatBytes(active && active.size);
+      updateOrgLabel();
       if (wave) {
         wave.loadBlob(blob || recorder.blob).catch(function () {
           setError(
@@ -336,9 +430,24 @@
       }
     }
 
+    if (orgSelect) {
+      orgSelect.addEventListener("change", function () {
+        syncOrgSelects(orgSelect);
+        setError("");
+      });
+    }
+    if (fileOrgSelect) {
+      fileOrgSelect.addEventListener("change", function () {
+        syncOrgSelects(fileOrgSelect);
+      });
+    }
+    updateOrgLabel();
+
     if (btnStart) {
       btnStart.addEventListener("click", function () {
+        if (!requireOrg()) return;
         setError("");
+        hideProgress();
         recorder.start().catch(function (err) {
           setError((err && err.message) || "Could not start recording.");
         });
@@ -379,19 +488,22 @@
         if (audioEl) audioEl.hidden = true;
         recorder.deleteRecording();
         if (wave) wave.reset();
-        if (timerEl) timerEl.textContent = "00:00";
+        if (timerEl) timerEl.textContent = "00:00:00";
         if (durEl) durEl.textContent = "00:00";
-        if (progressEl) progressEl.hidden = true;
+        if (formatEl) formatEl.textContent = "—";
+        if (sizeEl) sizeEl.textContent = "—";
+        hideProgress();
         if (btnSave) btnSave.disabled = !!(orgSelect && orgSelect.disabled);
         setError("");
       });
     }
     if (btnAgain) {
       btnAgain.addEventListener("click", function () {
+        if (!requireOrg()) return;
         revokePlaybackUrl();
         if (audioEl) audioEl.hidden = true;
         if (wave) wave.reset();
-        if (progressEl) progressEl.hidden = true;
+        hideProgress();
         if (btnSave) btnSave.disabled = !!(orgSelect && orgSelect.disabled);
         setError("");
         recorder.recordAgain().catch(function (err) {
@@ -399,9 +511,27 @@
         });
       });
     }
+    if (btnPlay && audioEl) {
+      btnPlay.addEventListener("click", function () {
+        if (audioEl.hidden) audioEl.hidden = false;
+        if (audioEl.paused) {
+          audioEl.play().catch(function () {
+            /* ignore */
+          });
+        } else {
+          audioEl.pause();
+        }
+      });
+    }
+    if (btnTrim && canvas) {
+      btnTrim.addEventListener("click", function () {
+        canvas.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    }
     if (btnSave) {
       btnSave.addEventListener("click", function () {
         setError("");
+        if (!requireOrg()) return;
         if (!recorder.blob) {
           setError("Nothing to upload yet.");
           return;
@@ -505,21 +635,21 @@
       navigator.permissions
         .query({ name: "microphone" })
         .then(function (result) {
-          if (result.state === "granted") setPermission("Microphone allowed", "ok");
+          if (result.state === "granted") setPermission("Microphone: Allowed ✓", "ok");
           else if (result.state === "denied")
-            setPermission("Microphone permission denied", "danger");
-          else setPermission("Microphone permission not granted yet", "warn");
+            setPermission("Microphone: Denied ✗", "danger");
+          else setPermission("Microphone: Not granted yet", "warn");
           result.onchange = function () {
-            if (result.state === "granted") setPermission("Microphone allowed", "ok");
+            if (result.state === "granted") setPermission("Microphone: Allowed ✓", "ok");
             else if (result.state === "denied")
-              setPermission("Microphone permission denied", "danger");
+              setPermission("Microphone: Denied ✗", "danger");
           };
         })
         .catch(function () {
-          setPermission("Microphone permission unknown", "neutral");
+          setPermission("Microphone: Unknown", "neutral");
         });
     } else {
-      setPermission("Microphone permission unknown", "neutral");
+      setPermission("Microphone: Unknown", "neutral");
     }
 
     // Initial control visibility

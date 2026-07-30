@@ -57,12 +57,60 @@ def test_dashboard_renders(sc_client):
     resp = sc_client.get(url)
     assert resp.status_code == 200
     content = resp.content.decode()
-    assert "Upload Content" in content or "Upload Media" in content
+    assert "Hello," in content
+    assert "Quick Actions" in content
+    assert "Recent Activity" in content
+    assert "Upload Audio" in content or "Upload Content" in content
+    assert "Record Audio" in content
+    assert "Import Meeting" in content
     assert "Send to Transcription" in content
     assert "View Status" in content
     assert "Speech Center" in content
     assert reverse("speech_center:upload_media") in content
+    assert reverse("speech_center:meetings") in content
     assert reverse("admin:turing_mediaasset_add") not in content
+
+
+@pytest.mark.django_db
+def test_meetings_foundation_page(sc_client):
+    resp = sc_client.get(reverse("speech_center:meetings"))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Meetings" in body
+    assert "Alocom" in body
+    assert "Zoom" in body
+    assert "Teams" in body
+    assert "Scheduled" in body
+    assert "Coming soon" in body
+
+
+@pytest.mark.django_db
+def test_create_page_highlights_selected_media(sc_client, sc_media):
+    url = reverse("speech_center:create_transcript") + f"?selected={sc_media.id}"
+    resp = sc_client.get(url)
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Just uploaded" in body
+    assert "sc-just-uploaded" in body or "sc-row-selected" in body
+    assert "Create Transcript" in body or "Send to Transcription" in body
+    assert "demo.wav" in body
+
+
+@pytest.mark.django_db
+def test_queue_shows_pipeline_and_poll(sc_client, sc_media, sc_user):
+    JobOrchestrator().create_transcription_job(
+        media=sc_media,
+        created_by=sc_user,
+        language_code="en",
+        auto_enqueue=False,
+    )
+    resp = sc_client.get(reverse("speech_center:queue"))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Audio uploaded" in body
+    assert "Speech recognition" in body
+    assert "Processing pipeline" in body or "sc-pipeline" in body
+    assert "data-sc-poll" in body
 
 
 @pytest.mark.django_db

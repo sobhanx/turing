@@ -37,9 +37,14 @@
   function formatDuration(ms) {
     ms = Math.max(0, Math.floor(ms || 0));
     var totalSec = Math.floor(ms / 1000);
-    var m = Math.floor(totalSec / 60);
+    var h = Math.floor(totalSec / 3600);
+    var m = Math.floor((totalSec % 3600) / 60);
     var s = totalSec % 60;
-    return (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
+    function pad(n) {
+      return (n < 10 ? "0" : "") + n;
+    }
+    if (h > 0) return pad(h) + ":" + pad(m) + ":" + pad(s);
+    return pad(m) + ":" + pad(s);
   }
 
   function minExpectedBytes(durationMs) {

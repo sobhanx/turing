@@ -8,48 +8,22 @@
 {% block content %}
 <section class="sc-section sc-upload" aria-label="Upload content">
   <div class="sc-tabs" role="tablist" aria-label="Upload content">
-    <button
-      type="button"
-      class="sc-tab is-active"
-      role="tab"
-      id="sc-tab-file"
-      data-sc-upload-tab="file"
-      aria-controls="sc-panel-file"
-      aria-selected="true"
-    >
+    <button type="button" class="sc-tab is-active" role="tab" id="sc-tab-file"
+      data-sc-upload-tab="file" aria-controls="sc-panel-file" aria-selected="true">
       Upload File
     </button>
-    <button
-      type="button"
-      class="sc-tab"
-      role="tab"
-      id="sc-tab-record"
-      data-sc-upload-tab="record"
-      aria-controls="sc-panel-record"
-      aria-selected="false"
-    >
+    <button type="button" class="sc-tab" role="tab" id="sc-tab-record"
+      data-sc-upload-tab="record" aria-controls="sc-panel-record" aria-selected="false">
       Record Audio
     </button>
   </div>
 
-  <div
-    class="sc-tab-panel"
-    role="tabpanel"
-    id="sc-panel-file"
-    aria-labelledby="sc-tab-file"
-  >
+  <div class="sc-tab-panel" role="tabpanel" id="sc-panel-file" aria-labelledby="sc-tab-file">
     <form method="post" enctype="multipart/form-data" class="sc-upload-form" id="sc-upload-form">
       {% csrf_token %}
-
       <div class="sc-dropzone" id="sc-dropzone" tabindex="0" role="button" aria-label="Choose audio file">
-        <input
-          type="file"
-          name="file"
-          id="sc-file-input"
-          class="sc-dropzone-input"
-          accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm"
-          required
-        >
+        <input type="file" name="file" id="sc-file-input" class="sc-dropzone-input"
+          accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm" required>
         <div class="sc-dropzone-body">
           <span class="sc-dropzone-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3"/></svg>
@@ -59,41 +33,43 @@
           <p class="sc-dropzone-file ltr" id="sc-file-name" hidden></p>
         </div>
       </div>
-
       <label class="sc-field">
         <span class="sc-field-label">Organization</span>
-        <select name="organization_id" class="sc-select" required {% if not organizations %}disabled{% endif %}>
+        <select name="organization_id" id="sc-file-org" class="sc-select sc-org-select" required {% if not organizations %}disabled{% endif %}>
           {% if not organizations %}
             <option value="">No organizations available</option>
           {% else %}
             {% for org in organizations %}
-              <option value="{{ org.id }}" {% if default_organization_id == org.id|stringformat:"s" %}selected{% endif %}>
-                {{ org.name }}
-              </option>
+              <option value="{{ org.id }}" {% if default_organization_id == org.id|stringformat:"s" %}selected{% endif %}>{{ org.name }}</option>
             {% endfor %}
           {% endif %}
         </select>
       </label>
-
       <div class="sc-upload-actions">
-        <button type="submit" class="sc-btn sc-btn-primary" {% if not organizations %}disabled{% endif %}>
-          Upload
-        </button>
+        <button type="submit" class="sc-btn sc-btn-primary" {% if not organizations %}disabled{% endif %}>Upload</button>
       </div>
     </form>
   </div>
 
-  <div
-    class="sc-tab-panel"
-    role="tabpanel"
-    id="sc-panel-record"
-    aria-labelledby="sc-tab-record"
-    hidden
-  >
+  <div class="sc-tab-panel" role="tabpanel" id="sc-panel-record" aria-labelledby="sc-tab-record" hidden>
     <div class="sc-recorder" id="sc-recorder" data-state="idle">
       <p id="sc-rec-unsupported" class="sc-rec-banner sc-rec-banner-danger" hidden>
         This browser does not support MediaRecorder. Use Chrome, Edge, Firefox, or Safari 14.1+, or switch to Upload File.
       </p>
+
+      {# Same org permission set as Upload File — required before Save & Upload #}
+      <label class="sc-field">
+        <span class="sc-field-label">Organization</span>
+        <select id="sc-rec-org" class="sc-select sc-org-select" required {% if not organizations %}disabled{% endif %}>
+          {% if not organizations %}
+            <option value="">No organizations available</option>
+          {% else %}
+            {% for org in organizations %}
+              <option value="{{ org.id }}" {% if default_organization_id == org.id|stringformat:"s" %}selected{% endif %}>{{ org.name }}</option>
+            {% endfor %}
+          {% endif %}
+        </select>
+      </label>
 
       <div class="sc-rec-meta" aria-live="polite">
         <div class="sc-rec-meta-item">
@@ -101,76 +77,86 @@
           <span id="sc-rec-permission" data-tone="neutral">Checking…</span>
         </div>
         <div class="sc-rec-meta-item">
-          <span class="sc-field-label">State</span>
-          <span id="sc-rec-status" class="sc-rec-state" data-state="idle">Ready</span>
+          <span class="sc-field-label">Status</span>
+          <span id="sc-rec-status" class="sc-rec-state" data-state="idle">Ready to record</span>
         </div>
         <div class="sc-rec-meta-item ltr">
           <span class="sc-field-label">Timer</span>
-          <span id="sc-rec-timer" class="sc-rec-timer">00:00</span>
-        </div>
-        <div class="sc-rec-meta-item ltr">
-          <span class="sc-field-label">Duration</span>
-          <span id="sc-rec-duration" class="sc-rec-timer">00:00</span>
+          <span id="sc-rec-timer" class="sc-rec-timer">00:00:00</span>
         </div>
       </div>
 
       <p id="sc-rec-error" class="sc-rec-banner sc-rec-banner-danger" hidden role="alert"></p>
 
       <div id="sc-rec-controls" class="sc-rec-controls">
-        <button type="button" class="sc-btn sc-btn-primary" id="sc-rec-start" {% if not organizations %}disabled{% endif %}>
-          Start Recording
-        </button>
+        <button type="button" class="sc-btn sc-btn-primary" id="sc-rec-start" {% if not organizations %}disabled{% endif %}>Start</button>
         <button type="button" class="sc-btn" id="sc-rec-pause" hidden>Pause</button>
         <button type="button" class="sc-btn" id="sc-rec-resume" hidden>Resume</button>
         <button type="button" class="sc-btn sc-btn-danger" id="sc-rec-stop" hidden>Stop</button>
         <button type="button" class="sc-btn sc-btn-ghost" id="sc-rec-delete" disabled>Delete</button>
       </div>
       <p class="sc-rec-shortcuts">
-        Shortcuts: <kbd>R</kbd> start / again · <kbd>P</kbd> pause / resume · <kbd>S</kbd> stop · <kbd>⌘/Ctrl</kbd>+<kbd>Backspace</kbd> delete
+        Shortcuts: <kbd>R</kbd> start / again · <kbd>P</kbd> pause / resume · <kbd>S</kbd> stop
       </p>
 
       <div id="sc-rec-review" class="sc-rec-review" hidden>
-        <label class="sc-field">
-          <span class="sc-field-label">Organization</span>
-          <select id="sc-rec-org" class="sc-select" required {% if not organizations %}disabled{% endif %}>
-            {% if not organizations %}
-              <option value="">No organizations available</option>
-            {% else %}
-              {% for org in organizations %}
-                <option value="{{ org.id }}" {% if default_organization_id == org.id|stringformat:"s" %}selected{% endif %}>
-                  {{ org.name }}
-                </option>
-              {% endfor %}
-            {% endif %}
-          </select>
-        </label>
+        <article class="sc-rec-card" aria-label="Recording details">
+          <header class="sc-rec-card-head">
+            <span class="sc-rec-card-icon" aria-hidden="true">🎙</span>
+            <div>
+              <h3 class="sc-rec-card-title">Recording</h3>
+              <p id="sc-rec-card-state" class="sc-rec-card-sub">Review your recording</p>
+            </div>
+          </header>
+          <dl class="sc-rec-card-grid">
+            <div>
+              <dt>Duration</dt>
+              <dd id="sc-rec-duration" class="ltr">00:00</dd>
+            </div>
+            <div>
+              <dt>Format</dt>
+              <dd id="sc-rec-format" class="ltr">—</dd>
+            </div>
+            <div>
+              <dt>Size</dt>
+              <dd id="sc-rec-size" class="ltr">—</dd>
+            </div>
+            <div>
+              <dt>Organization</dt>
+              <dd id="sc-rec-org-label">—</dd>
+            </div>
+          </dl>
 
-        <div class="sc-rec-wave-wrap">
-          <canvas id="sc-rec-waveform" class="sc-rec-waveform" width="480" height="96" aria-label="Waveform trim preview"></canvas>
-          <p id="sc-rec-trim-label" class="sc-rec-trim-label ltr">Full recording</p>
-          <p class="sc-rec-hint">Drag handles to trim beginning or end. Nothing is changed until Save &amp; Upload.</p>
-        </div>
+          <div class="sc-rec-wave-wrap">
+            <canvas id="sc-rec-waveform" class="sc-rec-waveform" width="480" height="96" aria-label="Waveform trim preview"></canvas>
+            <p id="sc-rec-trim-label" class="sc-rec-trim-label ltr">Full recording</p>
+            <p class="sc-rec-hint">Drag handles to trim. Nothing changes until Save &amp; Upload.</p>
+          </div>
 
-        <audio id="sc-rec-playback" class="sc-rec-playback" controls preload="metadata" hidden></audio>
+          <audio id="sc-rec-playback" class="sc-rec-playback" controls preload="metadata" hidden></audio>
 
-        <div class="sc-upload-actions sc-rec-review-actions">
-          <button type="button" class="sc-btn" id="sc-rec-again">Record Again</button>
-          <button type="button" class="sc-btn sc-btn-primary" id="sc-rec-save" {% if not organizations %}disabled{% endif %}>
-            Save &amp; Upload
-          </button>
-        </div>
+          <div class="sc-rec-review-actions">
+            <button type="button" class="sc-btn" id="sc-rec-play-focus" title="Focus playback">▶ Play</button>
+            <button type="button" class="sc-btn" id="sc-rec-trim-focus" title="Focus trim handles">✂ Trim</button>
+            <button type="button" class="sc-btn" id="sc-rec-again">🔄 Record Again</button>
+            <button type="button" class="sc-btn sc-btn-primary" id="sc-rec-save" {% if not organizations %}disabled{% endif %}>
+              ⬆ Save &amp; Upload
+            </button>
+          </div>
+        </article>
       </div>
 
-      <ol id="sc-rec-progress" class="sc-rec-progress" hidden aria-label="Upload progress">
-        <li data-step="preparing">Preparing recording <span class="sc-rec-step-meta"></span></li>
-        <li data-step="uploading">Uploading recording <span class="sc-rec-step-meta"></span></li>
-        <li data-step="complete">Upload complete <span class="sc-rec-step-meta"></span></li>
-        <li data-step="redirecting">Redirecting to transcript creation <span class="sc-rec-step-meta"></span></li>
-      </ol>
+      <div id="sc-rec-progress-wrap" class="sc-rec-progress-wrap" hidden>
+        <p class="sc-field-label">Upload progress</p>
+        <div class="sc-progress-bar" aria-hidden="true"><span id="sc-rec-progress-fill" class="sc-progress-fill"></span></div>
+        <ol id="sc-rec-progress" class="sc-rec-progress" aria-label="Upload progress">
+          <li data-step="preparing">Preparing audio <span class="sc-rec-step-meta"></span></li>
+          <li data-step="uploading">Uploading file <span class="sc-rec-step-meta"></span></li>
+          <li data-step="complete">Upload complete <span class="sc-rec-step-meta"></span></li>
+          <li data-step="redirecting">Creating transcript <span class="sc-rec-step-meta"></span></li>
+        </ol>
+      </div>
       <p id="sc-rec-success" class="sc-rec-banner sc-rec-banner-ok" hidden role="status"></p>
-      <p class="sc-rec-hint">
-        After upload you will continue on Create Transcript — the same path as file uploads.
-      </p>
     </div>
   </div>
 </section>

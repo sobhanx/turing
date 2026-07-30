@@ -32,8 +32,25 @@ from turing.ui.speech_center.presentation import (
     can_show_retry,
     format_duration_ms,
     job_display_status,
+    job_pipeline_steps,
+    job_progress_pct,
 )
 from turing.ui.speech_center.recorder import recorder_client_config
+
+
+def _analysis_text(row) -> str:
+    if row is None:
+        return ""
+    content = getattr(row, "content", None)
+    if isinstance(content, dict):
+        for key in ("summary", "text", "topics", "action_items", "items"):
+            val = content.get(key)
+            if isinstance(val, list):
+                return "\n".join(str(x) for x in val if x)
+            if val:
+                return str(val)
+        return ""
+    return str(content) if content else ""
 
 
 def _scoped_jobs(user):
@@ -73,17 +90,89 @@ def _organizations_for_upload(user):
 @require_turing_capability("view_transcript")
 @require_GET
 def dashboard(request):
-    """Minimal four-card entry page."""
+    """Product landing page: welcome, quick actions, recent activity."""
+    recent_media = list(_scoped_media(request.user)[:6])
+    recent_jobs = []
+    for job in _scoped_jobs(request.user)[:6]:
+        label, css = job_display_status(job)
+        recent_jobs.append(
+            {
+                "job": job,
+                "status_label": label,
+                "status_css": css,
+                "progress_pct": job_progress_pct(job),
+                "pipeline": job_pipeline_steps(job),
+                "media_name": (
+                    (job.media.original_filename if job.media else "")
+                    or (job.media.object_key if job.media else "")
+                    or str(job.media_id)
+                ),
+            }
+        )
+    recent_transcripts = []
+    for transcript in _scoped_transcripts(request.user)[:6]:
+        media = transcript.media
+        recent_transcripts.append(
+            {
+                "transcript": transcript,
+                "media_name": (
+                    (media.original_filename if media else "")
+                    or (media.object_key if media else "")
+                    or str(transcript.media_id)
+                ),
+            }
+        )
+    user = request.user
+    display_name = (
+        (getattr(user, "get_full_name", lambda: "")() or "").strip()
+        or getattr(user, "get_username", lambda: "")()
+        or "there"
+    )
     return render(
         request,
         "speech_center/dashboard.html",
         {
             "page_title": "Speech Center",
             "nav_active": "dashboard",
+            "welcome_name": display_name,
             "upload_url": reverse("speech_center:upload_media"),
+            "record_url": reverse("speech_center:upload_media") + "?tab=record",
             "create_url": reverse("speech_center:create_transcript"),
             "queue_url": reverse("speech_center:queue"),
             "transcripts_url": reverse("speech_center:transcripts"),
+            "meetings_url": reverse("speech_center:meetings"),
+            "recent_media": recent_media,
+            "recent_jobs": recent_jobs,
+            "recent_transcripts": recent_transcripts,
+        },
+    )
+
+
+@staff_member_required
+@require_turing_capability("view_transcript")
+@require_GET
+def meetings(request):
+    """
+    Meetings foundation UI only — no provider integration.
+
+    Placeholder cards for future Alocom / Zoom / Teams wiring.
+    """
+    return render(
+        request,
+        "speech_center/meetings.html",
+        {
+            "page_title": "Meetings",
+            "nav_active": "meetings",
+            "providers": [
+                {"code": "alocom", "name": "Alocom", "status": "Coming soon"},
+                {"code": "zoom", "name": "Zoom", "status": "Coming soon"},
+                {"code": "teams", "name": "Teams", "status": "Coming soon"},
+            ],
+            "sample_statuses": [
+                {"label": "Scheduled", "css": "queued"},
+                {"label": "Processing", "css": "processing"},
+                {"label": "Completed", "css": "completed"},
+            ],
         },
     )
 
@@ -199,11 +288,13 @@ def create_transcript(request):
     settings = get_turing_settings()
     selected_media_id = (request.GET.get("selected") or "").strip()
     media_list = list(media_qs[:100])
+    selected_media = None
     if selected_media_id:
         # Surface the just-uploaded asset at the top of the list.
         selected_rows = [m for m in media_list if str(m.id) == selected_media_id]
         other_rows = [m for m in media_list if str(m.id) != selected_media_id]
         media_list = selected_rows + other_rows
+        selected_media = selected_rows[0] if selected_rows else None
 
     return render(
         request,
@@ -213,6 +304,10 @@ def create_transcript(request):
             "nav_active": "create",
             "media_list": media_list,
             "selected_media_id": selected_media_id,
+            "selected_media": selected_media,
+            "selected_duration": format_duration_ms(
+                getattr(selected_media, "duration_ms", None) if selected_media else None
+            ),
             "default_language": settings.default_language or "",
         },
     )
@@ -232,6 +327,8 @@ def queue(request):
                 "status_label": label,
                 "status_css": css,
                 "show_retry": can_show_retry(job),
+                "pipeline": job_pipeline_steps(job),
+                "progress_pct": job_progress_pct(job),
             }
         )
     return render(
@@ -241,6 +338,7 @@ def queue(request):
             "page_title": "Processing Queue",
             "nav_active": "queue",
             "jobs": jobs,
+            "poll_seconds": 8,
         },
     )
 
@@ -296,9 +394,9 @@ def transcripts(request):
 @require_GET
 def transcript_detail(request, transcript_id):
     """
-    Simple transcript page using SpeechCenterService context.
+    Transcript viewer using SpeechCenterService context.
 
-    Segment / word / analysis buttons link to existing Admin browsers.
+    Layout is presentation-only; segment/speaker data come from existing models.
     """
     transcript = get_object_or_404(_scoped_transcripts(request.user), pk=transcript_id)
     context_payload = SpeechCenterService().get_transcript_context(
@@ -306,17 +404,28 @@ def transcript_detail(request, transcript_id):
         user=request.user,
     )
     analyses = context_payload.get("analyses") or {}
-    summary_row = analyses.get(AnalysisType.SUMMARY)
-    summary_text = ""
-    if summary_row is not None:
-        content = getattr(summary_row, "content", None)
-        if isinstance(content, dict):
-            summary_text = str(content.get("summary") or "")
-        elif content:
-            summary_text = str(content)
+    summary_text = _analysis_text(analyses.get(AnalysisType.SUMMARY)) or "—"
+    topics_text = _analysis_text(analyses.get(AnalysisType.TOPICS)) or "—"
+    actions_text = _analysis_text(analyses.get(AnalysisType.ACTION_ITEMS)) or "—"
 
     tid = str(transcript.pk)
     media = context_payload["media"]
+    # Prefetched on transcript in get_transcript_context — read-only UI use.
+    segments = []
+    for seg in context_payload["transcript"].segments.all():
+        speaker = seg.speaker
+        segments.append(
+            {
+                "start_display": format_duration_ms(seg.start_ms),
+                "text": seg.text,
+                "speaker_label": (
+                    speaker.speaker_label if speaker is not None else "—"
+                ),
+                "speaker_name": (
+                    speaker.resolved_name if speaker is not None else "—"
+                ),
+            }
+        )
     analysis_url = (
         reverse("admin:turing_transcriptanalysis_changelist")
         + f"?transcript__id__exact={tid}"
@@ -330,7 +439,10 @@ def transcript_detail(request, transcript_id):
             "transcript": context_payload["transcript"],
             "media": media,
             "speakers": context_payload["speakers"],
-            "summary_text": summary_text or "—",
+            "segments": segments,
+            "summary_text": summary_text,
+            "topics_text": topics_text,
+            "actions_text": actions_text,
             "duration_display": format_duration_ms(
                 getattr(media, "duration_ms", None) if media else None
             ),

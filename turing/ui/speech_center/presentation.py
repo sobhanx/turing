@@ -71,3 +71,68 @@ def can_show_retry(job: ProcessingJob) -> bool:
         job.status == JobStatus.FAILED
         and job.attempt_count < job.max_attempts
     )
+
+
+def job_pipeline_steps(job: ProcessingJob) -> list[dict[str, str]]:
+    """
+    Presentation-only pipeline checklist for queue / activity cards.
+
+    Maps existing job/ingest fields — does not invent backend state.
+    """
+    succeeded = job.status == JobStatus.SUCCEEDED
+    failed = job.status == JobStatus.FAILED
+    cancelled = job.status == JobStatus.CANCELLED
+
+    ingest_ok = job.ingest_status in {
+        IngestStatus.SUCCEEDED,
+        IngestStatus.SKIPPED,
+    }
+    speech_ok = bool(job.external_job_id) or succeeded
+
+    flags = [
+        True,  # Audio uploaded (media exists when job exists)
+        ingest_ok or speech_ok or succeeded,
+        speech_ok or succeeded,
+        succeeded,
+        succeeded,
+    ]
+    labels = [
+        "Audio uploaded",
+        "Speech recognition",
+        "Transcript created",
+        "Analysis ready" if succeeded else "Analysis running",
+        "Export ready",
+    ]
+
+    active_idx = None
+    if not succeeded and not failed and not cancelled:
+        for i, done in enumerate(flags):
+            if not done:
+                active_idx = i
+                break
+
+    steps: list[dict[str, str]] = []
+    failed_marked = False
+    for i, (done, text) in enumerate(zip(flags, labels, strict=True)):
+        if done:
+            state = "done"
+        elif failed and not failed_marked:
+            state = "failed"
+            failed_marked = True
+        elif active_idx == i:
+            state = "active"
+        else:
+            state = "pending"
+        steps.append({"key": f"step-{i}", "label": text, "state": state})
+    return steps
+
+
+def job_progress_pct(job: ProcessingJob) -> int:
+    """Rough progress percent for activity bars (presentation only)."""
+    steps = job_pipeline_steps(job)
+    if not steps:
+        return 0
+    done = sum(1 for s in steps if s["state"] == "done")
+    active = sum(1 for s in steps if s["state"] == "active")
+    return min(100, int((done + active * 0.45) / len(steps) * 100))
+
