@@ -1,116 +1,184 @@
 {% extends "speech_center/base.html" %}
+{% load static %}
 
 {% block page_subtitle %}
-<p>Add an audio file to Turing. Filename and type are taken from the selected file.</p>
+<p>Add audio to Turing as a normal media asset — upload a file or record in the browser.</p>
 {% endblock %}
 
 {% block content %}
-<section class="sc-section sc-upload">
-  <form method="post" enctype="multipart/form-data" class="sc-upload-form" id="sc-upload-form">
-    {% csrf_token %}
+<section class="sc-section sc-upload" aria-label="Upload content">
+  <div class="sc-tabs" role="tablist" aria-label="Upload content">
+    <button
+      type="button"
+      class="sc-tab is-active"
+      role="tab"
+      id="sc-tab-file"
+      data-sc-upload-tab="file"
+      aria-controls="sc-panel-file"
+      aria-selected="true"
+    >
+      Upload File
+    </button>
+    <button
+      type="button"
+      class="sc-tab"
+      role="tab"
+      id="sc-tab-record"
+      data-sc-upload-tab="record"
+      aria-controls="sc-panel-record"
+      aria-selected="false"
+    >
+      Record Audio
+    </button>
+  </div>
 
-    <div class="sc-dropzone" id="sc-dropzone" tabindex="0" role="button" aria-label="Choose audio file">
-      <input
-        type="file"
-        name="file"
-        id="sc-file-input"
-        class="sc-dropzone-input"
-        accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm"
-        required
-      >
-      <div class="sc-dropzone-body">
-        <span class="sc-dropzone-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3"/></svg>
-        </span>
-        <p class="sc-dropzone-title">Drop audio here, or click to browse</p>
-        <p class="sc-dropzone-hint" id="sc-file-hint">WAV, MP3, M4A, OGG, FLAC, or WebM</p>
-        <p class="sc-dropzone-file ltr" id="sc-file-name" hidden></p>
+  <div
+    class="sc-tab-panel"
+    role="tabpanel"
+    id="sc-panel-file"
+    aria-labelledby="sc-tab-file"
+  >
+    <form method="post" enctype="multipart/form-data" class="sc-upload-form" id="sc-upload-form">
+      {% csrf_token %}
+
+      <div class="sc-dropzone" id="sc-dropzone" tabindex="0" role="button" aria-label="Choose audio file">
+        <input
+          type="file"
+          name="file"
+          id="sc-file-input"
+          class="sc-dropzone-input"
+          accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm"
+          required
+        >
+        <div class="sc-dropzone-body">
+          <span class="sc-dropzone-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3"/></svg>
+          </span>
+          <p class="sc-dropzone-title">Drop audio here, or click to browse</p>
+          <p class="sc-dropzone-hint" id="sc-file-hint">WAV, MP3, M4A, OGG, FLAC, or WebM</p>
+          <p class="sc-dropzone-file ltr" id="sc-file-name" hidden></p>
+        </div>
       </div>
-    </div>
 
-    <label class="sc-field">
-      <span class="sc-field-label">Organization</span>
-      <select name="organization_id" class="sc-select" required {% if not organizations %}disabled{% endif %}>
-        {% if not organizations %}
-          <option value="">No organizations available</option>
-        {% else %}
-          {% for org in organizations %}
-            <option value="{{ org.id }}" {% if default_organization_id == org.id|stringformat:"s" %}selected{% endif %}>
-              {{ org.name }}
-            </option>
-          {% endfor %}
-        {% endif %}
-      </select>
-    </label>
+      <label class="sc-field">
+        <span class="sc-field-label">Organization</span>
+        <select name="organization_id" class="sc-select" required {% if not organizations %}disabled{% endif %}>
+          {% if not organizations %}
+            <option value="">No organizations available</option>
+          {% else %}
+            {% for org in organizations %}
+              <option value="{{ org.id }}" {% if default_organization_id == org.id|stringformat:"s" %}selected{% endif %}>
+                {{ org.name }}
+              </option>
+            {% endfor %}
+          {% endif %}
+        </select>
+      </label>
 
-    <div class="sc-upload-actions">
-      <button type="submit" class="sc-btn sc-btn-primary" {% if not organizations %}disabled{% endif %}>
-        Upload
-      </button>
+      <div class="sc-upload-actions">
+        <button type="submit" class="sc-btn sc-btn-primary" {% if not organizations %}disabled{% endif %}>
+          Upload
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <div
+    class="sc-tab-panel"
+    role="tabpanel"
+    id="sc-panel-record"
+    aria-labelledby="sc-tab-record"
+    hidden
+  >
+    <div class="sc-recorder" id="sc-recorder" data-state="idle">
+      <p id="sc-rec-unsupported" class="sc-rec-banner sc-rec-banner-danger" hidden>
+        This browser does not support MediaRecorder. Use Chrome, Edge, Firefox, or Safari 14.1+, or switch to Upload File.
+      </p>
+
+      <div class="sc-rec-meta" aria-live="polite">
+        <div class="sc-rec-meta-item">
+          <span class="sc-field-label">Microphone</span>
+          <span id="sc-rec-permission" data-tone="neutral">Checking…</span>
+        </div>
+        <div class="sc-rec-meta-item">
+          <span class="sc-field-label">State</span>
+          <span id="sc-rec-status" class="sc-rec-state" data-state="idle">Ready</span>
+        </div>
+        <div class="sc-rec-meta-item ltr">
+          <span class="sc-field-label">Timer</span>
+          <span id="sc-rec-timer" class="sc-rec-timer">00:00</span>
+        </div>
+        <div class="sc-rec-meta-item ltr">
+          <span class="sc-field-label">Duration</span>
+          <span id="sc-rec-duration" class="sc-rec-timer">00:00</span>
+        </div>
+      </div>
+
+      <p id="sc-rec-error" class="sc-rec-banner sc-rec-banner-danger" hidden role="alert"></p>
+
+      <div id="sc-rec-controls" class="sc-rec-controls">
+        <button type="button" class="sc-btn sc-btn-primary" id="sc-rec-start" {% if not organizations %}disabled{% endif %}>
+          Start Recording
+        </button>
+        <button type="button" class="sc-btn" id="sc-rec-pause" hidden>Pause</button>
+        <button type="button" class="sc-btn" id="sc-rec-resume" hidden>Resume</button>
+        <button type="button" class="sc-btn sc-btn-danger" id="sc-rec-stop" hidden>Stop</button>
+        <button type="button" class="sc-btn sc-btn-ghost" id="sc-rec-delete" disabled>Delete</button>
+      </div>
+      <p class="sc-rec-shortcuts">
+        Shortcuts: <kbd>R</kbd> start / again · <kbd>P</kbd> pause / resume · <kbd>S</kbd> stop · <kbd>⌘/Ctrl</kbd>+<kbd>Backspace</kbd> delete
+      </p>
+
+      <div id="sc-rec-review" class="sc-rec-review" hidden>
+        <label class="sc-field">
+          <span class="sc-field-label">Organization</span>
+          <select id="sc-rec-org" class="sc-select" required {% if not organizations %}disabled{% endif %}>
+            {% if not organizations %}
+              <option value="">No organizations available</option>
+            {% else %}
+              {% for org in organizations %}
+                <option value="{{ org.id }}" {% if default_organization_id == org.id|stringformat:"s" %}selected{% endif %}>
+                  {{ org.name }}
+                </option>
+              {% endfor %}
+            {% endif %}
+          </select>
+        </label>
+
+        <div class="sc-rec-wave-wrap">
+          <canvas id="sc-rec-waveform" class="sc-rec-waveform" width="480" height="96" aria-label="Waveform trim preview"></canvas>
+          <p id="sc-rec-trim-label" class="sc-rec-trim-label ltr">Full recording</p>
+          <p class="sc-rec-hint">Drag handles to trim beginning or end. Nothing is changed until Save &amp; Upload.</p>
+        </div>
+
+        <audio id="sc-rec-playback" class="sc-rec-playback" controls preload="metadata" hidden></audio>
+
+        <div class="sc-upload-actions sc-rec-review-actions">
+          <button type="button" class="sc-btn" id="sc-rec-again">Record Again</button>
+          <button type="button" class="sc-btn sc-btn-primary" id="sc-rec-save" {% if not organizations %}disabled{% endif %}>
+            Save &amp; Upload
+          </button>
+        </div>
+      </div>
+
+      <ol id="sc-rec-progress" class="sc-rec-progress" hidden aria-label="Upload progress">
+        <li data-step="preparing">Preparing… <span class="sc-rec-step-meta"></span></li>
+        <li data-step="uploading">Uploading… <span class="sc-rec-step-meta"></span></li>
+        <li data-step="queued">Queued… <span class="sc-rec-step-meta"></span></li>
+        <li data-step="processing">Processing… <span class="sc-rec-step-meta"></span></li>
+        <li data-step="transcript">Transcript… <span class="sc-rec-step-meta"></span></li>
+        <li data-step="completed">Completed <span class="sc-rec-step-meta"></span></li>
+      </ol>
+      <p class="sc-rec-hint">
+        After upload, continue with Create Transcript → Processing Queue — the same path as file uploads.
+      </p>
     </div>
-  </form>
+  </div>
 </section>
 
-<script>
-(function () {
-  var zone = document.getElementById("sc-dropzone");
-  var input = document.getElementById("sc-file-input");
-  var nameEl = document.getElementById("sc-file-name");
-  var hintEl = document.getElementById("sc-file-hint");
-  if (!zone || !input) return;
-
-  function formatBytes(n) {
-    if (!n && n !== 0) return "";
-    if (n < 1024) return n + " B";
-    if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
-    return (n / 1048576).toFixed(1) + " MB";
-  }
-
-  function showFile(file) {
-    if (!file || !nameEl) return;
-    nameEl.hidden = false;
-    nameEl.textContent = file.name + (file.size ? " · " + formatBytes(file.size) : "");
-    if (hintEl) hintEl.hidden = true;
-  }
-
-  input.addEventListener("change", function () {
-    if (input.files && input.files[0]) showFile(input.files[0]);
-  });
-
-  zone.addEventListener("click", function (e) {
-    if (e.target === input) return;
-    input.click();
-  });
-
-  zone.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      input.click();
-    }
-  });
-
-  ["dragenter", "dragover"].forEach(function (evt) {
-    zone.addEventListener(evt, function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      zone.classList.add("is-dragover");
-    });
-  });
-  ["dragleave", "drop"].forEach(function (evt) {
-    zone.addEventListener(evt, function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      zone.classList.remove("is-dragover");
-    });
-  });
-  zone.addEventListener("drop", function (e) {
-    var files = e.dataTransfer && e.dataTransfer.files;
-    if (!files || !files.length) return;
-    var dt = new DataTransfer();
-    dt.items.add(files[0]);
-    input.files = dt.files;
-    showFile(files[0]);
-  });
-})();
-</script>
+{{ recorder_config_json|json_script:"sc-recorder-config" }}
+<script src="{% static 'speech_center/recorder/recorder.js' %}"></script>
+<script src="{% static 'speech_center/recorder/waveform.js' %}"></script>
+<script src="{% static 'speech_center/recorder/uploader.js' %}"></script>
+<script src="{% static 'speech_center/recorder/boot.js' %}"></script>
 {% endblock %}

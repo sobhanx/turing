@@ -57,7 +57,7 @@ def test_dashboard_renders(sc_client):
     resp = sc_client.get(url)
     assert resp.status_code == 200
     content = resp.content.decode()
-    assert "Upload Media" in content
+    assert "Upload Content" in content or "Upload Media" in content
     assert "Send to Transcription" in content
     assert "View Status" in content
     assert "Speech Center" in content

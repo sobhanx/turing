@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
+from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -32,6 +33,7 @@ from turing.ui.speech_center.presentation import (
     format_duration_ms,
     job_display_status,
 )
+from turing.ui.speech_center.recorder import recorder_client_config
 
 
 def _scoped_jobs(user):
@@ -129,14 +131,24 @@ def upload_media(request):
         )
         return redirect("speech_center:create_transcript")
 
+    recorder_cfg = recorder_client_config()
+    recorder_cfg.update(
+        {
+            "uploadUrl": reverse("speech_center:upload_media"),
+            "redirectUrl": reverse("speech_center:create_transcript"),
+            "csrfToken": get_token(request),
+        }
+    )
+
     return render(
         request,
         "speech_center/upload.html",
         {
-            "page_title": "Upload Media",
+            "page_title": "Upload Content",
             "nav_active": "upload",
             "organizations": organizations,
             "default_organization_id": str(default_org.pk) if default_org else "",
+            "recorder_config_json": recorder_cfg,
         },
     )
 
