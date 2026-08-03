@@ -141,6 +141,10 @@ class SpeechCenterService:
         """
         Latest analysis row per type (summary / topics / action_items).
 
+        Loads *all* analysis rows for the transcript, then keeps the newest
+        row for each ``analysis_type``. Does not stop after the first row
+        (creation order must not matter).
+
         Missing types are ``None`` (hosts can poll while generation runs).
         """
         if user is not None:
@@ -150,21 +154,22 @@ class SpeechCenterService:
                 capability="view_transcript",
             )
 
-        service = TranscriptAnalysisService()
+        # Use plain string keys so ORM CharField values always match (no enum identity quirks).
         result: dict[str, TranscriptAnalysis | None] = {
-            AnalysisType.SUMMARY: None,
-            AnalysisType.TOPICS: None,
-            AnalysisType.ACTION_ITEMS: None,
+            AnalysisType.SUMMARY.value: None,
+            AnalysisType.TOPICS.value: None,
+            AnalysisType.ACTION_ITEMS.value: None,
         }
-        for analysis_type in result:
-            try:
-                result[analysis_type] = service.latest_by_type(
-                    transcript,
-                    analysis_type=analysis_type,
-                    user=None,  # already checked above
-                )
-            except NotFoundError:
-                result[analysis_type] = None
+        # Filter by transcript_id (not FK object) to avoid wrong-instance edge cases.
+        rows = TranscriptAnalysis.objects.filter(
+            transcript_id=transcript.pk
+        ).order_by("-created_at", "-id")
+        for row in rows:
+            key = str(row.analysis_type or "").strip()
+            if key in result and result[key] is None:
+                result[key] = row
+            if all(value is not None for value in result.values()):
+                break
         return result
 
     def get_latest_intelligence(

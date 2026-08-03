@@ -19,7 +19,7 @@ SECTION_MEETING_INFO = "اطلاعات جلسه"
 SECTION_EXECUTIVE_SUMMARY = "خلاصه اجرایی"
 SECTION_KEY_TOPICS = "موضوعات کلیدی"
 SECTION_ACTION_ITEMS = "اقدامات"
-SECTION_DECISIONS = "تصمیم‌ها"
+SECTION_DECISIONS = "تصمیم‌ها / نکات کلیدی"
 SECTION_KEYWORDS = "کلیدواژه‌ها"
 SECTION_TRANSCRIPT = "متن پیاده‌سازی شده"
 

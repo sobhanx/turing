@@ -106,6 +106,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "turing.ui.speech_center.i18n.SessionLanguageMiddleware",
     "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -132,6 +133,7 @@ TEMPLATES = [
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
+                "django.template.context_processors.i18n",
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
@@ -149,10 +151,10 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-LANGUAGE_CODE = "fa"
+LANGUAGE_CODE = "en"
 LANGUAGES = [
-    ("fa", "Persian"),
     ("en", "English"),
+    ("fa", "Persian"),
 ]
 LOCALE_PATHS = [
     d
@@ -169,6 +171,12 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = Path(os.environ.get("TURING_MEDIA_ROOT") or (BASE_DIR / "media"))
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# Auth redirects — Speech Center / Admin share Django session auth.
+# LOGIN_URL must be admin login (there is no /accounts/login/ in this project).
+LOGIN_URL = "admin:login"
+LOGIN_REDIRECT_URL = "speech_center:dashboard"
+LOGOUT_REDIRECT_URL = "admin:login"
 
 # Safety net only. Transcript admin no longer inlines segments/words; primary
 # protection against TooManyFieldsSent is the lightweight change form.
@@ -203,6 +211,12 @@ CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", "redis://localho
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 60 * 60
 CELERY_TASK_SOFT_TIME_LIMIT = 55 * 60
+# Prefer fair scheduling so one long Speechmatics call does not starve newer jobs
+# on the same worker (tasks remain isolated per job_id).
+CELERY_WORKER_PREFETCH_MULTIPLIER = int(
+    os.environ.get("CELERY_WORKER_PREFETCH_MULTIPLIER", "1")
+)
+CELERY_TASK_ACKS_LATE = True
 CELERY_TASK_DEFAULT_QUEUE = "turing.default"
 CELERY_TASK_ROUTES = {
     "turing.tasks.transcription.*": {"queue": "turing.default"},
@@ -345,10 +359,13 @@ TURING_SPEECHMATICS_BASE_URL = os.environ.get(
     "https://asr.api.speechmatics.com/v2",
 )
 TURING_SPEECHMATICS_CONNECT_TIMEOUT = float(
-    os.environ.get("TURING_SPEECHMATICS_CONNECT_TIMEOUT", "30")
+    os.environ.get("TURING_SPEECHMATICS_CONNECT_TIMEOUT", "10")
 )
 TURING_SPEECHMATICS_UPLOAD_TIMEOUT = float(
-    os.environ.get("TURING_SPEECHMATICS_UPLOAD_TIMEOUT", "600")
+    os.environ.get("TURING_SPEECHMATICS_UPLOAD_TIMEOUT", "120")
+)
+TURING_SPEECHMATICS_READ_TIMEOUT = float(
+    os.environ.get("TURING_SPEECHMATICS_READ_TIMEOUT", "60")
 )
 TURING_MAX_UPLOAD_BYTES = int(os.environ.get("TURING_MAX_UPLOAD_BYTES", str(500 * 1024 * 1024)))
 TURING_DEFAULT_MAX_ATTEMPTS = int(os.environ.get("TURING_DEFAULT_MAX_ATTEMPTS", "3"))
@@ -379,6 +396,9 @@ TURING_SPEECHMATICS_WEBHOOK_SECRET = os.environ.get("TURING_SPEECHMATICS_WEBHOOK
 TURING_AI_PROVIDER = os.environ.get("TURING_AI_PROVIDER", "fake")
 TURING_OPENAI_API_KEY = os.environ.get("TURING_OPENAI_API_KEY", "")
 TURING_OPENAI_MODEL = os.environ.get("TURING_OPENAI_MODEL", "gpt-4o-mini")
+TURING_OPENAI_BASE_URL = os.environ.get(
+    "TURING_OPENAI_BASE_URL", "https://api.openai.com/v1"
+)
 # RAG LLM (Phase 4.5.6 / 4.5.7) — null keeps the pipeline testable without vendors.
 TURING_LLM_PROVIDER = os.environ.get("TURING_LLM_PROVIDER", "null")
 TURING_LLM_MODEL = os.environ.get(

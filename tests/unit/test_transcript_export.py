@@ -121,10 +121,31 @@ def test_format_export_body_speaker_blocks(export_setup):
     assert "علی" in body
     assert "مریم" in body
     assert "سلام، جلسه را شروع می‌کنیم." in body
-    # Merged consecutive S1 turns, blank-line separated speakers
-    assert "علی\n\n" in body
+    # One block per segment (no consecutive-speaker merge) — UI order.
+    assert body.count("علی\n\n") == 2
+    assert "علی\n\nسلام، جلسه را شروع می‌کنیم." in body
+    assert "علی\n\nموضوع امروز قرارداد است." in body
     assert "\n\nمریم\n\n" in body
     assert "S1:" not in body
+    # Must not join consecutive same-speaker texts into one paragraph.
+    assert "شروع می‌کنیم. موضوع امروز" not in body
+
+
+@pytest.mark.django_db
+def test_export_turns_match_transcript_segments_order(export_setup):
+    transcript = export_setup["transcript"]
+    segments = list(
+        transcript.segments.select_related("speaker").order_by("sequence", "start_ms")
+    )
+    doc = ExportService().build_document(transcript)
+    assert len(doc.turns) == len(segments)
+    for turn, seg in zip(doc.turns, segments, strict=True):
+        assert turn.segment_id == str(seg.pk)
+        assert turn.sequence == seg.sequence
+        assert turn.text == seg.text
+        assert turn.speaker_name == seg.speaker.resolved_name
+    # body_text mirrors the same segment-faithful structure
+    assert doc.body_text == TranscriptService().format_export_body(transcript)
 
 
 def test_rtl_helpers_persian():

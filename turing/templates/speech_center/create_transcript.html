@@ -1,21 +1,22 @@
 {% extends "speech_center/base.html" %}
+{% load i18n %}
 
 {% block page_subtitle %}
-<p>Select media already stored in Turing. Upload new files from Upload Content.</p>
+<p>{% trans "Select media already stored in Turing. Upload new files from Upload Content." %}</p>
 {% endblock %}
 
 {% block content %}
 <div class="sc-toolbar">
-  <p>Choose a file, set language if needed, then send it to transcription.</p>
-  <a class="sc-btn sc-btn-primary" href="{% url 'speech_center:upload_media' %}">Upload Content</a>
+  <p>{% trans "Choose a file, set language if needed, then send it to transcription." %}</p>
+  <a class="sc-btn sc-btn-primary" href="{% url 'speech_center:upload_media' %}">{% trans "Upload Content" %}</a>
 </div>
 
 {% if selected_media %}
-<article class="sc-just-uploaded" aria-label="Just uploaded">
+<article class="sc-just-uploaded" aria-label="{% trans 'Just uploaded' %}">
   <header class="sc-just-uploaded-head">
     <span class="sc-rec-card-icon" aria-hidden="true">🎙</span>
     <div>
-      <p class="sc-badge sc-badge-selected">Just uploaded</p>
+      <p class="sc-badge sc-badge-selected">{% trans "Just uploaded" %}</p>
       <h2 class="sc-just-uploaded-title ltr">
         {{ selected_media.original_filename|default:selected_media.object_key|default:selected_media.id }}
       </h2>
@@ -23,33 +24,33 @@
   </header>
   <dl class="sc-rec-card-grid">
     <div>
-      <dt>Duration</dt>
+      <dt>{% trans "Duration" %}</dt>
       <dd class="ltr">{{ selected_duration }}</dd>
     </div>
     <div>
-      <dt>Organization</dt>
+      <dt>{% trans "Organization" %}</dt>
       <dd>{{ selected_media.organization }}</dd>
     </div>
     <div>
-      <dt>Status</dt>
-      <dd><span class="sc-badge sc-badge-completed">Ready</span></dd>
+      <dt>{% trans "Status" %}</dt>
+      <dd><span class="sc-badge sc-badge-completed">{% trans "Ready" %}</span></dd>
     </div>
   </dl>
   <form class="sc-inline-form sc-just-uploaded-form" method="post" action="">
     {% csrf_token %}
     <input type="hidden" name="media_id" value="{{ selected_media.id }}">
     <label class="sc-inline-label">
-      Language
+      {% trans "Language" %}
       <input class="ltr" type="text" name="language_code" value="{{ default_language }}" size="6" placeholder="fa" autofocus>
     </label>
     <button type="submit" class="sc-btn sc-btn-primary" data-selected-upload="1">
-      Create Transcript
+      {% trans "Create Transcript" %}
     </button>
   </form>
 </article>
 {% elif selected_media_id %}
 <p class="sc-selected-hint" role="status">
-  Your uploaded recording is highlighted below — send it to transcription when ready.
+  {% trans "Your uploaded recording is highlighted below — send it to transcription when ready." %}
 </p>
 {% endif %}
 
@@ -58,9 +59,9 @@
   <table class="sc-table">
     <thead>
       <tr>
-        <th>Media</th>
-        <th>Organization</th>
-        <th>Created</th>
+        <th>{% trans "Media" %}</th>
+        <th>{% trans "Organization" %}</th>
+        <th>{% trans "Created" %}</th>
         <th></th>
       </tr>
     </thead>
@@ -71,7 +72,7 @@
         <td class="ltr">
           {{ media.original_filename|default:media.object_key|default:media.id }}
           {% if selected_media_id == media.id|stringformat:'s' %}
-            <span class="sc-badge sc-badge-selected">Just uploaded</span>
+            <span class="sc-badge sc-badge-selected">{% trans "Just uploaded" %}</span>
           {% endif %}
         </td>
         <td>{{ media.organization }}</td>
@@ -81,13 +82,13 @@
             {% csrf_token %}
             <input type="hidden" name="media_id" value="{{ media.id }}">
             <label class="sc-inline-label">
-              Language
+              {% trans "Language" %}
               <input class="ltr" type="text" name="language_code" value="{{ default_language }}" size="6" placeholder="fa"
                 {% if selected_media_id == media.id|stringformat:'s' and not selected_media %}autofocus{% endif %}>
             </label>
             <button type="submit" class="sc-btn sc-btn-primary sc-btn-sm"
               {% if selected_media_id == media.id|stringformat:'s' %}data-selected-upload="1"{% endif %}>
-              Send to Transcription
+              {% trans "Send to Transcription" %}
             </button>
           </form>
         </td>
@@ -97,9 +98,12 @@
   </table>
 </div>
 {% else %}
-<div class="sc-section sc-empty">
-  <strong>No media available</strong>
-  Upload a file first, then return here to start transcription.
+<div class="sc-section sc-empty sc-empty-card">
+  <strong>{% trans "No media available" %}</strong>
+  <p>{% trans "Upload a file first, then return here to start transcription." %}</p>
+  <div class="sc-empty-actions">
+    <a class="sc-btn sc-btn-primary sc-btn-sm" href="{% url 'speech_center:upload_media' %}">{% trans "Upload Content" %}</a>
+  </div>
 </div>
 {% endif %}
 {% endblock %}

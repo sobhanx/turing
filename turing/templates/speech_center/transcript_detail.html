@@ -1,5 +1,5 @@
 {% extends "speech_center/base.html" %}
-{% load static %}
+{% load static i18n %}
 
 {% block content_title %}{% endblock %}
 
@@ -9,18 +9,18 @@
     {{ media.original_filename|default:media.object_key|default:media.id }}
   </h1>
   <ul class="sc-meta">
-    <li><strong>Status</strong> <span class="sc-badge sc-badge-queued">{{ transcript.get_status_display }}</span></li>
-    <li><strong>Language</strong> <span class="ltr">{{ transcript.language_code|default:"—" }}</span></li>
-    <li><strong>Duration</strong> <span class="ltr">{{ duration_display }}</span></li>
-    <li><strong>Created</strong> <span class="ltr sc-ts">{{ transcript.created_at }}</span></li>
+    <li><strong>{% trans "Status" %}</strong> <span class="sc-badge sc-badge-queued">{{ transcript.get_status_display }}</span></li>
+    <li><strong>{% trans "Language" %}</strong> <span class="ltr">{{ transcript.language_code|default:"—" }}</span></li>
+    <li><strong>{% trans "Duration" %}</strong> <span class="ltr">{{ duration_display }}</span></li>
+    <li><strong>{% trans "Created" %}</strong> <span class="ltr sc-ts">{{ transcript.created_at }}</span></li>
   </ul>
 </header>
 
 <div id="sc-speaker-toast" class="sc-toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
 <div class="sc-viewer" id="sc-transcript-viewer">
-  <aside class="sc-viewer-side" aria-label="Speakers">
-    <h2>Speakers</h2>
+  <aside class="sc-viewer-side" aria-label="{% trans 'Speakers' %}">
+    <h2>{% trans "Speakers" %}</h2>
     {% if speakers %}
     <ul class="sc-speakers">
       {% for speaker in speakers %}
@@ -31,13 +31,13 @@
       {% endfor %}
     </ul>
     {% else %}
-    <p class="sc-empty-inline">No speakers found.</p>
+    <p class="sc-empty-inline">{% trans "No speakers found." %}</p>
     {% endif %}
   </aside>
 
-  <section class="sc-viewer-main" aria-label="Transcript timeline">
+  <section class="sc-viewer-main" aria-label="{% trans 'Transcript timeline' %}">
     <div class="sc-transcript-toolbar">
-      <h2>Transcript</h2>
+      <h2>{% trans "Transcript" %}</h2>
       {% if can_edit_transcript %}
       <button
         type="button"
@@ -47,7 +47,7 @@
         <span class="sc-transcript-edit-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
         </span>
-        Edit Transcript
+        {% trans "Edit Transcript" %}
       </button>
       {% endif %}
     </div>
@@ -70,13 +70,13 @@
         {{ transcript.full_text|linebreaksbr }}
       </div>
       {% else %}
-      <p class="sc-empty-inline" id="sc-transcript-empty">No transcript available.</p>
+      <p class="sc-empty-inline" id="sc-transcript-empty">{% trans "No transcript available." %}</p>
       {% endif %}
     </div>
 
     {% if can_edit_transcript %}
     <div id="sc-transcript-edit" class="sc-transcript-edit" hidden>
-      <label class="sc-sr-only" for="sc-transcript-textarea">Edit transcript</label>
+      <label class="sc-sr-only" for="sc-transcript-textarea">{% trans "Edit transcript" %}</label>
       <textarea
         id="sc-transcript-textarea"
         class="sc-transcript-textarea"
@@ -85,33 +85,83 @@
       >{{ transcript_edit_body }}</textarea>
       <div class="sc-transcript-edit-actions">
         <button type="button" id="sc-transcript-save" class="sc-btn sc-btn-sm sc-btn-primary sc-transcript-save-btn">
-          <span class="sc-transcript-save-label">Save</span>
+          <span class="sc-transcript-save-label">{% trans "Save" %}</span>
           <span class="sc-transcript-save-spinner" hidden aria-hidden="true"></span>
         </button>
-        <button type="button" id="sc-transcript-cancel" class="sc-btn sc-btn-sm sc-transcript-cancel-btn">Cancel</button>
+        <button type="button" id="sc-transcript-cancel" class="sc-btn sc-btn-sm sc-transcript-cancel-btn">{% trans "Cancel" %}</button>
       </div>
     </div>
     {% endif %}
   </section>
 
-  <aside class="sc-viewer-side sc-viewer-insights" aria-label="Insights">
-    <h2>Summary</h2>
-    <div class="sc-insight-block">{{ summary_text|linebreaksbr }}</div>
+  <aside
+    class="sc-viewer-side sc-viewer-insights"
+    aria-label="{% trans 'Insights' %}"
+    {% if analysis_pending %}data-sc-analysis-poll="{{ analysis_poll_seconds }}"{% endif %}
+  >
+    <section class="sc-ai-card" aria-label="{% trans 'AI analysis' %}">
+      <header class="sc-ai-card-head">
+        <div>
+          <h2 class="sc-ai-card-title">{% trans "AI Analysis" %}</h2>
+          <p class="sc-ai-card-state">
+            <span class="sc-ai-state-pill sc-ai-state-{{ analysis_ui_state }}">{{ analysis_state_label }}</span>
+          </p>
+        </div>
+      </header>
 
-    <h2>Keywords</h2>
-    <div class="sc-insight-block">{{ topics_text|linebreaksbr }}</div>
+      {% if analysis_idle %}
+      <div class="sc-ai-idle">
+        <p class="sc-ai-idle-lead">{{ analysis_idle_title }}</p>
+        <p class="sc-ai-idle-body">{{ analysis_idle_body }}</p>
+        {% if can_generate_analysis %}
+        <form method="post" action="{{ generate_analysis_url }}" class="sc-ai-generate-form">
+          {% csrf_token %}
+          <button type="submit" class="sc-btn sc-btn-primary sc-ai-generate-btn">
+            ✨ {% trans "Generate Analysis" %}
+          </button>
+        </form>
+        {% else %}
+        <p class="sc-empty-inline">{% trans "AI insights are not available yet." %}</p>
+        {% endif %}
+      </div>
+      {% elif analysis_generating %}
+      <div class="sc-ai-generating" role="status" aria-live="polite">
+        <span class="sc-ai-spinner" aria-hidden="true"></span>
+        <div>
+          <p class="sc-ai-generating-label">{{ analysis_generating_label }}</p>
+          <p class="sc-ai-generating-hint">{% trans "This page refreshes automatically when results are ready." %}</p>
+        </div>
+      </div>
+      {% elif analysis_failed %}
+      <div class="sc-ai-failed" role="alert">
+        <p class="sc-ai-failed-label">{{ analysis_failed_label }}</p>
+        <p class="sc-ai-failed-hint">{% trans "You can try again without re-running transcription." %}</p>
+        {% if can_generate_analysis %}
+        <form method="post" action="{{ generate_analysis_url }}" class="sc-ai-generate-form">
+          {% csrf_token %}
+          <button type="submit" class="sc-btn sc-btn-sm sc-ai-retry-btn">{% trans "Retry" %}</button>
+        </form>
+        {% endif %}
+      </div>
+      {% else %}
+      <div class="sc-ai-results">
+        <h3>{% trans "Summary" %}</h3>
+        <div class="sc-insight-block{% if summary_pending %} sc-insight-pending{% endif %}">{{ summary_text|linebreaksbr }}</div>
 
-    <h2>Actions</h2>
-    <div class="sc-insight-block">{{ actions_text|linebreaksbr }}</div>
+        <h3>{% trans "Keywords" %}</h3>
+        <div class="sc-insight-block{% if topics_pending %} sc-insight-pending{% endif %}">{{ topics_text|linebreaksbr }}</div>
 
-    <h2>Insights</h2>
+        <h3>{% trans "Actions" %}</h3>
+        <div class="sc-insight-block{% if actions_pending %} sc-insight-pending{% endif %}">{{ actions_text|linebreaksbr }}</div>
+      </div>
+      {% endif %}
+    </section>
+
+    <h2>{% trans "Insights" %}</h2>
     <div class="sc-actions sc-actions-stack">
-      <a class="sc-btn sc-btn-sm" href="{{ segments_url }}">View Segments</a>
-      <a class="sc-btn sc-btn-sm" href="{{ words_url }}">View Words</a>
-      <a class="sc-btn sc-btn-sm" href="{{ analysis_url }}">View Analysis</a>
-      <a class="sc-btn sc-btn-primary sc-btn-sm" href="{{ intelligence_url }}">Open Intelligence</a>
-      <a class="sc-btn sc-btn-sm" href="{{ export_pdf_url }}">Export PDF</a>
-      <a class="sc-btn sc-btn-sm" href="{{ export_docx_url }}">Export DOCX</a>
+      <a class="sc-btn sc-btn-sm" href="{{ segments_url }}">{% trans "View Segments" %}</a>
+      <a class="sc-btn sc-btn-sm" href="{{ export_pdf_url }}">{% trans "Export PDF" %}</a>
+      <a class="sc-btn sc-btn-sm" href="{{ export_docx_url }}">{% trans "Export DOCX" %}</a>
     </div>
   </aside>
 </div>
@@ -123,5 +173,16 @@
 {{ transcript_edit_config_json|json_script:"sc-transcript-edit-config" }}
 {% if can_edit_transcript %}
 <script src="{% static 'speech_center/transcript_edit.js' %}"></script>
+{% endif %}
+{% if analysis_pending %}
+<script>
+(function () {
+  var root = document.querySelector("[data-sc-analysis-poll]");
+  if (!root) return;
+  var seconds = parseInt(root.getAttribute("data-sc-analysis-poll") || "0", 10);
+  if (!seconds || seconds < 3) return;
+  setTimeout(function () { window.location.reload(); }, seconds * 1000);
+})();
+</script>
 {% endif %}
 {% endblock %}

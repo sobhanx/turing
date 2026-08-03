@@ -88,5 +88,10 @@ def prepare_media_for_transcription(self, job_id: str) -> str:
     elif result.status == IngestStatus.SKIPPED:
         logger.info("Ingestion skipped for job %s", job_id)
 
-    submit_transcription_job.delay(job_id)
+    submit_result = submit_transcription_job.delay(job_id)
+    from turing.services.job_orchestrator import JobOrchestrator
+
+    JobOrchestrator().remember_celery_task_id(
+        job, getattr(submit_result, "id", None)
+    )
     return "prepared"

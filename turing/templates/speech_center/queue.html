@@ -1,7 +1,8 @@
 {% extends "speech_center/base.html" %}
+{% load i18n static %}
 
 {% block page_subtitle %}
-<p>Live status from the existing processing pipeline. This page refreshes automatically.</p>
+<p>{% trans "Live status from the existing processing pipeline. This page refreshes automatically while jobs are active." %}</p>
 {% endblock %}
 
 {% block content %}
@@ -15,17 +16,59 @@
           {{ row.job.media.original_filename|default:row.job.media.object_key|default:row.job.media_id }}
         </h2>
         <p class="sc-queue-meta ltr">
-          {{ row.job.provider_code }} · {{ row.job.created_at }}
+          {{ row.job.created_at }}{% if row.media_duration %} · {{ row.media_duration }}{% endif %}
         </p>
+        <p
+          class="sc-queue-elapsed"
+          data-sc-status-label="{{ row.status_label }}"
+          {% if row.timing_since_iso %}data-sc-elapsed-since="{{ row.timing_since_iso }}"{% endif %}
+          {% if row.timing_is_terminal %}data-sc-elapsed-terminal="1"{% endif %}
+        >{{ row.timing_line }}</p>
       </div>
-      <span class="sc-badge sc-badge-{{ row.status_css }}">{{ row.status_label }}</span>
+      <div class="sc-queue-head-actions">
+        {% if row.transcript_url %}
+        <a
+          class="sc-badge sc-badge-{{ row.status_css }} sc-badge-link"
+          href="{{ row.transcript_url }}"
+          title="{% trans 'Open transcript' %}"
+        >{{ row.status_label }}</a>
+        {% else %}
+        <span class="sc-badge sc-badge-{{ row.status_css }}">{{ row.status_label }}</span>
+        {% endif %}
+        {% if row.show_cancel %}
+        <form
+          method="post"
+          action="{% url 'speech_center:cancel_job' row.job.id %}"
+          class="sc-queue-cancel-form"
+          onsubmit="return confirm('{% trans "Cancel this processing job? Pending retries will be stopped." %}');"
+        >
+          {% csrf_token %}
+          <button
+            type="submit"
+            class="sc-queue-cancel-btn"
+            title="{% trans 'Cancel job' %}"
+            aria-label="{% trans 'Cancel job' %}"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </form>
+        {% endif %}
+      </div>
     </header>
+
+    {% if row.cancel_message %}
+    <p class="sc-queue-cancel-note" role="status">{{ row.cancel_message }}</p>
+    {% elif row.job.error_message and row.status_css == "failed" %}
+    <p class="sc-queue-error" role="status">{{ row.job.error_message }}</p>
+    {% endif %}
 
     <div class="sc-progress-bar" aria-hidden="true">
       <span class="sc-progress-fill" style="width: {{ row.progress_pct }}%"></span>
     </div>
 
-    <ol class="sc-pipeline" aria-label="Processing pipeline">
+    <ol class="sc-pipeline" aria-label="{% trans 'Processing pipeline' %}">
       {% for step in row.pipeline %}
       <li class="is-{{ step.state }}">
         <span class="sc-pipeline-mark" aria-hidden="true">
@@ -39,12 +82,13 @@
     {% if row.show_retry %}
     <form method="post" action="{% url 'speech_center:retry_job' row.job.id %}" class="sc-queue-actions">
       {% csrf_token %}
-      <button type="submit" class="sc-btn sc-btn-sm">Retry</button>
+      <button type="submit" class="sc-btn sc-btn-sm">{% trans "Retry" %}</button>
     </form>
     {% endif %}
   </article>
   {% endfor %}
 </div>
+<script src="{% static 'speech_center/queue_elapsed.js' %}"></script>
 <script>
 (function () {
   var root = document.querySelector("[data-sc-poll]");
@@ -57,9 +101,13 @@
 })();
 </script>
 {% else %}
-<div class="sc-section sc-empty">
-  <strong>No processing jobs yet</strong>
-  Send media to transcription to see queue activity here.
+<div class="sc-section sc-empty sc-empty-card">
+  <strong>{% trans "No processing jobs yet" %}</strong>
+  <p>{% trans "Upload audio and send it to transcription to track progress here." %}</p>
+  <div class="sc-empty-actions">
+    <a class="sc-btn sc-btn-primary sc-btn-sm" href="{% url 'speech_center:upload_media' %}">{% trans "Upload Content" %}</a>
+    <a class="sc-btn sc-btn-sm" href="{% url 'speech_center:create_transcript' %}">{% trans "Create Transcript" %}</a>
+  </div>
 </div>
 {% endif %}
 {% endblock %}

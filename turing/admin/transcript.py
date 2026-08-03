@@ -8,6 +8,7 @@ from django.utils.safestring import mark_safe
 
 from turing.admin import fa as fa_labels
 from turing.admin.authz import (
+    AppendOnlyBrowseAdminMixin,
     CapabilityGatedAdminMixin,
     admin_assert_capability,
     admin_scope_queryset,
@@ -712,15 +713,36 @@ class TranscriptWordAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.Mo
 
 
 @admin.register(TranscriptRevision)
-class TranscriptRevisionAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
-    turing_view_capability = "view_transcript"
-    turing_change_capability = "edit_transcript"
-    turing_delete_capability = "edit_transcript"
+class TranscriptRevisionAdmin(
+    PersianAdminMixin,
+    AppendOnlyBrowseAdminMixin,
+    CapabilityGatedAdminMixin,
+    admin.ModelAdmin,
+):
+    """Transcript versions — read-only history browser."""
 
-    list_display = ("transcript", "revision_number", "source", "change_summary", "created_by", "created_at")
-    list_filter = ("source", "created_at")
-    search_fields = ("change_summary", "transcript__id")
-    list_select_related = ("transcript", "created_by")
+    turing_view_capability = "view_transcript"
+    turing_change_capability = "view_transcript"
+    turing_delete_capability = "view_transcript"
+
+    list_display = (
+        "transcript",
+        "revision_number",
+        "source",
+        "change_summary",
+        "created_by",
+        "created_at",
+    )
+    list_filter = (
+        "source",
+        "created_at",
+        ("transcript__organization", admin.RelatedOnlyFieldListFilter),
+    )
+    search_fields = ("change_summary", "transcript__id", "transcript__media__original_filename")
+    list_select_related = ("transcript", "transcript__media", "transcript__organization", "created_by")
+    list_per_page = 50
+    date_hierarchy = "created_at"
+    ordering = ("-created_at",)
     readonly_fields = (
         "transcript",
         "revision_number",
@@ -736,12 +758,16 @@ class TranscriptRevisionAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admi
     def turing_organization(self, obj):
         return obj.transcript.organization if obj and obj.transcript_id else None
 
-    def has_add_permission(self, request) -> bool:
-        return False
-
     def get_queryset(self, request):
         return admin_scope_queryset(
-            super().get_queryset(request).select_related("transcript", "created_by"),
+            super()
+            .get_queryset(request)
+            .select_related(
+                "transcript",
+                "transcript__media",
+                "transcript__organization",
+                "created_by",
+            ),
             request.user,
             field="transcript__organization_id",
         )

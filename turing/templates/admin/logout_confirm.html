@@ -1,0 +1,13 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<p class="sc-logout-confirm">{% trans "Are you sure you want to log out?" %}</p>
+<form method="post" action="{% url 'admin:logout' %}">
+  {% csrf_token %}
+  <div class="submit-row">
+    <input type="submit" value="{% trans 'Log out' %}" class="default">
+    <a href="{% url 'admin:index' %}" class="button cancel-link">{% trans "Cancel" %}</a>
+  </div>
+</form>
+{% endblock %}

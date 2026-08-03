@@ -3,6 +3,7 @@ from __future__ import annotations
 from turing.ai.interfaces import AIProvider
 from turing.ai.registry import AIProviderRegistry
 from turing.ai.types import AnalysisResult, TranscriptInput
+from turing.domain.enums import AnalysisType
 
 
 @AIProviderRegistry.register
@@ -39,6 +40,16 @@ class FakeAIProvider(AIProvider):
     def extract_topics(self, transcript: TranscriptInput) -> AnalysisResult:
         topics = _topics_from_text(transcript.full_text)
         return AnalysisResult(content=topics, model_name=self.model_name)
+
+    def analyze_suite(
+        self, transcript: TranscriptInput
+    ) -> dict[str, AnalysisResult]:
+        """Single in-process suite (no repeated work) for the default analysis path."""
+        return {
+            AnalysisType.SUMMARY: self.summarize(transcript),
+            AnalysisType.ACTION_ITEMS: self.extract_action_items(transcript),
+            AnalysisType.TOPICS: self.extract_topics(transcript),
+        }
 
 
 def _main_points_from_text(text: str) -> list[str]:

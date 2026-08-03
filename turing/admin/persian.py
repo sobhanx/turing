@@ -106,22 +106,67 @@ def configure_admin_site(site: admin.AdminSite | None = None) -> None:
     site.site_title = fa_labels.SITE_TITLE
     site.index_title = fa_labels.INDEX_TITLE
 
-    if getattr(site, "_turing_fa_patched", False):
-        return
+    if not getattr(site, "_turing_fa_patched", False):
+        original_get_app_list = site.get_app_list
 
-    original_get_app_list = site.get_app_list
+        def get_app_list(request: HttpRequest, app_label: str | None = None) -> list[dict[str, Any]]:
+            app_list = original_get_app_list(request, app_label)
+            for app in app_list:
+                if app.get("app_label") == "turing":
+                    app["name"] = fa_labels.APP_LABEL
+                for model in app.get("models", []):
+                    object_name = model.get("object_name") or ""
+                    titles = fa_labels.model_titles(object_name)
+                    if titles:
+                        model["name"] = titles[1]
+            return app_list
 
-    def get_app_list(request: HttpRequest, app_label: str | None = None) -> list[dict[str, Any]]:
-        app_list = original_get_app_list(request, app_label)
-        for app in app_list:
-            if app.get("app_label") == "turing":
-                app["name"] = fa_labels.APP_LABEL
-            for model in app.get("models", []):
-                object_name = model.get("object_name") or ""
-                titles = fa_labels.model_titles(object_name)
-                if titles:
-                    model["name"] = titles[1]
-        return app_list
+        site.get_app_list = get_app_list  # type: ignore[method-assign]
+        site._turing_fa_patched = True  # type: ignore[attr-defined]
 
-    site.get_app_list = get_app_list  # type: ignore[method-assign]
-    site._turing_fa_patched = True  # type: ignore[attr-defined]
+    if not getattr(site, "_turing_logout_patched", False):
+        _patch_admin_logout(site)
+        site._turing_logout_patched = True  # type: ignore[attr-defined]
+
+
+def _patch_admin_logout(site: admin.AdminSite) -> None:
+    """
+    Django 5+ LogoutView is POST-only; GET /admin/logout/ returns 405 + empty body.
+
+    Provide a confirmation page on GET and redirect to admin login after POST.
+    """
+    from django.contrib.auth.views import LogoutView
+    from django.shortcuts import redirect
+    from django.template.response import TemplateResponse
+    from django.urls import reverse
+    from django.utils.translation import gettext as _
+
+    class TuringAdminLogoutView(LogoutView):
+        http_method_names = ["get", "post", "options"]
+
+        def get(self, request, *args, **kwargs):
+            login_url = reverse("admin:login")
+            if not request.user.is_authenticated:
+                return redirect(login_url)
+            context = self.get_context_data()
+            context.update(
+                {
+                    "title": _("Log out"),
+                    "subtitle": None,
+                }
+            )
+            return TemplateResponse(request, "admin/logout_confirm.html", context)
+
+    def logout(request, extra_context=None):
+        defaults = {
+            "next_page": reverse("admin:login"),
+            "extra_context": {
+                **site.each_context(request),
+                "has_permission": False,
+                **(extra_context or {}),
+            },
+        }
+        request.current_app = site.name
+        return TuringAdminLogoutView.as_view(**defaults)(request)
+
+    site.logout = logout  # type: ignore[method-assign]

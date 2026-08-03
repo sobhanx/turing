@@ -165,10 +165,11 @@ def test_adapter_uses_decrypted_db_key(monkeypatch):
             *,
             api_key: str,
             base_url: str = "",
-            connect_timeout: float = 30.0,
-            upload_timeout: float = 600.0,
+            connect_timeout: float = 10.0,
+            upload_timeout: float = 120.0,
             read_timeout: float = 60.0,
             timeout: int | float | None = None,
+            **kwargs,
         ):
             captured["api_key"] = api_key
             captured["base_url"] = base_url

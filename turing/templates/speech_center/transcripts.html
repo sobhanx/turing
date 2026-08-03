@@ -1,7 +1,8 @@
 {% extends "speech_center/base.html" %}
+{% load i18n %}
 
 {% block page_subtitle %}
-<p>Browse transcripts produced by the existing Speech Center pipeline.</p>
+<p>{% trans "Browse transcripts produced by the existing Speech Center pipeline." %}</p>
 {% endblock %}
 
 {% block content %}
@@ -10,11 +11,11 @@
   <table class="sc-table">
     <thead>
       <tr>
-        <th>Media</th>
-        <th>Language</th>
-        <th>Duration</th>
-        <th>Created</th>
-        <th>Status</th>
+        <th>{% trans "Media" %}</th>
+        <th>{% trans "Language" %}</th>
+        <th>{% trans "Duration" %}</th>
+        <th>{% trans "Created" %}</th>
+        <th>{% trans "Status" %}</th>
       </tr>
     </thead>
     <tbody>
@@ -37,9 +38,13 @@
   </table>
 </div>
 {% else %}
-<div class="sc-section sc-empty">
-  <strong>No transcripts yet</strong>
-  Completed jobs will appear here automatically.
+<div class="sc-section sc-empty sc-empty-card">
+  <strong>{% trans "No transcripts yet" %}</strong>
+  <p>{% trans "When transcription finishes, transcripts appear here so you can read, export, and optionally generate AI insights." %}</p>
+  <div class="sc-empty-actions">
+    <a class="sc-btn sc-btn-primary sc-btn-sm" href="{% url 'speech_center:upload_media' %}">{% trans "Upload Content" %}</a>
+    <a class="sc-btn sc-btn-sm" href="{% url 'speech_center:create_transcript' %}">{% trans "Create Transcript" %}</a>
+  </div>
 </div>
 {% endif %}
 {% endblock %}

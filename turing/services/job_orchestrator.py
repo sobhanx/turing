@@ -26,6 +26,9 @@ from turing.providers.types import ProviderJobHandle
 
 logger = logging.getLogger(__name__)
 
+# Soft-tracked Celery task ids for best-effort revoke on cancel (presentation/ops).
+CELERY_TASK_IDS_KEY = "_celery_task_ids"
+
 
 class JobOrchestrator:
     """Create, enqueue, retry, and cancel processing jobs."""
@@ -184,6 +187,7 @@ class JobOrchestrator:
                 args=[str(job.id)],
                 countdown=max(0.0, float(countdown)),
             )
+            self.remember_celery_task_id(job, getattr(async_result, "id", None))
             self.log(
                 job,
                 "Celery prepare task scheduled.",
@@ -219,7 +223,9 @@ class JobOrchestrator:
         """
         Cancel locally and best-effort cancel the provider job.
 
-        Provider cancel failures are logged but do not undo local cancellation.
+        Also best-effort revokes tracked Celery task ids so pending countdown
+        retries do not continue. Provider cancel failures are logged but do not
+        undo local cancellation.
         """
         with transaction.atomic():
             locked = (
@@ -233,9 +239,21 @@ class JobOrchestrator:
             provider_code = locked.provider_code
             locked.status = JobStatus.CANCELLED
             locked.finished_at = timezone.now()
-            locked.save(update_fields=["status", "finished_at", "updated_at"])
-            self.log(locked, "Job cancelled.")
+            locked.error_code = "CANCELLED_BY_USER"
+            locked.error_message = "Cancelled by user"
+            locked.save(
+                update_fields=[
+                    "status",
+                    "finished_at",
+                    "error_code",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+            self.log(locked, "Job cancelled by user.")
             job = locked
+
+        self.revoke_celery_tasks(job)
 
         if external_job_id:
             self.cancel_provider_job(
@@ -244,6 +262,53 @@ class JobOrchestrator:
                 provider_code=provider_code,
             )
         return job
+
+    def remember_celery_task_id(
+        self, job: ProcessingJob, task_id: str | None
+    ) -> None:
+        """Persist a scheduled Celery task id for later revoke-on-cancel."""
+        tid = (task_id or "").strip()
+        if not tid:
+            return
+        opts = dict(job.options or {})
+        ids = [str(x) for x in (opts.get(CELERY_TASK_IDS_KEY) or []) if x]
+        if tid in ids:
+            return
+        ids.append(tid)
+        opts[CELERY_TASK_IDS_KEY] = ids[-20:]
+        job.options = opts
+        job.save(update_fields=["options", "updated_at"])
+
+    def revoke_celery_tasks(self, job: ProcessingJob) -> int:
+        """
+        Best-effort revoke of tracked Celery tasks for this job.
+
+        Uses ``terminate=False`` so an in-flight worker is not killed mid-request;
+        in-flight tasks still exit early after the next CANCELLED status check.
+        """
+        ids = [str(x) for x in ((job.options or {}).get(CELERY_TASK_IDS_KEY) or []) if x]
+        if not ids:
+            return 0
+        revoked = 0
+        try:
+            from celery import current_app
+        except Exception:  # noqa: BLE001
+            return 0
+        for tid in ids:
+            try:
+                current_app.control.revoke(tid, terminate=False)
+                revoked += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to revoke Celery task %s for job %s: %s", tid, job.id, exc
+                )
+        if revoked:
+            self.log(
+                job,
+                f"Revoked {revoked} pending Celery task(s).",
+                context={"task_ids": ids},
+            )
+        return revoked
 
     def cancel_provider_job(
         self,

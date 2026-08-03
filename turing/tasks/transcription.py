@@ -8,19 +8,30 @@ logger = logging.getLogger(__name__)
 
 
 def _schedule_poll(job_id: str, *, poll_count: int, countdown: float) -> None:
-    poll_transcription_job.apply_async(
+    from turing.models import ProcessingJob
+    from turing.services.job_orchestrator import JobOrchestrator
+
+    async_result = poll_transcription_job.apply_async(
         args=[job_id],
         kwargs={"poll_count": poll_count},
         countdown=max(0.0, float(countdown)),
     )
+    job = ProcessingJob.objects.filter(pk=job_id).first()
+    if job is not None:
+        JobOrchestrator().remember_celery_task_id(
+            job, getattr(async_result, "id", None)
+        )
 
 
 def _maybe_auto_retry(job_id: str, *, error_code: str) -> str:
+    from turing.domain.enums import JobStatus
     from turing.models import ProcessingJob
     from turing.services.job_orchestrator import JobOrchestrator
     from turing.services.transcription import TranscriptionService
 
     job = ProcessingJob.objects.get(pk=job_id)
+    if job.status == JobStatus.CANCELLED:
+        return "cancelled"
     service = TranscriptionService()
     if not service.should_automatic_retry(job, error_code=error_code):
         return f"failed:{error_code}"
@@ -94,7 +105,14 @@ def submit_transcription_job(self, job_id: str) -> str:
         return result
     if result == "submit_in_progress":
         # Another worker holds the submit claim — retry shortly.
-        submit_transcription_job.apply_async(args=[str(job.id)], countdown=2.0)
+        async_result = submit_transcription_job.apply_async(
+            args=[str(job.id)], countdown=2.0
+        )
+        from turing.services.job_orchestrator import JobOrchestrator
+
+        JobOrchestrator().remember_celery_task_id(
+            job, getattr(async_result, "id", None)
+        )
         return result
     return result
 
@@ -175,9 +193,18 @@ def fetch_and_persist_transcription(self, job_id: str) -> str:
     try:
         transcript, created = service._fetch_and_persist_with_created(job_id)
         if created:
-            from turing.tasks.analysis import generate_transcript_analysis
+            from turing.models import Organization
+            from turing.services.ai_analysis_trigger import enqueue_transcript_analysis
 
-            generate_transcript_analysis.delay(str(transcript.id))
+            auto = False
+            if transcript.organization_id:
+                auto = bool(
+                    Organization.objects.filter(pk=transcript.organization_id)
+                    .values_list("auto_generate_ai_analysis", flat=True)
+                    .first()
+                )
+            if auto:
+                enqueue_transcript_analysis(transcript)
         return str(transcript.id)
     except TuringError as exc:
         logger.warning("Fetch/persist aborted for job %s: %s", job_id, exc)

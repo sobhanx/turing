@@ -2,13 +2,22 @@ from __future__ import annotations
 
 from django.contrib import admin
 
-from turing.admin.authz import CapabilityGatedAdminMixin, admin_scope_queryset
+from turing.admin.authz import (
+    AppendOnlyBrowseAdminMixin,
+    CapabilityGatedAdminMixin,
+    admin_scope_queryset,
+)
 from turing.admin.persian import PersianAdminMixin
 from turing.models import TranscriptAnalysis
 
 
 @admin.register(TranscriptAnalysis)
-class TranscriptAnalysisAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
+class TranscriptAnalysisAdmin(
+    PersianAdminMixin,
+    AppendOnlyBrowseAdminMixin,
+    CapabilityGatedAdminMixin,
+    admin.ModelAdmin,
+):
     """Speech intelligence / analysis browser (append-only rows)."""
 
     turing_view_capability = "view_transcript"
@@ -35,6 +44,8 @@ class TranscriptAnalysisAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admi
     search_fields = ("id", "transcript__id", "transcript__media__original_filename")
     list_select_related = ("transcript", "transcript__media", "organization")
     list_per_page = 50
+    date_hierarchy = "created_at"
+    ordering = ("-created_at",)
     readonly_fields = (
         "transcript",
         "organization",
@@ -45,15 +56,6 @@ class TranscriptAnalysisAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admi
         "created_at",
         "updated_at",
     )
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
 
     def get_queryset(self, request):
         qs = (

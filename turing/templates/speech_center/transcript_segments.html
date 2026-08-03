@@ -1,0 +1,131 @@
+{% extends "speech_center/base.html" %}
+{% load static i18n %}
+
+{% block content_title %}{% endblock %}
+
+{% block content %}
+<header class="sc-detail-header">
+  <p class="sc-breadcrumb">
+    <a href="{% url 'speech_center:transcripts' %}">{% trans "Transcripts" %}</a>
+    <span aria-hidden="true">/</span>
+    <a href="{{ detail_url }}">{% trans "Transcript" %}</a>
+    <span aria-hidden="true">/</span>
+    <span>{% trans "Segments" %}</span>
+  </p>
+  <h1 class="sc-detail-title ltr">{{ media_name }}</h1>
+  <ul class="sc-meta">
+    <li><strong>{% trans "Segments" %}</strong> <span class="ltr">{{ segment_count }}</span></li>
+    <li><strong>{% trans "Duration" %}</strong> <span class="ltr">{{ duration_display }}</span></li>
+    <li><strong>{% trans "Language" %}</strong> <span class="ltr">{{ transcript.language_code|default:"—" }}</span></li>
+  </ul>
+  <div class="sc-actions">
+    <a class="sc-btn sc-btn-sm" href="{{ detail_url }}">{% trans "Back to Transcript" %}</a>
+  </div>
+</header>
+
+{% if media_url %}
+<div class="sc-segments-player" id="sc-segments-player">
+  <audio
+    id="sc-segments-audio"
+    class="sc-rec-playback"
+    controls
+    preload="auto"
+    src="{{ media_url }}"
+  ></audio>
+  {% if sync_enabled %}
+  <p class="sc-rec-hint">
+    {% trans "Click any segment to jump playback. Drag the timeline to keep the transcript in sync." %}
+  </p>
+  {% else %}
+  <p class="sc-rec-hint">
+    {% trans "Playback is available, but segment timestamps are missing — synchronization is disabled." %}
+  </p>
+  {% endif %}
+</div>
+{% else %}
+<p class="sc-segments-no-media" role="status">
+  {% trans "This transcript has no playable media." %}
+</p>
+{% endif %}
+
+<section
+  class="sc-section sc-segments-page{% if sync_enabled %} is-sync-enabled{% endif %}"
+  aria-label="{% trans 'Transcript segments' %}"
+  data-sc-segments-sync="{% if sync_enabled %}1{% else %}0{% endif %}"
+>
+  <div class="sc-segments-toolbar">
+    <label class="sc-field sc-segments-search">
+      <span class="sc-field-label">{% trans "Search segments" %}</span>
+      <input
+        type="search"
+        id="sc-segments-search"
+        class="sc-input"
+        placeholder="{% trans 'Filter by speaker or text…' %}"
+        autocomplete="off"
+      >
+    </label>
+    <p id="sc-segments-filter-meta" class="sc-segments-filter-meta" aria-live="polite"></p>
+  </div>
+
+  {% if segment_rows %}
+  <ol class="sc-segments-list" id="sc-segments-list">
+    {% for row in segment_rows %}
+    <li
+      class="sc-segment-card transcript-segment{% if row.is_long %} is-collapsible is-collapsed{% endif %}{% if sync_enabled and row.has_timing %} is-seekable{% endif %}"
+      id="sc-segment-{{ row.id }}"
+      data-segment-id="{{ row.id }}"
+      data-start="{{ row.start_sec }}"
+      data-end="{{ row.end_sec }}"
+      data-start-ms="{{ row.start_ms }}"
+      data-end-ms="{{ row.end_ms }}"
+      data-has-timing="{% if row.has_timing %}1{% else %}0{% endif %}"
+      data-search="{{ row.speaker_name }} {{ row.speaker_label }} {{ row.text }}"
+    >
+      <header class="sc-segment-card-head">
+        <div class="sc-segment-speaker">
+          <span class="sc-segment-speaker-name">{{ row.speaker_name }}</span>
+          {% if row.speaker_label %}
+          <span class="sc-segment-speaker-label ltr">{{ row.speaker_label }}</span>
+          {% endif %}
+        </div>
+        <div class="sc-segment-times ltr">
+          <button
+            type="button"
+            class="sc-segment-seek"
+            data-seek-ms="{{ row.start_ms }}"
+            title="{% trans 'Jump to start' %}"
+            {% if not sync_enabled or not row.has_timing %}disabled{% endif %}
+          >{{ row.start_display }}</button>
+          <span class="sc-segment-time-sep" aria-hidden="true">–</span>
+          <span>{{ row.end_display }}</span>
+          <span class="sc-segment-duration">({{ row.duration_display }})</span>
+        </div>
+      </header>
+      <div class="sc-segment-body">
+        <p class="sc-segment-text">{{ row.text }}</p>
+      </div>
+      {% if row.is_long %}
+      <button type="button" class="sc-btn sc-btn-sm sc-btn-ghost sc-segment-toggle">
+        {% trans "Expand" %}
+      </button>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  <p id="sc-segments-empty-filter" class="sc-empty-inline" hidden>
+    {% trans "No segments match your search." %}
+  </p>
+  {% else %}
+  <div class="sc-section sc-empty sc-empty-card">
+    <strong>{% trans "No segments yet" %}</strong>
+    <p>{% trans "This transcript does not have timed segments." %}</p>
+    <div class="sc-empty-actions">
+      <a class="sc-btn sc-btn-sm" href="{{ detail_url }}">{% trans "Back to Transcript" %}</a>
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+{{ segments_player_config_json|json_script:"sc-segments-player-config" }}
+<script src="{% static 'speech_center/segments_page.js' %}?v=segment-player-v4"></script>
+{% endblock %}

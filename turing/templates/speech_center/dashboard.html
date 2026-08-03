@@ -1,43 +1,44 @@
 {% extends "speech_center/base.html" %}
+{% load i18n %}
 
 {% block content_title %}{% endblock %}
 
 {% block content %}
-<section class="sc-hero" aria-label="Welcome">
-  <p class="sc-hero-eyebrow">Speech Center</p>
-  <h1 class="sc-hero-title">Hello, {{ welcome_name }}</h1>
+<section class="sc-hero" aria-label="{% trans 'Welcome' %}">
+  <p class="sc-hero-eyebrow">{% trans "Speech Center" %}</p>
+  <h1 class="sc-hero-title">{% blocktrans with name=welcome_name %}Hello, {{ name }}{% endblocktrans %}</h1>
   <p class="sc-hero-lead">
-    Manage your recordings, transcripts and meeting intelligence.
+    {% trans "Manage your recordings, transcripts and optional AI insights." %}
   </p>
 </section>
 
-<section class="sc-section" aria-label="Quick actions">
-  <h2 class="sc-section-heading">Quick Actions</h2>
+<section class="sc-section" aria-label="{% trans 'Quick actions' %}">
+  <h2 class="sc-section-heading">{% trans "Quick Actions" %}</h2>
   <div class="sc-cards sc-cards-actions">
     <a class="sc-card sc-card-link sc-card--primary" href="{{ upload_url }}">
-      <span class="sc-card-kicker">+ Upload Audio</span>
-      <p>Add a file to the media library.</p>
+      <span class="sc-card-kicker">{% trans "+ Upload Audio" %}</span>
+      <p>{% trans "Add a file to the media library." %}</p>
     </a>
     <a class="sc-card sc-card-link" href="{{ record_url }}">
-      <span class="sc-card-kicker">+ Record Audio</span>
-      <p>Capture directly in the browser.</p>
+      <span class="sc-card-kicker">{% trans "+ Record Audio" %}</span>
+      <p>{% trans "Capture directly in the browser." %}</p>
     </a>
-    <a class="sc-card sc-card-link" href="{{ meetings_url }}">
-      <span class="sc-card-kicker">+ Import Meeting</span>
-      <p>Prepare meeting imports (coming soon).</p>
+    <a class="sc-card sc-card-link" href="{{ create_url }}">
+      <span class="sc-card-kicker">{% trans "+ Create Transcript" %}</span>
+      <p>{% trans "Send stored media to transcription." %}</p>
     </a>
   </div>
 </section>
 
-<section class="sc-section" aria-label="Recent activity">
+<section class="sc-section" aria-label="{% trans 'Recent activity' %}">
   <div class="sc-section-head">
-    <h2 class="sc-section-heading">Recent Activity</h2>
-    <a class="sc-btn sc-btn-ghost sc-btn-sm" href="{{ queue_url }}">View Status</a>
+    <h2 class="sc-section-heading">{% trans "Recent Activity" %}</h2>
+    <a class="sc-btn sc-btn-ghost sc-btn-sm" href="{{ queue_url }}">{% trans "View Status" %}</a>
   </div>
 
   <div class="sc-activity-grid">
     <article class="sc-activity-panel">
-      <h3>Recent recordings</h3>
+      <h3>{% trans "Recent recordings" %}</h3>
       {% if recent_media %}
       <ul class="sc-activity-list">
         {% for media in recent_media %}
@@ -48,15 +49,15 @@
         {% endfor %}
       </ul>
       {% else %}
-      <p class="sc-empty-inline">No recordings yet. Upload or record to get started.</p>
+      <p class="sc-empty-inline">{% trans "No recordings yet. Upload or record to get started." %}</p>
       {% endif %}
       <div class="sc-card-actions">
-        <a class="sc-btn sc-btn-sm" href="{{ upload_url }}">Upload Content</a>
+        <a class="sc-btn sc-btn-sm" href="{{ upload_url }}">{% trans "Upload Content" %}</a>
       </div>
     </article>
 
     <article class="sc-activity-panel">
-      <h3>Processing status</h3>
+      <h3>{% trans "Processing status" %}</h3>
       {% if recent_jobs %}
       <ul class="sc-activity-list">
         {% for row in recent_jobs %}
@@ -77,15 +78,15 @@
         {% endfor %}
       </ul>
       {% else %}
-      <p class="sc-empty-inline">No jobs in the queue yet.</p>
+      <p class="sc-empty-inline">{% trans "No jobs in the queue yet." %}</p>
       {% endif %}
       <div class="sc-card-actions">
-        <a class="sc-btn sc-btn-sm" href="{{ create_url }}">Send to Transcription</a>
+        <a class="sc-btn sc-btn-sm" href="{{ create_url }}">{% trans "Send to Transcription" %}</a>
       </div>
     </article>
 
     <article class="sc-activity-panel">
-      <h3>Recent transcripts</h3>
+      <h3>{% trans "Recent transcripts" %}</h3>
       {% if recent_transcripts %}
       <ul class="sc-activity-list">
         {% for row in recent_transcripts %}
@@ -98,10 +99,10 @@
         {% endfor %}
       </ul>
       {% else %}
-      <p class="sc-empty-inline">Transcripts will appear here when ready.</p>
+      <p class="sc-empty-inline">{% trans "Transcripts will appear here when ready." %}</p>
       {% endif %}
       <div class="sc-card-actions">
-        <a class="sc-btn sc-btn-sm" href="{{ transcripts_url }}">Open</a>
+        <a class="sc-btn sc-btn-sm" href="{{ transcripts_url }}">{% trans "Open" %}</a>
       </div>
     </article>
   </div>

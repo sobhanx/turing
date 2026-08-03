@@ -491,23 +491,15 @@ class PDFExporter(BaseExporter):
                         parent=speaker_name,
                         textColor=color,
                     )
+                    # Speaker label above exact segment text (UI order).
                     story.append(Paragraph(_escape(t(name)), name_style))
                     ts = document.turn_timestamp(turn.start_display)
                     if ts:
                         story.append(P(ts, speaker_time))
-                    for para in (turn.text or "").split("\n"):
-                        para = para.strip()
-                        if para:
-                            story.append(P(para, turn_body))
-                    story.append(
-                        HRFlowable(
-                            width="100%",
-                            thickness=0.6,
-                            color=color,
-                            spaceBefore=2,
-                            spaceAfter=8,
-                        )
-                    )
+                    # Preserve exact segment text (including internal newlines).
+                    body_html = _escape(t(turn.text or "")).replace("\n", "<br/>")
+                    story.append(Paragraph(body_html or " ", turn_body))
+                    story.append(Spacer(1, 6 * mm))
             else:
                 story.append(P(L.EMPTY_TRANSCRIPT, muted))
 

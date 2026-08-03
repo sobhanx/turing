@@ -202,7 +202,8 @@ class DOCXExporter(BaseExporter):
                         speaker_index[name] = next_idx
                         next_idx += 1
                     color = _hex_rgb(speaker_color(speaker_index[name]))
-                    para(name, before=10, after=1, bold=True, size=11, color=color)
+                    # Speaker label above exact segment text (UI order).
+                    para(name, before=12, after=2, bold=True, size=11, color=color)
                     ts = document.turn_timestamp(turn.start_display)
                     if ts:
                         para(
@@ -211,8 +212,18 @@ class DOCXExporter(BaseExporter):
                             size=8,
                             color=_hex_rgb(BRAND_MUTED),
                         )
-                    tp = para(turn.text or "", after=8, size=11)
-                    tp.paragraph_format.line_spacing = 1.15
+                    # Preserve exact segment text, including blank lines.
+                    lines = (turn.text or "").split("\n")
+                    if not lines:
+                        lines = [""]
+                    for i, line in enumerate(lines):
+                        is_last = i == len(lines) - 1
+                        tp = para(
+                            line,
+                            after=10 if is_last else 0,
+                            size=11,
+                        )
+                        tp.paragraph_format.line_spacing = 1.15
             else:
                 para(L.EMPTY_TRANSCRIPT, size=10, color=_hex_rgb(BRAND_MUTED))
 

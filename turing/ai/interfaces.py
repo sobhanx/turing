@@ -31,3 +31,18 @@ class AIProvider(ABC):
         if analysis_type == AnalysisType.TOPICS:
             return self.extract_topics(transcript)
         raise ValueError(f"Unsupported analysis type: {analysis_type}")
+
+    def analyze_suite(
+        self, transcript: TranscriptInput
+    ) -> dict[str, AnalysisResult]:
+        """
+        Generate summary, action_items, and topics.
+
+        Default implementation calls each method separately. Providers that can
+        batch work into one model request should override this.
+        """
+        return {
+            AnalysisType.SUMMARY: self.summarize(transcript),
+            AnalysisType.ACTION_ITEMS: self.extract_action_items(transcript),
+            AnalysisType.TOPICS: self.extract_topics(transcript),
+        }

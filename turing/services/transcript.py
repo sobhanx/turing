@@ -496,14 +496,29 @@ class TranscriptService:
         self,
         transcript: Transcript,
         *,
-        merge_consecutive: bool = True,
+        merge_consecutive: bool = False,
     ):
         """
         Yield ``(speaker_name, text)`` turns in segment order.
 
-        Used by export renderers so PDF/DOCX/TXT share one dialogue model.
-        Consecutive segments with the same speaker are merged by default.
+        Used by export so PDF/DOCX share the same dialogue model as the UI.
+        Default is one turn per TranscriptSegment (no merge / rewrite).
+        Pass ``merge_consecutive=True`` only when a caller explicitly wants
+        consecutive same-speaker segments joined.
         """
+        if not merge_consecutive:
+            for seg in transcript.segments.select_related("speaker").order_by(
+                "sequence", "start_ms"
+            ):
+                name = ""
+                if seg.speaker_id:
+                    name = seg.speaker.resolved_name
+                raw = seg.text if seg.text is not None else ""
+                if not str(raw).strip():
+                    continue
+                yield name, str(raw)
+            return
+
         current_name: str | None = None
         current_parts: list[str] = []
         has_turn = False
@@ -511,7 +526,7 @@ class TranscriptService:
         def flush():
             nonlocal has_turn, current_parts, current_name
             if not has_turn:
-                return
+                return None
             text = " ".join(p for p in current_parts if p).strip()
             yield_name = current_name or ""
             current_parts = []
@@ -519,55 +534,51 @@ class TranscriptService:
             return yield_name, text
 
         pending: list[tuple[str, str]] = []
-        for seg in transcript.segments.select_related("speaker").order_by("sequence"):
+        for seg in transcript.segments.select_related("speaker").order_by(
+            "sequence", "start_ms"
+        ):
             name = ""
             if seg.speaker_id:
                 name = seg.speaker.resolved_name
             text = (seg.text or "").strip()
             if not text:
                 continue
-            if (
-                merge_consecutive
-                and has_turn
-                and name == current_name
-            ):
+            if has_turn and name == current_name:
                 current_parts.append(text)
                 continue
-            if has_turn:
-                flushed = flush()
-                if flushed is not None:
-                    pending.append(flushed)
-            current_name = name
-            current_parts = [text]
-            has_turn = True
-        if has_turn:
             flushed = flush()
             if flushed is not None:
                 pending.append(flushed)
+            current_name = name
+            current_parts = [text]
+            has_turn = True
+        flushed = flush()
+        if flushed is not None:
+            pending.append(flushed)
         yield from pending
 
     def format_export_body(
         self,
         transcript: Transcript,
         *,
-        merge_consecutive: bool = True,
+        merge_consecutive: bool = False,
     ) -> str:
         """
-        Export-friendly dialogue body:
+        Export-friendly dialogue body mirroring transcript_segments:
 
             Speaker Name
 
-            Text...
+            Exact segment text...
 
             Next Speaker
 
-            Text...
+            Exact segment text...
         """
         blocks: list[str] = []
         for speaker_name, text in self.iter_speaker_turns(
             transcript, merge_consecutive=merge_consecutive
         ):
-            if not text:
+            if not str(text).strip():
                 continue
             if speaker_name:
                 blocks.append(f"{speaker_name}\n\n{text}")

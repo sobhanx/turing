@@ -9,3 +9,8 @@ from turing.admin import meeting  # noqa: F401
 from turing.admin import membership  # noqa: F401
 from turing.admin import outbound_webhooks  # noqa: F401
 from turing.admin import transcript  # noqa: F401
+
+# Hide clutter models from Admin UI only (models / data / APIs unchanged).
+from turing.admin.visibility import apply_admin_visibility
+
+apply_admin_visibility()

@@ -397,6 +397,8 @@ class TranscriptViewSet(
     @action(detail=True, methods=["get"])
     def analyses(self, request, pk=None):
         """List derived AI analyses for a transcript (newest first)."""
+        import logging
+
         transcript = self.get_object()
         analysis_type = request.query_params.get("analysis_type") or None
         queryset = TranscriptAnalysisService().list_for_transcript(
@@ -404,12 +406,30 @@ class TranscriptViewSet(
             user=request.user,
             analysis_type=analysis_type,
         )
-        page = self.paginate_queryset(queryset)
+        rows = list(queryset)
+        returned_types = [row.analysis_type for row in rows]
+        summary_present = any(
+            row.analysis_type == "summary"
+            and isinstance(row.content, dict)
+            and str(row.content.get("summary") or "").strip()
+            for row in rows
+        )
+        # TEMP debug — never log transcript text / prompt content
+        logging.getLogger(__name__).warning(
+            "[ANALYSIS-DEBUG] transcript_id=%s requested_types=%s returned_count=%s "
+            "returned_types=%s summary_present=%s",
+            transcript.id,
+            [analysis_type] if analysis_type else ["summary", "topics", "action_items"],
+            len(rows),
+            returned_types,
+            summary_present,
+        )
+        page = self.paginate_queryset(rows)
         if page is not None:
             return self.get_paginated_response(
                 TranscriptAnalysisSerializer(page, many=True).data
             )
-        return Response(TranscriptAnalysisSerializer(queryset, many=True).data)
+        return Response(TranscriptAnalysisSerializer(rows, many=True).data)
 
     @action(detail=True, methods=["get"], url_path="analyses/latest")
     def analyses_latest(self, request, pk=None):
@@ -1400,8 +1420,25 @@ class SpeechCenterViewSet(viewsets.ViewSet):
 
     @action(detail=True, methods=["get"], url_path="intelligence")
     def intelligence(self, request, pk=None):
+        import logging
+
+        from turing.domain.enums import AnalysisType
         from turing.services.speech_center import SpeechCenterService
 
+        logger = logging.getLogger(__name__)
+        # TEMP debug — never log Authorization token value
+        authenticator = getattr(request, "successful_authenticator", None)
+        auth_class = (
+            authenticator.__class__.__name__ if authenticator is not None else None
+        )
+        has_auth_header = bool(request.META.get("HTTP_AUTHORIZATION"))
+        logger.warning(
+            "[AUTH-DEBUG] user=%s auth_class=%s has_auth_header=%s",
+            getattr(request.user, "username", None)
+            or getattr(request.user, "pk", request.user),
+            auth_class,
+            has_auth_header,
+        )
         service = SpeechCenterService()
         try:
             transcript = service.get_transcript_for_user(pk, user=request.user)
@@ -1409,14 +1446,45 @@ class SpeechCenterViewSet(viewsets.ViewSet):
         except TuringError as exc:
             return _error_response(exc)
 
+        summary_payload = payload.get("summary")
+        topics_payload = payload.get("topics")
+        actions_payload = payload.get("action_items")
+        returned_types = [
+            name
+            for name, value in (
+                (AnalysisType.SUMMARY, summary_payload),
+                (AnalysisType.TOPICS, topics_payload),
+                (AnalysisType.ACTION_ITEMS, actions_payload),
+            )
+            if value is not None
+        ]
+        summary_present = bool(
+            isinstance(summary_payload, dict)
+            and str(summary_payload.get("summary") or "").strip()
+        )
+        # TEMP debug — never log transcript text / prompt content
+        logger.warning(
+            "[ANALYSIS-DEBUG] transcript_id=%s requested_types=%s returned_count=%s "
+            "returned_types=%s summary_present=%s",
+            transcript.id,
+            [
+                AnalysisType.SUMMARY,
+                AnalysisType.TOPICS,
+                AnalysisType.ACTION_ITEMS,
+            ],
+            len(returned_types),
+            returned_types,
+            summary_present,
+        )
+
         generated_at = payload.get("generated_at")
         return Response(
             {
                 "transcript_id": str(transcript.id),
                 "intelligence": {
-                    "summary": payload.get("summary"),
-                    "topics": payload.get("topics"),
-                    "action_items": payload.get("action_items"),
+                    "summary": summary_payload,
+                    "topics": topics_payload,
+                    "action_items": actions_payload,
                 },
                 "generated_at": (
                     generated_at.isoformat() if generated_at is not None else None

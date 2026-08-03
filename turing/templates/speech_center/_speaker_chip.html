@@ -1,3 +1,4 @@
+{% load i18n %}
 {% if speaker_id and can_edit %}
 <button
   type="button"
@@ -5,7 +6,7 @@
   data-speaker-id="{{ speaker_id }}"
   data-speaker-label="{{ speaker_label }}"
   data-speaker-name="{{ speaker_name }}"
-  aria-label="Edit speaker {{ display_name }}"
+  aria-label="{% blocktrans %}Edit speaker {{ display_name }}{% endblocktrans %}"
 >
   <span class="sc-speaker-chip-text ltr">{{ display_name }}</span>
   <span class="sc-speaker-chip-icon" aria-hidden="true">

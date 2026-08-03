@@ -269,6 +269,165 @@ def test_resolve_for_organization_falls_back_to_global(export_cfg_setup):
 
 
 @pytest.mark.django_db
+def test_disabled_ai_sections_omitted_from_pdf_and_docx(export_cfg_setup):
+    transcript = export_cfg_setup["transcript"]
+    settings = export_cfg_setup["settings"]
+    settings.show_ai_summary = False
+    settings.show_key_topics = False
+    settings.show_action_items = False
+    settings.show_decisions = False
+    settings.show_keywords = False
+    settings.show_full_transcript = True
+    settings.save()
+
+    doc = ExportService().build_document(transcript)
+    assert doc.visibility.any_ai_section is False
+    assert doc.summary == ""
+    assert doc.topics == []
+    assert doc.action_items == []
+    assert doc.decisions == []
+    assert doc.keywords == []
+
+    docx_data = b"".join(
+        ExportService()
+        .export_transcript(transcript, "docx", user=export_cfg_setup["viewer"])
+        .chunks
+    )
+    with zipfile.ZipFile(io.BytesIO(docx_data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    for heading in (
+        L.SECTION_EXECUTIVE_SUMMARY,
+        L.SECTION_KEY_TOPICS,
+        L.SECTION_ACTION_ITEMS,
+        L.SECTION_DECISIONS,
+        L.SECTION_KEYWORDS,
+    ):
+        assert heading not in xml
+    assert "Hello from the meeting." in xml
+    assert "We reviewed the roadmap." not in xml
+
+    pdf_data = b"".join(
+        ExportService()
+        .export_transcript(transcript, "pdf", user=export_cfg_setup["viewer"])
+        .chunks
+    )
+    assert pdf_data.startswith(b"%PDF")
+
+
+@pytest.mark.django_db
+def test_enabled_ai_sections_appear_in_pdf_and_docx_exports(export_cfg_setup):
+    transcript = export_cfg_setup["transcript"]
+    settings = export_cfg_setup["settings"]
+    settings.show_ai_summary = True
+    settings.show_key_topics = True
+    settings.show_action_items = True
+    settings.show_decisions = True
+    settings.show_keywords = True
+    settings.save()
+
+    doc = ExportService().build_document(transcript)
+    assert doc.visibility.any_ai_section is True
+    assert "We reviewed the roadmap." in doc.summary
+    assert "Ship Q3" in doc.decisions
+    assert "roadmap" in doc.topics
+    assert "budget" in doc.keywords
+    assert doc.action_items[0].task == "Send plan"
+
+    docx_data = b"".join(
+        ExportService()
+        .export_transcript(transcript, "docx", user=export_cfg_setup["viewer"])
+        .chunks
+    )
+    with zipfile.ZipFile(io.BytesIO(docx_data)) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert L.SECTION_EXECUTIVE_SUMMARY in xml
+    assert L.SECTION_KEY_TOPICS in xml
+    assert L.SECTION_ACTION_ITEMS in xml
+    assert L.SECTION_DECISIONS in xml
+    assert L.SECTION_KEYWORDS in xml
+    assert "We reviewed the roadmap." in xml
+    assert "Ship Q3" in xml
+    assert "Send plan" in xml
+    assert "roadmap" in xml
+
+    pdf_buf = io.BytesIO()
+    PDFExporter().write(doc, pdf_buf)
+    assert pdf_buf.getvalue().startswith(b"%PDF")
+
+
+@pytest.mark.django_db
+def test_individual_ai_section_toggles_are_independent(export_cfg_setup):
+    transcript = export_cfg_setup["transcript"]
+    settings = export_cfg_setup["settings"]
+    # Only decisions / key points
+    settings.show_ai_summary = False
+    settings.show_key_topics = False
+    settings.show_action_items = False
+    settings.show_decisions = True
+    settings.show_keywords = False
+    settings.save()
+
+    doc = ExportService().build_document(transcript)
+    assert doc.visibility.show_decisions is True
+    assert doc.visibility.show_ai_summary is False
+    # Intelligence still loads because at least one AI flag is on.
+    assert "Ship Q3" in doc.decisions
+
+    with zipfile.ZipFile(
+        io.BytesIO(
+            b"".join(
+                ExportService()
+                .export_transcript(transcript, "docx", user=export_cfg_setup["viewer"])
+                .chunks
+            )
+        )
+    ) as zf:
+        xml = zf.read("word/document.xml").decode("utf-8")
+    assert L.SECTION_DECISIONS in xml
+    assert "Ship Q3" in xml
+    assert L.SECTION_EXECUTIVE_SUMMARY not in xml
+    assert L.SECTION_KEY_TOPICS not in xml
+    assert L.SECTION_ACTION_ITEMS not in xml
+    assert L.SECTION_KEYWORDS not in xml
+
+
+@pytest.mark.django_db
+def test_export_settings_admin_exposes_ai_section_controls():
+    from django.contrib.admin.sites import AdminSite
+
+    from turing.admin.export_settings import (
+        TranscriptExportSettingsAdmin,
+        TranscriptExportSettingsForm,
+    )
+
+    form = TranscriptExportSettingsForm()
+    for field in (
+        "show_ai_summary",
+        "show_key_topics",
+        "show_action_items",
+        "show_decisions",
+        "show_keywords",
+    ):
+        assert field in form.fields
+    assert form.fields["show_ai_summary"].label == "Executive Summary"
+    assert form.fields["show_decisions"].label == "Decisions / Key Points"
+
+    admin_obj = TranscriptExportSettingsAdmin(TranscriptExportSettings, AdminSite())
+    ai_fieldset = next(
+        fs for fs in admin_obj.fieldsets if fs[0] == "AI analysis sections"
+    )
+    assert ai_fieldset[1]["fields"] == (
+        "show_ai_summary",
+        "show_key_topics",
+        "show_action_items",
+        "show_decisions",
+        "show_keywords",
+    )
+    assert "show_ai_summary" in admin_obj.list_display
+    assert "show_keywords" in admin_obj.list_display
+
+
+@pytest.mark.django_db
 def test_apply_settings_hides_timeline_timestamps(export_cfg_setup):
     settings = export_cfg_setup["settings"]
     settings.show_timeline = False

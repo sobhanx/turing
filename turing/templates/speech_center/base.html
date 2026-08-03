@@ -1,73 +1,90 @@
 {% load static i18n %}
 <!DOCTYPE html>
-<html lang="en" data-theme="auto">
+<html lang="{{ LANGUAGE_CODE }}" dir="{% if LANGUAGE_BIDI %}rtl{% else %}ltr{% endif %}" data-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ page_title }} · Speech Center</title>
+  <title>{% if page_title %}{{ page_title }} · {% endif %}{% trans "Speech Center" %}</title>
   {# Reuse Django Admin theme tokens + dark mode #}
   <link rel="stylesheet" href="{% static 'admin/css/base.css' %}">
   <link rel="stylesheet" href="{% static 'admin/css/dark_mode.css' %}">
   <script src="{% static 'admin/js/theme.js' %}"></script>
-  <link rel="stylesheet" href="{% static 'speech_center/app.css' %}">
+  <link rel="stylesheet" href="{% static 'speech_center/app.css' %}?v=segment-player-v3">
 </head>
-<body class="speech-center">
+<body class="speech-center{% if LANGUAGE_BIDI %} sc-rtl{% endif %}">
   <div id="container">
     <header id="header">
       <div id="branding">
-        <h1 id="site-name"><a href="{% url 'speech_center:dashboard' %}">Speech Center</a></h1>
+        <h1 id="site-name"><a href="{% url 'speech_center:dashboard' %}">{% trans "Speech Center" %}</a></h1>
       </div>
       <div id="user-tools">
+        <form action="{% url 'set_language' %}" method="post" class="sc-lang-switch" aria-label="{% trans 'Language' %}">
+          {% csrf_token %}
+          <input name="next" type="hidden" value="{{ request.get_full_path }}">
+          <button
+            type="submit"
+            name="language"
+            value="fa"
+            class="sc-lang-btn{% if LANGUAGE_CODE == 'fa' %} is-active{% endif %}"
+            aria-pressed="{% if LANGUAGE_CODE == 'fa' %}true{% else %}false{% endif %}"
+          >🇮🇷 فارسی</button>
+          <span class="sc-lang-sep" aria-hidden="true">|</span>
+          <button
+            type="submit"
+            name="language"
+            value="en"
+            class="sc-lang-btn{% if LANGUAGE_CODE == 'en' %} is-active{% endif %}"
+            aria-pressed="{% if LANGUAGE_CODE == 'en' %}true{% else %}false{% endif %}"
+          >🇬🇧 English</button>
+        </form>
         {% if user.is_authenticated %}
+          <span class="sc-user-sep" aria-hidden="true">·</span>
           <span>{{ user.get_username }}</span>
           ·
-          <a href="{% url 'admin:index' %}">Admin</a>
+          <a href="{% url 'admin:index' %}">{% trans "Admin" %}</a>
           ·
-          <button type="button" class="theme-toggle sc-btn sc-btn-ghost sc-btn-sm" aria-label="Toggle theme">Theme</button>
+          <button type="button" class="theme-toggle sc-btn sc-btn-ghost sc-btn-sm" aria-label="{% trans 'Toggle theme' %}">{% trans "Theme" %}</button>
           ·
-          <a href="{% url 'admin:logout' %}">Log out</a>
+          <form method="post" action="{% url 'admin:logout' %}" class="sc-logout-form">
+            {% csrf_token %}
+            <button type="submit" class="sc-btn sc-btn-ghost sc-btn-sm">{% trans "Log out" %}</button>
+          </form>
         {% endif %}
       </div>
     </header>
 
     <div class="sc-layout">
-      <nav class="sc-sidebar" aria-label="Speech Center">
-        <div class="sc-sidebar-title">Navigation</div>
+      <nav class="sc-sidebar" aria-label="{% trans 'Speech Center' %}">
+        <div class="sc-sidebar-title">{% trans "Navigation" %}</div>
         <ul>
           <li class="{% if nav_active == 'dashboard' %}active{% endif %}">
             <a href="{% url 'speech_center:dashboard' %}">
               <svg class="sc-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"/></svg>
-              Speech Center
+              {% trans "Speech Center" %}
             </a>
           </li>
           <li class="{% if nav_active == 'upload' %}active{% endif %}">
             <a href="{% url 'speech_center:upload_media' %}">
               <svg class="sc-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3"/></svg>
-              Upload Content
+              {% trans "Upload Content" %}
             </a>
           </li>
           <li class="{% if nav_active == 'create' %}active{% endif %}">
             <a href="{% url 'speech_center:create_transcript' %}">
               <svg class="sc-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-              Create Transcript
+              {% trans "Create Transcript" %}
             </a>
           </li>
           <li class="{% if nav_active == 'queue' %}active{% endif %}">
             <a href="{% url 'speech_center:queue' %}">
               <svg class="sc-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="18.5" cy="18" r="2.5"/></svg>
-              Processing Queue
-            </a>
-          </li>
-          <li class="{% if nav_active == 'meetings' %}active{% endif %}">
-            <a href="{% url 'speech_center:meetings' %}">
-              <svg class="sc-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><rect x="4" y="7" width="16" height="14" rx="2"/><path d="M8 12h8M8 16h5"/></svg>
-              Meetings
+              {% trans "Processing Queue" %}
             </a>
           </li>
           <li class="{% if nav_active == 'transcripts' %}active{% endif %}">
             <a href="{% url 'speech_center:transcripts' %}">
               <svg class="sc-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 4h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V6a2 2 0 0 1 2-2Z"/><path d="M9 9h6M9 13h6"/></svg>
-              Transcripts
+              {% trans "Transcripts" %}
             </a>
           </li>
         </ul>

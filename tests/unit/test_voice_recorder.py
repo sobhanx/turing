@@ -83,7 +83,7 @@ def test_upload_page_has_file_and_record_tabs(sc_client):
     assert "Ready to record" in body
     assert "Preparing audio" in body
     assert "Uploading file" in body
-    assert "Creating transcript" in body
+    assert "Opening Create Transcript" in body
 
 
 @pytest.mark.django_db
@@ -379,18 +379,20 @@ def test_multi_minute_recording_builds_single_coherent_blob():
 
 def test_playback_uses_original_recorded_blob_not_reencode():
     boot = (STATIC_RECORDER / "boot.js").read_text(encoding="utf-8")
-    # syncPlayback receives the stop() blob / recorder.blob — not exportBlob output.
+    # Shared editor syncPlayback receives the source blob — not exportBlob output.
     assert "function syncPlayback" in boot
-    assert "createObjectURL(blob)" in boot
+    assert "createObjectURL" in boot
     assert "audioEl.load()" in boot
-    # Save path still may call exportBlob for trim; playback path must not.
+    # Playback path must not re-encode; export is only for upload.
     sync_idx = boot.index("function syncPlayback")
-    save_idx = boot.index('btnSave.addEventListener')
-    sync_block = boot[sync_idx:save_idx]
+    export_idx = boot.index("function exportForUpload")
+    sync_block = boot[sync_idx:export_idx]
     assert "exportBlob" not in sync_block
     assert "audioBufferToWav" not in sync_block
-    # afterStop wires original recording into playback
-    assert "syncPlayback(blob" in boot
+    # afterStop loads the original recording into the shared editor (playback source).
+    assert "afterStop" in boot
+    assert "editor" in boot and "loadSource" in boot
+    assert "exportForUpload" in boot
 
 
 @pytest.mark.django_db
@@ -467,7 +469,201 @@ def test_upload_page_progress_labels_are_clear(sc_client):
     body = resp.content.decode()
     assert "Preparing audio" in body
     assert "Uploading file" in body
-    assert "Upload complete" in body
-    assert "Creating transcript" in body
+    assert "Upload completed" in body
+    assert "Opening Create Transcript" in body
     assert 'id="sc-rec-progress-fill"' in body
+    assert 'id="sc-file-progress-fill"' in body
     assert "sc-rec-card" in body
+    assert 'id="sc-file-review"' in body
+    assert 'id="sc-file-status"' in body
+    assert "speech_center/recorder/uploader.js" in body
+    assert "speech_center/recorder/waveform.js" in body
+
+
+@pytest.mark.django_db
+def test_file_upload_does_not_create_processing_job(sc_client, sc_user):
+    """Media upload only creates MediaAsset — jobs start on Create Transcript."""
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from turing.models import MediaAsset, Organization, ProcessingJob
+
+    org = Organization.get_default()
+    before = ProcessingJob.objects.count()
+    audio = SimpleUploadedFile("ux-upload.wav", b"RIFF....WAVE", content_type="audio/wav")
+    resp = sc_client.post(
+        reverse("speech_center:upload_media"),
+        {
+            "organization_id": str(org.id),
+            "file": audio,
+            "upload_source": "file",
+        },
+    )
+    assert resp.status_code == 302
+    assert MediaAsset.objects.filter(original_filename="ux-upload.wav").exists()
+    assert ProcessingJob.objects.count() == before
+    assert "create" in resp["Location"]
+    assert "selected=" in resp["Location"]
+
+
+@pytest.mark.django_db
+def test_completed_upload_then_create_transcript_creates_job(sc_client, sc_user):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from turing.models import MediaAsset, Organization, ProcessingJob
+
+    org = Organization.get_default()
+    audio = SimpleUploadedFile("after-upload.wav", b"RIFF....WAVE", content_type="audio/wav")
+    upload = sc_client.post(
+        reverse("speech_center:upload_media"),
+        {"organization_id": str(org.id), "file": audio, "upload_source": "file"},
+    )
+    assert upload.status_code == 302
+    media = MediaAsset.objects.get(original_filename="after-upload.wav")
+    before = ProcessingJob.objects.count()
+    create = sc_client.post(
+        reverse("speech_center:create_transcript"),
+        {"media_id": str(media.id), "language_code": "en"},
+    )
+    assert create.status_code == 302
+    assert ProcessingJob.objects.count() == before + 1
+    assert ProcessingJob.objects.filter(media=media).exists()
+
+
+@pytest.mark.django_db
+def test_upload_error_when_file_missing(sc_client):
+    from turing.models import Organization
+
+    org = Organization.get_default()
+    resp = sc_client.post(
+        reverse("speech_center:upload_media"),
+        {"organization_id": str(org.id)},
+        follow=True,
+    )
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Please choose an audio file" in body or "choose an audio file" in body.lower()
+
+
+@pytest.mark.django_db
+def test_boot_js_tracks_file_upload_states():
+    from pathlib import Path
+
+    boot = Path("turing/static/speech_center/recorder/boot.js").read_text()
+    assert 'data-state="selected"' in boot or 'setStatus("selected")' in boot
+    assert 'setStatus("failed")' in boot or '"failed"' in boot
+    assert "Uploading file..." in boot
+    assert "Upload completed" in boot
+    assert 'uploadSource: "file"' in boot
+    assert "initFileUpload" in boot
+    assert "createReviewEditor" in boot
+    assert "loadSource" in boot
+    assert "setUploadProgress" in boot
+    assert "exportForUpload" in boot
+    assert "file_selection" in boot
+    assert "waveform_decode" in boot
+    assert "STEP_FILL" not in boot
+    # Must not invent job-creation APIs from the browser upload path.
+    assert "create_transcription_job" not in boot
+    assert "/api/turing" not in boot
+
+
+def test_boot_js_waits_for_audio_metadata_before_waveform():
+    from pathlib import Path
+
+    boot = Path("turing/static/speech_center/recorder/boot.js").read_text()
+    assert "waitForAudioReady" in boot
+    assert "loadedmetadata" in boot
+    assert "canplay" in boot
+    assert "objectURL created" in boot or "object_url" in boot
+    assert "sc-audio-diag" in boot
+    assert "ensureTypedBlob" in boot
+    # Exact post-assign snapshot fields requested for runtime diagnosis.
+    assert "readyState: audioEl.readyState" in boot or "readyState: audioEl.readyState" in boot.replace(" ", "")
+    assert "networkState" in boot
+    assert 'console.log({' in boot or "console.log({" in boot
+    assert "loadedmetadata NEVER FIRED" in boot
+    # Must not attach both change+input (double load revoked blob URL).
+    assert 'input.addEventListener("input"' not in boot
+    assert 'input.addEventListener("change"' in boot
+
+
+def test_boot_js_shares_review_editor_between_file_and_record():
+    from pathlib import Path
+
+    boot = Path("turing/static/speech_center/recorder/boot.js").read_text()
+    # File and Record both construct the shared editor.
+    assert boot.count("createReviewEditor(") >= 2
+    assert "sc-file-waveform" in boot
+    assert "sc-rec-waveform" in boot
+    assert "file_input_change" in boot
+    assert "editor_ready" in boot
+    assert "AudioContext/decodeAudioData" in boot
+
+
+@pytest.mark.django_db
+def test_upload_page_renders_review_v2_marker(sc_client):
+    """Browser-visible marker proves the live upload.html is rendered."""
+    resp = sc_client.get(reverse("speech_center:upload_media"))
+    body = resp.content.decode()
+    assert "UPLOAD REVIEW V2" in body
+    assert 'id="sc-upload-review-v2-marker"' in body
+    assert 'data-sc-upload-review="v2"' in body
+    assert "recorder/boot.js?v=upload-review-v2" in body
+    assert "createReviewEditor" in Path("turing/static/speech_center/recorder/boot.js").read_text()
+    # Progress wrap must stay hidden until upload starts (same [hidden] pitfall as review).
+    css = Path("turing/static/speech_center/app.css").read_text()
+    assert ".sc-rec-progress-wrap[hidden]" in css
+
+
+@pytest.mark.django_db
+def test_upload_page_has_single_template_and_boot_bundle():
+    from pathlib import Path
+
+    templates = list(Path("turing/templates").rglob("upload.html"))
+    boots = list(Path("turing/static").rglob("boot.js"))
+    assert templates == [Path("turing/templates/speech_center/upload.html")]
+    assert boots == [Path("turing/static/speech_center/recorder/boot.js")]
+    # No alternate upload/review JS entrypoints.
+    assert not list(Path("turing/static").rglob("upload.js"))
+    assert not list(Path("turing/static").rglob("review.js"))
+
+
+def test_waveform_editor_has_timeline_playhead_and_trim_export():
+    from pathlib import Path
+
+    text = Path("turing/static/speech_center/recorder/waveform.js").read_text()
+    assert "WaveformEditor" in text
+    assert "setPlayhead" in text
+    assert "whenVisible" in text
+    assert "exportBlob" in text
+    assert "OfflineAudioContext" in text
+    assert "timelineH" in text or "Timeline" in text or "timeline" in text.lower()
+    assert "ResizeObserver" in text
+    assert "_computePeaks" in text
+
+
+def test_uploader_js_reports_real_xhr_progress():
+    from pathlib import Path
+
+    text = Path("turing/static/speech_center/recorder/uploader.js").read_text()
+    assert "xhr.upload.onprogress" in text
+    assert "onProgress(pct, ev.loaded, ev.total)" in text
+    assert "lengthComputable" in text
+    # Complete only after successful HTTP response.
+    assert 'onStep("complete", 100)' in text
+    assert "xhr.onload" in text
+
+
+@pytest.mark.django_db
+def test_upload_page_file_review_reuses_recording_editor_markup(sc_client):
+    resp = sc_client.get(reverse("speech_center:upload_media"))
+    body = resp.content.decode()
+    assert 'id="sc-file-waveform"' in body
+    assert 'id="sc-rec-waveform"' in body
+    assert 'class="sc-rec-waveform"' in body
+    assert 'id="sc-file-position"' in body
+    assert 'id="sc-rec-position"' in body
+    assert "Drag handles to trim" in body
+    assert "sc-rec-card" in body
+    assert 'id="sc-file-review"' in body
+    assert 'class="sc-rec-review"' in body

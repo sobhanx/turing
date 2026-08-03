@@ -1,19 +1,33 @@
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from turing.domain.exceptions import ConfigurationError, ProviderError
+
+logger = logging.getLogger(__name__)
+
+# Controlled client-side retries (urllib3 retries are disabled).
+RETRY_BACKOFF_SECONDS: tuple[float, ...] = (5.0, 15.0, 30.0, 60.0, 120.0)
+MAX_ATTEMPTS = 5
+
+UNAVAILABLE_MESSAGE = (
+    "Speechmatics is temporarily unavailable. Please retry later."
+)
 
 
 @dataclass(frozen=True)
 class SpeechmaticsTimeouts:
     """HTTP timeouts for Speechmatics Batch API (seconds)."""
 
-    connect: float = 30.0
-    upload: float = 600.0
+    connect: float = 10.0
+    upload: float = 120.0
     read: float = 60.0
 
     def as_tuple(self, *, kind: Literal["upload", "read"] = "read") -> tuple[float, float]:
@@ -37,6 +51,51 @@ class SpeechmaticsTimeouts:
         return float(self.upload)
 
 
+def _disable_urllib3_retries(session: requests.Session) -> None:
+    """Prevent urllib3 from silently retrying and blocking workers for minutes."""
+    retry = Retry(
+        total=0,
+        connect=0,
+        read=0,
+        redirect=0,
+        status=0,
+        other=0,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+
+def _classify_request_exception(exc: BaseException) -> str | None:
+    """
+    Return a short reason code for retryable transport failures, else None.
+
+    Check SSLError before ConnectionError (SSLError subclasses ConnectionError).
+    """
+    if isinstance(exc, requests.exceptions.SSLError):
+        return "ssl"
+    if isinstance(exc, requests.exceptions.ConnectTimeout):
+        return "connect_timeout"
+    if isinstance(exc, requests.exceptions.ReadTimeout):
+        return "read_timeout"
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return "connection"
+    return None
+
+
+def _log_speechmatics(event: str, **fields: Any) -> None:
+    parts = [f"[SPEECHMATICS] {event}"]
+    for key, value in fields.items():
+        if value is None:
+            continue
+        parts.append(f"{key}={value}")
+    message = " ".join(parts)
+    if event.endswith("failed"):
+        logger.warning(message)
+    else:
+        logger.info(message)
+
+
 class SpeechmaticsClient:
     """Thin HTTP client for Speechmatics Batch API v2."""
 
@@ -45,10 +104,13 @@ class SpeechmaticsClient:
         *,
         api_key: str,
         base_url: str = "https://asr.api.speechmatics.com/v2",
-        connect_timeout: float = 30.0,
-        upload_timeout: float = 600.0,
+        connect_timeout: float = 10.0,
+        upload_timeout: float = 120.0,
         read_timeout: float = 60.0,
         timeout: int | float | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        max_attempts: int = MAX_ATTEMPTS,
+        retry_backoff: tuple[float, ...] = RETRY_BACKOFF_SECONDS,
     ) -> None:
         if not api_key:
             raise ConfigurationError(
@@ -67,8 +129,12 @@ class SpeechmaticsClient:
         )
         # Legacy attribute used by tests / callers introspecting the client.
         self.timeout = self.timeouts.read
+        self._sleep = sleep
+        self._max_attempts = max(1, int(max_attempts))
+        self._retry_backoff = tuple(float(x) for x in retry_backoff)
         self.session = requests.Session()
         self.session.headers.update({"Authorization": f"Bearer {api_key}"})
+        _disable_urllib3_retries(self.session)
 
     def submit_job(
         self,
@@ -78,6 +144,7 @@ class SpeechmaticsClient:
         media_bytes: bytes | None = None,
         filename: str = "audio",
         content_type: str = "application/octet-stream",
+        job_id: str | None = None,
     ) -> dict[str, Any]:
         url = f"{self.base_url}/jobs"
         data = {"config": _json_dumps(config)}
@@ -92,52 +159,196 @@ class SpeechmaticsClient:
         else:
             raise ProviderError("Either media_url or media_bytes is required.", retryable=False)
 
-        try:
-            response = self.session.post(
+        def _do() -> requests.Response:
+            return self.session.post(
                 url,
                 data=data,
                 files=files,
                 timeout=request_timeout,
             )
-        except requests.RequestException as exc:
-            raise ProviderError(str(exc), code="PROVIDER_NETWORK", retryable=True) from exc
 
-        return self._handle(response)
+        return self._request_with_retry(
+            operation="submit",
+            do_request=_do,
+            job_id=job_id,
+        )
 
-    def get_job(self, job_id: str) -> dict[str, Any]:
+    def get_job(self, job_id: str, *, log_job_id: str | None = None) -> dict[str, Any]:
         url = f"{self.base_url}/jobs/{job_id}"
-        try:
-            response = self.session.get(
+
+        def _do() -> requests.Response:
+            return self.session.get(
                 url,
                 timeout=self.timeouts.as_tuple(kind="read"),
             )
-        except requests.RequestException as exc:
-            raise ProviderError(str(exc), code="PROVIDER_NETWORK", retryable=True) from exc
-        return self._handle(response)
 
-    def get_transcript(self, job_id: str, *, format: str = "json-v2") -> dict[str, Any]:
+        return self._request_with_retry(
+            operation="get_job",
+            do_request=_do,
+            job_id=log_job_id or job_id,
+        )
+
+    def get_transcript(
+        self,
+        job_id: str,
+        *,
+        format: str = "json-v2",
+        log_job_id: str | None = None,
+    ) -> dict[str, Any]:
         url = f"{self.base_url}/jobs/{job_id}/transcript"
-        try:
-            response = self.session.get(
+
+        def _do() -> requests.Response:
+            return self.session.get(
                 url,
                 params={"format": format},
-                timeout=self.timeouts.as_tuple(kind="upload"),
+                timeout=self.timeouts.as_tuple(kind="read"),
             )
-        except requests.RequestException as exc:
-            raise ProviderError(str(exc), code="PROVIDER_NETWORK", retryable=True) from exc
-        return self._handle(response)
 
-    def delete_job(self, job_id: str) -> None:
+        return self._request_with_retry(
+            operation="get_transcript",
+            do_request=_do,
+            job_id=log_job_id or job_id,
+        )
+
+    def delete_job(self, job_id: str, *, log_job_id: str | None = None) -> None:
         url = f"{self.base_url}/jobs/{job_id}"
-        try:
-            response = self.session.delete(
+
+        def _do() -> requests.Response:
+            return self.session.delete(
                 url,
                 timeout=self.timeouts.as_tuple(kind="read"),
             )
-        except requests.RequestException as exc:
-            raise ProviderError(str(exc), code="PROVIDER_NETWORK", retryable=True) from exc
-        if response.status_code not in {200, 204, 404}:
-            self._handle(response)
+
+        self._request_with_retry(
+            operation="delete",
+            do_request=_do,
+            job_id=log_job_id or job_id,
+            allow_empty=True,
+        )
+
+    def _request_with_retry(
+        self,
+        *,
+        operation: str,
+        do_request: Callable[[], requests.Response],
+        job_id: str | None = None,
+        allow_empty: bool = False,
+    ) -> dict[str, Any]:
+        last_reason = "unknown"
+        log_job = job_id or "-"
+
+        for attempt in range(1, self._max_attempts + 1):
+            started = time.monotonic()
+            try:
+                response = do_request()
+            except requests.RequestException as exc:
+                reason = _classify_request_exception(exc)
+                elapsed = round(time.monotonic() - started, 1)
+                if reason is None:
+                    _log_speechmatics(
+                        f"{operation} failed",
+                        job=log_job,
+                        reason="network",
+                        attempt=attempt,
+                        elapsed=f"{elapsed}s",
+                    )
+                    raise ProviderError(
+                        str(exc),
+                        code="PROVIDER_NETWORK",
+                        retryable=False,
+                        provider_code="speechmatics",
+                    ) from exc
+                last_reason = reason
+                if attempt >= self._max_attempts:
+                    _log_speechmatics(
+                        f"{operation} failed",
+                        job=log_job,
+                        reason=reason,
+                        attempt=attempt,
+                        elapsed=f"{elapsed}s",
+                    )
+                    raise ProviderError(
+                        UNAVAILABLE_MESSAGE,
+                        code="PROVIDER_UNAVAILABLE",
+                        retryable=False,
+                        provider_code="speechmatics",
+                    ) from exc
+                retry_in = self._backoff_for(attempt)
+                _log_speechmatics(
+                    f"{operation} failed",
+                    job=log_job,
+                    reason=reason,
+                    attempt=attempt,
+                    elapsed=f"{elapsed}s",
+                    retry_in=f"{retry_in:g}s",
+                )
+                self._sleep(retry_in)
+                continue
+
+            elapsed = round(time.monotonic() - started, 1)
+
+            if response.status_code >= 500:
+                last_reason = "http_5xx"
+                if attempt >= self._max_attempts:
+                    _log_speechmatics(
+                        f"{operation} failed",
+                        job=log_job,
+                        reason=last_reason,
+                        attempt=attempt,
+                        elapsed=f"{elapsed}s",
+                        status=response.status_code,
+                    )
+                    raise ProviderError(
+                        UNAVAILABLE_MESSAGE,
+                        code="PROVIDER_UNAVAILABLE",
+                        retryable=False,
+                        provider_code="speechmatics",
+                    )
+                retry_in = self._backoff_for(attempt)
+                _log_speechmatics(
+                    f"{operation} failed",
+                    job=log_job,
+                    reason=last_reason,
+                    attempt=attempt,
+                    elapsed=f"{elapsed}s",
+                    status=response.status_code,
+                    retry_in=f"{retry_in:g}s",
+                )
+                self._sleep(retry_in)
+                continue
+
+            # Non-retryable HTTP / parse handling (auth, 4xx, etc.)
+            if allow_empty and response.status_code in {200, 204, 404}:
+                _log_speechmatics(
+                    f"{operation} success",
+                    job=log_job,
+                    elapsed=f"{elapsed}s",
+                )
+                return {}
+            try:
+                payload = self._handle(response)
+            except ProviderError:
+                # Auth / client / quota errors — do not burn retry budget.
+                raise
+
+            _log_speechmatics(
+                f"{operation} success",
+                job=log_job,
+                elapsed=f"{elapsed}s",
+            )
+            return payload
+
+        raise ProviderError(
+            UNAVAILABLE_MESSAGE,
+            code="PROVIDER_UNAVAILABLE",
+            retryable=False,
+            provider_code="speechmatics",
+        )
+
+    def _backoff_for(self, attempt: int) -> float:
+        """Backoff after ``attempt`` (1-based) before the next try."""
+        idx = min(attempt - 1, len(self._retry_backoff) - 1)
+        return float(self._retry_backoff[idx])
 
     def _handle(self, response: requests.Response) -> dict[str, Any]:
         if response.status_code in {401, 403}:
@@ -155,6 +366,7 @@ class SpeechmaticsClient:
                 provider_code="speechmatics",
             )
         if response.status_code >= 500:
+            # Retried by _request_with_retry; keep for direct callers.
             raise ProviderError(
                 f"Speechmatics server error: {response.status_code}",
                 code="PROVIDER_SERVER",

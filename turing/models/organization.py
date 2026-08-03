@@ -25,6 +25,13 @@ class Organization(TimeStampedModel):
         help_text="Optional host-project key (mirrors historical tenant_key).",
     )
     is_active = models.BooleanField(default=True)
+    auto_generate_ai_analysis = models.BooleanField(
+        default=False,
+        help_text=(
+            "When enabled, enqueue AI insights automatically after transcription. "
+            "When disabled, users trigger generation from the transcript page."
+        ),
+    )
     notes = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:

@@ -1,6 +1,9 @@
 /**
- * Upload recorded audio through the existing Speech Center upload endpoint.
- * Same contract as the file form: multipart file + organization_id + CSRF.
+ * Upload recorded/selected audio through the existing Speech Center upload endpoint.
+ * Same contract as the classic file form: multipart file + organization_id + CSRF.
+ *
+ * Does not create transcription jobs — only MediaAsset upload. Jobs are created
+ * later on the Create Transcript page.
  */
 (function (global) {
   "use strict";
@@ -30,7 +33,7 @@
   RecorderUploader.prototype.uploadFile = function (file, organizationId) {
     var self = this;
     if (!file) {
-      return Promise.reject(new Error("No recording to upload."));
+      return Promise.reject(new Error("No file to upload."));
     }
     if (!organizationId) {
       return Promise.reject(new Error("Please select an organization."));
@@ -38,7 +41,7 @@
     if (self.maxUploadBytes && file.size > self.maxUploadBytes) {
       return Promise.reject(
         new Error(
-          "Recording exceeds max upload size of " +
+          "File exceeds max upload size of " +
             self.maxUploadBytes +
             " bytes (" +
             file.size +
@@ -51,7 +54,7 @@
     var formData = new FormData();
     formData.append("organization_id", organizationId);
     formData.append("file", file, file.name);
-    formData.append("upload_source", self.uploadSource || "recorder");
+    formData.append("upload_source", self.uploadSource || "file");
     if (self.csrfToken) {
       formData.append("csrfmiddlewaretoken", self.csrfToken);
     }
@@ -97,12 +100,14 @@
         } catch (_e) {
           /* ignore */
         }
+        self.onStep("failed", 0);
         self.onError(msg);
         reject(new Error(msg));
       };
 
       xhr.onerror = function () {
-        var err = new Error("Network error while uploading recording.");
+        var err = new Error("Network error while uploading.");
+        self.onStep("failed", 0);
         self.onError(err.message);
         reject(err);
       };

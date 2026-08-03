@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterator
@@ -25,6 +27,8 @@ from turing.services.export import pdf as _pdf  # noqa: F401
 
 if TYPE_CHECKING:
     pass
+
+logger = logging.getLogger(__name__)
 
 
 def _format_duration_ms(duration_ms: int | None) -> str:
@@ -151,8 +155,13 @@ class ExportService:
             s.resolved_name
             for s in transcript.speakers.all().order_by("speaker_label")
         ]
+        # Source of truth: TranscriptSegment rows in UI/API order (sequence).
+        # Do not merge, rewrite, or substitute full_text / AI fields.
         turns = self._build_timed_turns(transcript)
-        body = self.transcripts.format_export_body(transcript)
+        body = self.transcripts.format_export_body(
+            transcript, merge_consecutive=False
+        )
+        self._log_export_segments(transcript, turns)
 
         media_name = ""
         duration_ms = None
@@ -190,6 +199,16 @@ class ExportService:
             summary, decisions, topics, keywords, action_items = self._load_intelligence(
                 transcript
             )
+            if not settings.show_ai_summary:
+                summary = ""
+            if not settings.show_decisions:
+                decisions = []
+            if not settings.show_key_topics:
+                topics = []
+            if not settings.show_keywords:
+                keywords = []
+            if not settings.show_action_items:
+                action_items = []
         else:
             summary, decisions, topics, keywords, action_items = (
                 "",
@@ -230,51 +249,57 @@ class ExportService:
 
     def _build_timed_turns(self, transcript: Transcript) -> list[SpeakerTurn]:
         """
-        Build speaker turns with start timestamps.
+        One export turn per TranscriptSegment — same order as the Segments UI.
 
-        Same merge rules as ``TranscriptService.iter_speaker_turns``; adds
-        ``start_display`` from the first segment of each merged turn.
+        Does not merge consecutive speakers, rewrite text, or use full_text /
+        AI analysis for the dialogue body.
         """
-        current_name: str | None = None
-        current_parts: list[str] = []
-        current_start: int | None = None
-        has_turn = False
         pending: list[SpeakerTurn] = []
-
-        def flush() -> None:
-            nonlocal has_turn, current_parts, current_name, current_start
-            if not has_turn:
-                return
-            text = " ".join(p for p in current_parts if p).strip()
-            if text:
-                pending.append(
-                    SpeakerTurn(
-                        speaker_name=current_name or "",
-                        text=text,
-                        start_display=_format_timestamp_ms(current_start),
-                    )
-                )
-            current_parts = []
-            has_turn = False
-            current_start = None
-
-        for seg in transcript.segments.select_related("speaker").order_by("sequence"):
+        for seg in transcript.segments.select_related("speaker").order_by(
+            "sequence", "start_ms"
+        ):
+            # Preserve segment text exactly (only skip blank rows).
+            text = seg.text if seg.text is not None else ""
+            if not str(text).strip():
+                continue
             name = ""
-            if seg.speaker_id:
+            if seg.speaker_id and seg.speaker is not None:
                 name = seg.speaker.resolved_name
-            text = (seg.text or "").strip()
-            if not text:
-                continue
-            if has_turn and name == current_name:
-                current_parts.append(text)
-                continue
-            flush()
-            current_name = name
-            current_parts = [text]
-            current_start = seg.start_ms
-            has_turn = True
-        flush()
+            pending.append(
+                SpeakerTurn(
+                    speaker_name=name,
+                    text=str(text),
+                    start_display=_format_timestamp_ms(seg.start_ms),
+                    sequence=int(seg.sequence),
+                    segment_id=str(seg.pk),
+                )
+            )
         return pending
+
+    def _log_export_segments(
+        self, transcript: Transcript, turns: list[SpeakerTurn]
+    ) -> None:
+        """Log the exact segment payload passed to exporters (debug / verify)."""
+        payload = {
+            "transcript_id": str(transcript.pk),
+            "language_code": transcript.language_code or "",
+            "source": "transcript_segments",
+            "segment_count": len(turns),
+            "segments": [
+                {
+                    "segment_id": turn.segment_id,
+                    "sequence": turn.sequence,
+                    "speaker": turn.speaker_name,
+                    "start_display": turn.start_display,
+                    "text": turn.text,
+                }
+                for turn in turns
+            ],
+        }
+        logger.info(
+            "export_transcript_segments_payload %s",
+            json.dumps(payload, ensure_ascii=False),
+        )
 
     def _load_intelligence(
         self, transcript: Transcript

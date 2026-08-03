@@ -10,9 +10,13 @@ from turing.services.export.context import ExportVisibility, default_visibility
 
 @dataclass(frozen=True)
 class SpeakerTurn:
+    """One transcript segment as shown in the UI (no merging/rewriting)."""
+
     speaker_name: str
     text: str
     start_display: str = ""
+    sequence: int | None = None
+    segment_id: str = ""
 
 
 @dataclass(frozen=True)

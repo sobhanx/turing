@@ -5,6 +5,7 @@ from django.utils.html import format_html
 
 from turing.admin import fa as fa_labels
 from turing.admin.authz import (
+    AppendOnlyBrowseAdminMixin,
     CapabilityGatedAdminMixin,
     admin_assert_capability,
     admin_scope_queryset,
@@ -178,28 +179,48 @@ class ProcessingJobAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.Mod
 
 
 @admin.register(ProcessingLog)
-class ProcessingLogAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, admin.ModelAdmin):
+class ProcessingLogAdmin(
+    PersianAdminMixin,
+    AppendOnlyBrowseAdminMixin,
+    CapabilityGatedAdminMixin,
+    admin.ModelAdmin,
+):
+    """Processing reports — read-only browse of job log lines."""
+
     turing_view_capability = "view_transcript"
-    turing_change_capability = "manage_jobs"
-    turing_delete_capability = "manage_jobs"
+    turing_change_capability = "view_transcript"
+    turing_delete_capability = "view_transcript"
 
     list_display = ("created_at", "job", "level", "message_short")
-    list_filter = ("level", "created_at")
-    search_fields = ("message", "job__id")
-    readonly_fields = ("job", "attempt", "level", "message", "context", "created_at", "updated_at")
+    list_filter = ("level", "created_at", ("job__organization", admin.RelatedOnlyFieldListFilter))
+    search_fields = ("message", "job__id", "job__external_job_id")
+    list_select_related = ("job", "job__organization", "job__media")
+    list_per_page = 100
+    date_hierarchy = "created_at"
+    ordering = ("-created_at",)
+    readonly_fields = (
+        "job",
+        "attempt",
+        "level",
+        "message",
+        "context",
+        "created_at",
+        "updated_at",
+    )
 
     def get_queryset(self, request):
         return admin_scope_queryset(
-            super().get_queryset(request),
+            super().get_queryset(request).select_related(
+                "job",
+                "job__organization",
+                "job__media",
+            ),
             request.user,
             field="job__organization_id",
         )
 
     def turing_organization(self, obj):
         return obj.job.organization if obj and obj.job_id else None
-
-    def has_add_permission(self, request) -> bool:
-        return False
 
     @admin.display(description=fa_labels.FIELD_LABELS["message"])
     def message_short(self, obj: ProcessingLog):

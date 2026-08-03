@@ -1,43 +1,47 @@
 {% extends "speech_center/base.html" %}
-{% load static %}
+{% load static i18n %}
 
 {% block page_subtitle %}
-<p>Add audio to Turing as a normal media asset — upload a file or record in the browser.</p>
+<p>{% trans "Add audio to Turing as a normal media asset — upload a file or record in the browser." %}</p>
 {% endblock %}
 
 {% block content %}
-<section class="sc-section sc-upload" aria-label="Upload content">
-  <div class="sc-tabs" role="tablist" aria-label="Upload content">
+<section class="sc-section sc-upload" aria-label="{% trans 'Upload content' %}" data-sc-upload-review="v2" id="sc-upload-root">
+  {# Visible build marker — if missing in the browser, the wrong template is rendered. #}
+  <p id="sc-upload-review-v2-marker" class="sc-upload-review-v2-marker" data-sc-build="upload-review-v2">
+    UPLOAD REVIEW V2
+  </p>
+  <div class="sc-tabs" role="tablist" aria-label="{% trans 'Upload content' %}">
     <button type="button" class="sc-tab is-active" role="tab" id="sc-tab-file"
       data-sc-upload-tab="file" aria-controls="sc-panel-file" aria-selected="true">
-      Upload File
+      {% trans "Upload File" %}
     </button>
     <button type="button" class="sc-tab" role="tab" id="sc-tab-record"
       data-sc-upload-tab="record" aria-controls="sc-panel-record" aria-selected="false">
-      Record Audio
+      {% trans "Record Audio" %}
     </button>
   </div>
 
   <div class="sc-tab-panel" role="tabpanel" id="sc-panel-file" aria-labelledby="sc-tab-file">
     <form method="post" enctype="multipart/form-data" class="sc-upload-form" id="sc-upload-form">
       {% csrf_token %}
-      <div class="sc-dropzone" id="sc-dropzone" tabindex="0" role="button" aria-label="Choose audio file">
+      <div class="sc-dropzone" id="sc-dropzone" tabindex="0" role="button" aria-label="{% trans 'Choose audio file' %}">
         <input type="file" name="file" id="sc-file-input" class="sc-dropzone-input"
-          accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm" required>
+          accept="audio/*,.wav,.mp3,.m4a,.ogg,.flac,.webm">
         <div class="sc-dropzone-body">
           <span class="sc-dropzone-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3"/></svg>
           </span>
-          <p class="sc-dropzone-title">Drop audio here, or click to browse</p>
+          <p class="sc-dropzone-title">{% trans "Drop audio here, or click to browse" %}</p>
           <p class="sc-dropzone-hint" id="sc-file-hint">WAV, MP3, M4A, OGG, FLAC, or WebM</p>
           <p class="sc-dropzone-file ltr" id="sc-file-name" hidden></p>
         </div>
       </div>
       <label class="sc-field">
-        <span class="sc-field-label">Organization</span>
+        <span class="sc-field-label">{% trans "Organization" %}</span>
         <select name="organization_id" id="sc-file-org" class="sc-select sc-org-select" required {% if not organizations %}disabled{% endif %}>
           {% if not organizations %}
-            <option value="">No organizations available</option>
+            <option value="">{% trans "No organizations available" %}</option>
           {% else %}
             {% for org in organizations %}
               <option value="{{ org.id }}" {% if default_organization_id == org.id|stringformat:"s" %}selected{% endif %}>{{ org.name }}</option>
@@ -45,24 +49,89 @@
           {% endif %}
         </select>
       </label>
-      <div class="sc-upload-actions">
-        <button type="submit" class="sc-btn sc-btn-primary" {% if not organizations %}disabled{% endif %}>Upload</button>
+
+      <p id="sc-file-status" class="sc-upload-status" data-state="idle" aria-live="polite">
+        {% trans "Select a file to continue" %}
+      </p>
+      <p id="sc-file-error" class="sc-rec-banner sc-rec-banner-danger" hidden role="alert"></p>
+
+      <div id="sc-file-review" class="sc-rec-review" hidden>
+        <article class="sc-rec-card" aria-label="{% trans 'File details' %}">
+          <header class="sc-rec-card-head">
+            <span class="sc-rec-card-icon" aria-hidden="true">📄</span>
+            <div>
+              <h3 class="sc-rec-card-title" id="sc-file-card-title">{% trans "Selected file" %}</h3>
+              <p id="sc-file-card-state" class="sc-rec-card-sub">{% trans "Review before uploading" %}</p>
+            </div>
+          </header>
+          <dl class="sc-rec-card-grid">
+            <div>
+              <dt>{% trans "Duration" %}</dt>
+              <dd id="sc-file-duration" class="ltr">—</dd>
+            </div>
+            <div>
+              <dt>{% trans "Format" %}</dt>
+              <dd id="sc-file-format" class="ltr">—</dd>
+            </div>
+            <div>
+              <dt>{% trans "Size" %}</dt>
+              <dd id="sc-file-size" class="ltr">—</dd>
+            </div>
+            <div>
+              <dt>{% trans "Organization" %}</dt>
+              <dd id="sc-file-org-label">—</dd>
+            </div>
+          </dl>
+
+          <div class="sc-rec-wave-wrap">
+            <canvas id="sc-file-waveform" class="sc-rec-waveform" width="480" height="112" tabindex="0" aria-label="{% trans 'Waveform trim preview' %}"></canvas>
+            <p id="sc-file-trim-label" class="sc-rec-trim-label ltr">{% trans "Full file" %}</p>
+            <p id="sc-file-position" class="sc-rec-position ltr" aria-live="polite">{% trans "Position" %}: —</p>
+            <p class="sc-rec-hint">{% trans "Drag handles to trim. Preview plays the selected range. Upload sends the trimmed audio." %}</p>
+          </div>
+
+          <audio id="sc-file-playback" class="sc-rec-playback" controls preload="auto"></audio>
+
+          <div class="sc-rec-review-actions">
+            <button type="button" class="sc-btn" id="sc-file-play-focus" title="{% trans 'Play selected range' %}">{% trans "▶ Play" %}</button>
+            <button type="button" class="sc-btn" id="sc-file-trim-focus" title="{% trans 'Focus trim handles' %}">{% trans "✂ Trim" %}</button>
+            <button type="button" class="sc-btn" id="sc-file-clear">{% trans "Clear file" %}</button>
+            <button type="button" class="sc-btn sc-btn-primary" id="sc-file-save" {% if not organizations %}disabled{% endif %}>
+              {% trans "⬆ Upload" %}
+            </button>
+          </div>
+        </article>
       </div>
+
+      <div id="sc-file-progress-wrap" class="sc-rec-progress-wrap" hidden>
+        <p class="sc-field-label" id="sc-file-progress-label">{% trans "Upload progress" %}</p>
+        <div class="sc-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="sc-file-progress-bar">
+          <span id="sc-file-progress-fill" class="sc-progress-fill"></span>
+        </div>
+        <p class="sc-upload-pct ltr" id="sc-file-progress-pct" hidden>0%</p>
+        <ol id="sc-file-progress" class="sc-rec-progress" aria-label="{% trans 'Upload progress' %}">
+          <li data-step="preparing">{% trans "Preparing audio" %} <span class="sc-rec-step-meta"></span></li>
+          <li data-step="uploading">{% trans "Uploading file" %} <span class="sc-rec-step-meta"></span></li>
+          <li data-step="complete">{% trans "✓ Upload completed" %} <span class="sc-rec-step-meta"></span></li>
+          <li data-step="redirecting">{% trans "Opening Create Transcript" %} <span class="sc-rec-step-meta"></span></li>
+        </ol>
+      </div>
+      <p id="sc-file-success" class="sc-rec-banner sc-rec-banner-ok" hidden role="status"></p>
     </form>
   </div>
 
   <div class="sc-tab-panel" role="tabpanel" id="sc-panel-record" aria-labelledby="sc-tab-record" hidden>
     <div class="sc-recorder" id="sc-recorder" data-state="idle">
       <p id="sc-rec-unsupported" class="sc-rec-banner sc-rec-banner-danger" hidden>
-        This browser does not support MediaRecorder. Use Chrome, Edge, Firefox, or Safari 14.1+, or switch to Upload File.
+        {% trans "This browser does not support MediaRecorder. Use Chrome, Edge, Firefox, or Safari 14.1+, or switch to Upload File." %}
       </p>
 
       {# Same org permission set as Upload File — required before Save & Upload #}
       <label class="sc-field">
-        <span class="sc-field-label">Organization</span>
+        <span class="sc-field-label">{% trans "Organization" %}</span>
         <select id="sc-rec-org" class="sc-select sc-org-select" required {% if not organizations %}disabled{% endif %}>
           {% if not organizations %}
-            <option value="">No organizations available</option>
+            <option value="">{% trans "No organizations available" %}</option>
           {% else %}
             {% for org in organizations %}
               <option value="{{ org.id }}" {% if default_organization_id == org.id|stringformat:"s" %}selected{% endif %}>{{ org.name }}</option>
@@ -73,15 +142,15 @@
 
       <div class="sc-rec-meta" aria-live="polite">
         <div class="sc-rec-meta-item">
-          <span class="sc-field-label">Microphone</span>
-          <span id="sc-rec-permission" data-tone="neutral">Checking…</span>
+          <span class="sc-field-label">{% trans "Microphone" %}</span>
+          <span id="sc-rec-permission" data-tone="neutral">{% trans "Checking…" %}</span>
         </div>
         <div class="sc-rec-meta-item">
-          <span class="sc-field-label">Status</span>
-          <span id="sc-rec-status" class="sc-rec-state" data-state="idle">Ready to record</span>
+          <span class="sc-field-label">{% trans "Status" %}</span>
+          <span id="sc-rec-status" class="sc-rec-state" data-state="idle">{% trans "Ready to record" %}</span>
         </div>
         <div class="sc-rec-meta-item ltr">
-          <span class="sc-field-label">Timer</span>
+          <span class="sc-field-label">{% trans "Timer" %}</span>
           <span id="sc-rec-timer" class="sc-rec-timer">00:00:00</span>
         </div>
       </div>
@@ -89,71 +158,75 @@
       <p id="sc-rec-error" class="sc-rec-banner sc-rec-banner-danger" hidden role="alert"></p>
 
       <div id="sc-rec-controls" class="sc-rec-controls">
-        <button type="button" class="sc-btn sc-btn-primary" id="sc-rec-start" {% if not organizations %}disabled{% endif %}>Start</button>
-        <button type="button" class="sc-btn" id="sc-rec-pause" hidden>Pause</button>
-        <button type="button" class="sc-btn" id="sc-rec-resume" hidden>Resume</button>
-        <button type="button" class="sc-btn sc-btn-danger" id="sc-rec-stop" hidden>Stop</button>
-        <button type="button" class="sc-btn sc-btn-ghost" id="sc-rec-delete" disabled>Delete</button>
+        <button type="button" class="sc-btn sc-btn-primary" id="sc-rec-start" {% if not organizations %}disabled{% endif %}>{% trans "Start" %}</button>
+        <button type="button" class="sc-btn" id="sc-rec-pause" hidden>{% trans "Pause" %}</button>
+        <button type="button" class="sc-btn" id="sc-rec-resume" hidden>{% trans "Resume" %}</button>
+        <button type="button" class="sc-btn sc-btn-danger" id="sc-rec-stop" hidden>{% trans "Stop" %}</button>
+        <button type="button" class="sc-btn sc-btn-ghost" id="sc-rec-delete" disabled>{% trans "Delete" %}</button>
       </div>
       <p class="sc-rec-shortcuts">
-        Shortcuts: <kbd>R</kbd> start / again · <kbd>P</kbd> pause / resume · <kbd>S</kbd> stop
+        {% blocktrans %}Shortcuts: <kbd>R</kbd> start / again · <kbd>P</kbd> pause / resume · <kbd>S</kbd> stop{% endblocktrans %}
       </p>
 
       <div id="sc-rec-review" class="sc-rec-review" hidden>
-        <article class="sc-rec-card" aria-label="Recording details">
+        <article class="sc-rec-card" aria-label="{% trans 'Recording details' %}">
           <header class="sc-rec-card-head">
             <span class="sc-rec-card-icon" aria-hidden="true">🎙</span>
             <div>
-              <h3 class="sc-rec-card-title">Recording</h3>
-              <p id="sc-rec-card-state" class="sc-rec-card-sub">Review your recording</p>
+              <h3 class="sc-rec-card-title">{% trans "Recording" %}</h3>
+              <p id="sc-rec-card-state" class="sc-rec-card-sub">{% trans "Review your recording" %}</p>
             </div>
           </header>
           <dl class="sc-rec-card-grid">
             <div>
-              <dt>Duration</dt>
+              <dt>{% trans "Duration" %}</dt>
               <dd id="sc-rec-duration" class="ltr">00:00</dd>
             </div>
             <div>
-              <dt>Format</dt>
+              <dt>{% trans "Format" %}</dt>
               <dd id="sc-rec-format" class="ltr">—</dd>
             </div>
             <div>
-              <dt>Size</dt>
+              <dt>{% trans "Size" %}</dt>
               <dd id="sc-rec-size" class="ltr">—</dd>
             </div>
             <div>
-              <dt>Organization</dt>
+              <dt>{% trans "Organization" %}</dt>
               <dd id="sc-rec-org-label">—</dd>
             </div>
           </dl>
 
           <div class="sc-rec-wave-wrap">
-            <canvas id="sc-rec-waveform" class="sc-rec-waveform" width="480" height="96" aria-label="Waveform trim preview"></canvas>
-            <p id="sc-rec-trim-label" class="sc-rec-trim-label ltr">Full recording</p>
-            <p class="sc-rec-hint">Drag handles to trim. Nothing changes until Save &amp; Upload.</p>
+            <canvas id="sc-rec-waveform" class="sc-rec-waveform" width="480" height="112" tabindex="0" aria-label="{% trans 'Waveform trim preview' %}"></canvas>
+            <p id="sc-rec-trim-label" class="sc-rec-trim-label ltr">{% trans "Full recording" %}</p>
+            <p id="sc-rec-position" class="sc-rec-position ltr" aria-live="polite">{% trans "Position" %}: —</p>
+            <p class="sc-rec-hint">{% trans "Drag handles to trim. Preview plays the selected range. Save &amp; Upload sends the trimmed audio." %}</p>
           </div>
 
-          <audio id="sc-rec-playback" class="sc-rec-playback" controls preload="metadata" hidden></audio>
+          <audio id="sc-rec-playback" class="sc-rec-playback" controls preload="auto"></audio>
 
           <div class="sc-rec-review-actions">
-            <button type="button" class="sc-btn" id="sc-rec-play-focus" title="Focus playback">▶ Play</button>
-            <button type="button" class="sc-btn" id="sc-rec-trim-focus" title="Focus trim handles">✂ Trim</button>
-            <button type="button" class="sc-btn" id="sc-rec-again">🔄 Record Again</button>
+            <button type="button" class="sc-btn" id="sc-rec-play-focus" title="{% trans 'Focus playback' %}">{% trans "▶ Play" %}</button>
+            <button type="button" class="sc-btn" id="sc-rec-trim-focus" title="{% trans 'Focus trim handles' %}">{% trans "✂ Trim" %}</button>
+            <button type="button" class="sc-btn" id="sc-rec-again">{% trans "🔄 Record Again" %}</button>
             <button type="button" class="sc-btn sc-btn-primary" id="sc-rec-save" {% if not organizations %}disabled{% endif %}>
-              ⬆ Save &amp; Upload
+              {% trans "⬆ Save &amp; Upload" %}
             </button>
           </div>
         </article>
       </div>
 
       <div id="sc-rec-progress-wrap" class="sc-rec-progress-wrap" hidden>
-        <p class="sc-field-label">Upload progress</p>
-        <div class="sc-progress-bar" aria-hidden="true"><span id="sc-rec-progress-fill" class="sc-progress-fill"></span></div>
-        <ol id="sc-rec-progress" class="sc-rec-progress" aria-label="Upload progress">
-          <li data-step="preparing">Preparing audio <span class="sc-rec-step-meta"></span></li>
-          <li data-step="uploading">Uploading file <span class="sc-rec-step-meta"></span></li>
-          <li data-step="complete">Upload complete <span class="sc-rec-step-meta"></span></li>
-          <li data-step="redirecting">Creating transcript <span class="sc-rec-step-meta"></span></li>
+        <p class="sc-field-label" id="sc-rec-progress-label">{% trans "Upload progress" %}</p>
+        <div class="sc-progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="sc-rec-progress-bar">
+          <span id="sc-rec-progress-fill" class="sc-progress-fill"></span>
+        </div>
+        <p class="sc-upload-pct ltr" id="sc-rec-progress-pct" hidden>0%</p>
+        <ol id="sc-rec-progress" class="sc-rec-progress" aria-label="{% trans 'Upload progress' %}">
+          <li data-step="preparing">{% trans "Preparing audio" %} <span class="sc-rec-step-meta"></span></li>
+          <li data-step="uploading">{% trans "Uploading file" %} <span class="sc-rec-step-meta"></span></li>
+          <li data-step="complete">{% trans "✓ Upload completed" %} <span class="sc-rec-step-meta"></span></li>
+          <li data-step="redirecting">{% trans "Opening Create Transcript" %} <span class="sc-rec-step-meta"></span></li>
         </ol>
       </div>
       <p id="sc-rec-success" class="sc-rec-banner sc-rec-banner-ok" hidden role="status"></p>
@@ -162,8 +235,9 @@
 </section>
 
 {{ recorder_config_json|json_script:"sc-recorder-config" }}
-<script src="{% static 'speech_center/recorder/recorder.js' %}"></script>
-<script src="{% static 'speech_center/recorder/waveform.js' %}"></script>
-<script src="{% static 'speech_center/recorder/uploader.js' %}"></script>
-<script src="{% static 'speech_center/recorder/boot.js' %}"></script>
+{# Cache-bust so browsers cannot keep serving a stale boot.js after review-editor changes. #}
+<script src="{% static 'speech_center/recorder/recorder.js' %}?v=upload-review-v2"></script>
+<script src="{% static 'speech_center/recorder/waveform.js' %}?v=upload-review-v2"></script>
+<script src="{% static 'speech_center/recorder/uploader.js' %}?v=upload-review-v2"></script>
+<script src="{% static 'speech_center/recorder/boot.js' %}?v=upload-review-v2"></script>
 {% endblock %}

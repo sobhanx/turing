@@ -49,6 +49,7 @@ class SpeechmaticsAdapter(STTProvider):
             base_url=base_url,
             connect_timeout=settings.speechmatics_connect_timeout,
             upload_timeout=settings.speechmatics_upload_timeout,
+            read_timeout=settings.speechmatics_read_timeout,
         )
         return self._client
 

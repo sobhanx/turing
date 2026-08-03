@@ -65,6 +65,28 @@ def _admin_staff_gate(user: AbstractBaseUser) -> bool:
     )
 
 
+class AppendOnlyBrowseAdminMixin:
+    """
+    Browse-only Admin for append-only / audit rows.
+
+    Staff cannot add, change, or delete these objects in Admin.
+    Superusers may delete so parent cascade deletes (e.g. MediaAsset) are not
+    blocked by Django's related-object permission checks. Model-level CASCADE
+    / PROTECT rules are unchanged.
+    """
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
+    def has_change_permission(self, request: HttpRequest, obj=None) -> bool:
+        return False
+
+    def has_delete_permission(self, request: HttpRequest, obj=None) -> bool:
+        if not _admin_staff_gate(request.user):
+            return False
+        return user_is_global_bypass(request.user)
+
+
 class CapabilityGatedAdminMixin:
     """
     Enforce Turing capabilities on Admin add/change/delete/view.

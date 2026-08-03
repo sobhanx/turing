@@ -9,7 +9,14 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 
 from turing.domain.enums import JobStatus, TranscriptStatus, UseCase
-from turing.models import Organization, ProcessingJob, Speaker, Transcript, TranscriptSegment
+from turing.models import (
+    MediaAsset,
+    Organization,
+    ProcessingJob,
+    Speaker,
+    Transcript,
+    TranscriptSegment,
+)
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
 from turing.services.transcript import TranscriptService
@@ -42,14 +49,17 @@ def sc_media(db, sc_user):
 
 
 def test_job_display_status_mapping():
+    from django.utils import translation
+
     job = ProcessingJob(status=JobStatus.QUEUED, ingest_status="pending", attempt_count=0)
-    assert job_display_status(job)[0] == "Queued"
-    job.attempt_count = 1
-    assert job_display_status(job) == ("Retry Scheduled", "retry-scheduled")
-    job.status = JobStatus.SUCCEEDED
-    assert job_display_status(job)[0] == "Completed"
-    job.status = JobStatus.FAILED
-    assert job_display_status(job)[0] == "Failed"
+    with translation.override("en"):
+        assert job_display_status(job)[0] == "Queued"
+        job.attempt_count = 1
+        assert job_display_status(job) == ("Retry Scheduled", "retry-scheduled")
+        job.status = JobStatus.SUCCEEDED
+        assert job_display_status(job)[0] == "Completed"
+        job.status = JobStatus.FAILED
+        assert job_display_status(job)[0] == "Failed"
 
 
 @pytest.mark.django_db
@@ -63,26 +73,26 @@ def test_dashboard_renders(sc_client):
     assert "Recent Activity" in content
     assert "Upload Audio" in content or "Upload Content" in content
     assert "Record Audio" in content
-    assert "Import Meeting" in content
+    assert "Create Transcript" in content or "Send to Transcription" in content
     assert "Send to Transcription" in content
     assert "View Status" in content
     assert "Speech Center" in content
     assert reverse("speech_center:upload_media") in content
-    assert reverse("speech_center:meetings") in content
+    assert reverse("speech_center:meetings") not in content
     assert reverse("admin:turing_mediaasset_add") not in content
 
 
 @pytest.mark.django_db
-def test_meetings_foundation_page(sc_client):
+def test_meetings_hidden_from_navigation_and_route(sc_client):
+    dash = sc_client.get(reverse("speech_center:dashboard"))
+    assert dash.status_code == 200
+    body = dash.content.decode()
+    assert "Meetings" not in body or 'nav_active == \'meetings\'' not in body
+    assert reverse("speech_center:meetings") not in body
+    assert "Import Meeting" not in body
+
     resp = sc_client.get(reverse("speech_center:meetings"))
-    assert resp.status_code == 200
-    body = resp.content.decode()
-    assert "Meetings" in body
-    assert "Alocom" in body
-    assert "Zoom" in body
-    assert "Teams" in body
-    assert "Scheduled" in body
-    assert "Coming soon" in body
+    assert resp.status_code == 404
 
 
 @pytest.mark.django_db
@@ -108,10 +118,76 @@ def test_queue_shows_pipeline_and_poll(sc_client, sc_media, sc_user):
     resp = sc_client.get(reverse("speech_center:queue"))
     assert resp.status_code == 200
     body = resp.content.decode()
-    assert "Audio uploaded" in body
+    assert "Uploading" in body
+    assert "Preparing media" in body
     assert "Speech recognition" in body
+    assert "Transcript ready" in body
+    assert "Analysis" not in body
     assert "Processing pipeline" in body or "sc-pipeline" in body
     assert "data-sc-poll" in body
+    assert "sc-queue-cancel-btn" in body
+    # Non-completed jobs keep plain status text (no transcript detail link).
+    assert resp.context["jobs"][0]["transcript_url"] == ""
+    assert "sc-badge-link" not in body
+    # Provider stays on the job for admin/debug; queue UI must not expose it.
+    job = resp.context["jobs"][0]["job"]
+    assert job.provider_code
+    assert job.provider_code not in body
+    assert "speechmatics" not in body.lower()
+
+
+@pytest.mark.django_db
+def test_queue_completed_status_links_to_transcript(sc_client, sc_media, sc_user):
+    job = JobOrchestrator().create_transcription_job(
+        media=sc_media,
+        created_by=sc_user,
+        language_code="en",
+        auto_enqueue=False,
+    )
+    job.status = JobStatus.SUCCEEDED
+    job.save(update_fields=["status"])
+    transcript = Transcript.objects.create(
+        job=job,
+        media=sc_media,
+        organization=sc_media.organization,
+        status=TranscriptStatus.DRAFT,
+        language_code="en",
+        full_text="Hello world",
+    )
+    detail_url = reverse(
+        "speech_center:transcript_detail", args=[transcript.id]
+    )
+    resp = sc_client.get(reverse("speech_center:queue"))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    row = resp.context["jobs"][0]
+    assert row["status_css"] == "completed"
+    assert row["transcript_url"] == detail_url
+    assert f'href="{detail_url}"' in body
+    assert "sc-badge-link" in body
+    assert "Completed" in body
+
+
+@pytest.mark.django_db
+def test_queue_completed_without_transcript_stays_plain_text(
+    sc_client, sc_media, sc_user
+):
+    job = JobOrchestrator().create_transcription_job(
+        media=sc_media,
+        created_by=sc_user,
+        language_code="en",
+        auto_enqueue=False,
+    )
+    job.status = JobStatus.SUCCEEDED
+    job.save(update_fields=["status"])
+    resp = sc_client.get(reverse("speech_center:queue"))
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    row = resp.context["jobs"][0]
+    assert row["status_css"] == "completed"
+    assert row["transcript_url"] == ""
+    assert "sc-badge-link" not in body
+    assert "Completed" in body
 
 
 @pytest.mark.django_db
@@ -219,13 +295,154 @@ def test_queue_and_transcripts_pages(sc_client, sc_media, sc_user):
     body = detail.content.decode()
     assert "Hello world" in body
     assert "View Segments" in body
-    assert "View Words" in body
-    assert "View Analysis" in body
-    assert "Open Intelligence" in body
+    assert "View Words" not in body
+    assert "View Analysis" not in body
+    assert "Open Intelligence" not in body
     assert "Export PDF" in body
     assert "Export DOCX" in body
-    assert "admin/turing/transcriptsegment/" in body
+    assert "/admin/turing/" not in body
+    assert reverse(
+        "speech_center:transcript_segments", args=[transcript.id]
+    ) in body
 
+
+@pytest.mark.django_db
+def test_transcript_segments_page_lists_chronological_rows(
+    sc_client, sc_transcript_with_speakers
+):
+    transcript = sc_transcript_with_speakers
+    url = reverse("speech_center:transcript_segments", args=[transcript.id])
+    resp = sc_client.get(url)
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "Transcript Segments" in body or "Segments" in body
+    assert "Hello" in body
+    assert "World" in body
+    assert 'id="sc-segments-list"' in body
+    assert "speech_center/segments_page.js" in body
+    assert 'data-end-ms="' in body
+    assert "/admin/turing/" not in body
+    # Chronological order: first segment text appears before second.
+    assert body.index("Hello") < body.index("World")
+    # Timing fields rendered for each segment.
+    assert "00:00" in body
+    # Fixture media has an uploaded file → single player present.
+    assert 'id="sc-segments-audio"' in body
+    assert body.count("<audio") == 1
+    assert "This transcript has no playable media." not in body
+    assert 'id="sc-segments-player-config"' in body
+    assert "syncEnabled" in body
+    assert 'data-start="' in body
+    assert 'data-end="' in body
+    assert "transcript-segment" in body
+    assert "segment-player-v4" in body
+    detail = sc_client.get(
+        reverse("speech_center:transcript_detail", args=[transcript.id])
+    )
+    assert detail.status_code == 200
+    assert url in detail.content.decode()
+
+
+@pytest.mark.django_db
+def test_transcript_segments_page_hides_player_without_media(sc_client, sc_user):
+    from turing.domain.enums import TranscriptStatus
+
+    org = Organization.get_default()
+    media = MediaAsset.objects.create(
+        organization=org,
+        original_filename="missing.wav",
+        uploaded_by=sc_user,
+    )
+    job = JobOrchestrator().create_transcription_job(
+        media=media,
+        created_by=sc_user,
+        language_code="en",
+        auto_enqueue=False,
+    )
+    transcript = Transcript.objects.create(
+        job=job,
+        media=media,
+        organization=org,
+        status=TranscriptStatus.DRAFT,
+        language_code="en",
+        full_text="",
+    )
+    resp = sc_client.get(
+        reverse("speech_center:transcript_segments", args=[transcript.id])
+    )
+    assert resp.status_code == 200
+    body = resp.content.decode()
+    assert "This transcript has no playable media." in body
+    assert 'id="sc-segments-audio"' not in body
+
+
+def test_segments_page_js_syncs_playback_efficiently():
+    from pathlib import Path
+
+    js = Path("turing/static/speech_center/segments_page.js").read_text()
+    assert "findIndexForTime" in js
+    assert "timeupdate" in js
+    assert "seeked" in js
+    assert "loadedmetadata" in js
+    assert "scrollIntoView" in js
+    assert "requestAnimationFrame" not in js
+    assert "data-start" in js
+    assert "[segments-init]" in js
+    assert "[audio-ready]" in js
+    assert "[segment-click]" in js
+    assert "[audio-sync]" in js
+    assert "addEventListener(\"click\"" in js or "addEventListener('click'" in js
+    assert "querySelectorAll(\".transcript-segment\")" in js
+    assert "audio.currentTime" in js
+    assert "syncReady" not in js
+
+
+def test_segments_page_js_finds_half_open_ranges():
+    """Acceptance: at t=15 in [0-10),[10-20),[20-30) → segment 2."""
+    from pathlib import Path
+
+    # Execute the binary-search logic in isolation via a tiny mirror of the algo.
+    ranges = [
+        {"startSec": 0.0, "endSec": 10.0},
+        {"startSec": 10.0, "endSec": 20.0},
+        {"startSec": 20.0, "endSec": 30.0},
+    ]
+
+    def find_index_for_time(t):
+        n = len(ranges)
+        lo, hi, cand = 0, n - 1, -1
+        while lo <= hi:
+            mid = (lo + hi) >> 1
+            if ranges[mid]["startSec"] <= t:
+                cand = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        if cand < 0:
+            return -1
+        r = ranges[cand]
+        if r["startSec"] <= t < r["endSec"]:
+            return cand
+        if cand == n - 1 and r["startSec"] <= t <= r["endSec"]:
+            return cand
+        return -1
+
+    assert find_index_for_time(15) == 1
+    assert find_index_for_time(0) == 0
+    assert find_index_for_time(10) == 1
+    assert find_index_for_time(20) == 2
+    assert find_index_for_time(29.9) == 2
+    js = Path("turing/static/speech_center/segments_page.js").read_text()
+    assert "seg.start <= t && t < seg.end" in js
+
+
+def test_segments_page_css_hides_filtered_cards():
+    from pathlib import Path
+
+    css = Path("turing/static/speech_center/app.css").read_text()
+    assert ".sc-segment-card[hidden]" in css
+    assert "is-search-hidden" in css
+    assert "display: none !important" in css
 
 @pytest.fixture
 def sc_transcript_with_speakers(db, sc_media, sc_user):
@@ -348,3 +565,267 @@ def test_anonymous_redirected_to_login(client):
     resp = client.get(reverse("speech_center:dashboard"))
     assert resp.status_code == 302
     assert "/admin/login" in resp.url or "login" in resp.url
+
+
+def test_analysis_text_maps_summary_topics_and_actions():
+    from types import SimpleNamespace
+
+    from turing.ui.speech_center.views import _analysis_text
+
+    summary = SimpleNamespace(
+        content={"summary": "Hello summary", "main_points": ["A", "B"]}
+    )
+    topics = SimpleNamespace(content=["alpha", "beta"])
+    actions = SimpleNamespace(
+        content=[{"task": "Do thing", "owner": "Ada", "deadline": None}]
+    )
+    assert _analysis_text(summary) == "Hello summary"
+    assert _analysis_text(topics) == "alpha\nbeta"
+    assert _analysis_text(actions) == "Do thing (Ada)"
+    assert _analysis_text(None) == ""
+
+
+@pytest.mark.django_db
+def test_transcript_detail_merges_analyses_regardless_of_row_order(
+    sc_client, sc_transcript_with_speakers
+):
+    """Topics-first insert order must not hide summary/action_items in SSR context."""
+    from turing.domain.enums import AnalysisType
+    from turing.models import TranscriptAnalysis
+
+    transcript = sc_transcript_with_speakers
+    org = transcript.organization
+
+    # Persist in an order that would break a "first row wins / stop early" bug.
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=org,
+        analysis_type=AnalysisType.TOPICS,
+        content=["alpha", "beta"],
+        provider="fake",
+        model_name="fake-v1",
+    )
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=org,
+        analysis_type=AnalysisType.SUMMARY,
+        content={"summary": "Order-safe summary", "main_points": ["Point"]},
+        provider="fake",
+        model_name="fake-v1",
+    )
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=org,
+        analysis_type=AnalysisType.ACTION_ITEMS,
+        content=[{"task": "Ship fix", "owner": "Ada", "deadline": None}],
+        provider="fake",
+        model_name="fake-v1",
+    )
+
+    resp = sc_client.get(
+        reverse("speech_center:transcript_detail", args=[transcript.id])
+    )
+    assert resp.status_code == 200
+    assert resp.context["summary_text"] == "Order-safe summary"
+    assert resp.context["topics_text"] == "alpha\nbeta"
+    assert "Ship fix" in resp.context["actions_text"]
+    assert resp.context["analysis_pending"] is False
+    body = resp.content.decode()
+    assert "Order-safe summary" in body
+    assert "Ship fix" in body
+    assert "data-sc-analysis-poll" not in body
+
+
+@pytest.mark.django_db
+def test_transcript_detail_idle_shows_generate_button_without_analysis(
+    sc_client, sc_transcript_with_speakers
+):
+    transcript = sc_transcript_with_speakers
+    resp = sc_client.get(
+        reverse("speech_center:transcript_detail", args=[transcript.id])
+    )
+    assert resp.status_code == 200
+    assert resp.context["analysis_idle"] is True
+    assert resp.context["analysis_pending"] is False
+    assert resp.context["analysis_ready"] is False
+    body = resp.content.decode()
+    assert "Generate AI Insights" in body or "Generate Analysis" in body
+    assert "sc-ai-idle" in body
+    assert "sc-ai-card" in body
+    assert "Not generated yet" in body
+    assert "sc-insight-block" not in body
+    assert "data-sc-analysis-poll" not in body
+    assert reverse("speech_center:generate_ai_insights", args=[transcript.id]) in body
+
+
+@pytest.mark.django_db
+def test_generate_ai_insights_enqueues_task_and_shows_loading(
+    sc_client, sc_transcript_with_speakers, monkeypatch
+):
+    from turing.services import ai_analysis_trigger as trigger
+    from turing.ui.speech_center.views import ANALYSIS_GENERATING_LABEL
+
+    transcript = sc_transcript_with_speakers
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        "turing.tasks.analysis.generate_transcript_analysis.delay",
+        lambda transcript_id: scheduled.append(transcript_id),
+    )
+
+    url = reverse("speech_center:generate_ai_insights", args=[transcript.id])
+    resp = sc_client.post(url)
+    assert resp.status_code == 302
+    assert scheduled == [str(transcript.id)]
+    assert trigger.get_trigger_state(str(transcript.id)) == trigger.STATE_GENERATING
+
+    detail = sc_client.get(
+        reverse("speech_center:transcript_detail", args=[transcript.id])
+    )
+    assert detail.status_code == 200
+    assert detail.context["analysis_generating"] is True
+    assert detail.context["analysis_pending"] is True
+    assert detail.context["analysis_poll_seconds"] >= 3
+    body = detail.content.decode()
+    assert str(ANALYSIS_GENERATING_LABEL) in body
+    assert "sc-ai-spinner" in body
+    assert 'data-sc-analysis-poll="' in body
+    assert "Generate AI Insights" not in body
+    assert "Generate Analysis" not in body
+
+
+@pytest.mark.django_db
+def test_transcript_detail_failed_state_shows_retry(
+    sc_client, sc_transcript_with_speakers
+):
+    from turing.services import ai_analysis_trigger as trigger
+    from turing.ui.speech_center.views import ANALYSIS_FAILED_LABEL
+
+    transcript = sc_transcript_with_speakers
+    trigger.mark_failed(str(transcript.id))
+    resp = sc_client.get(
+        reverse("speech_center:transcript_detail", args=[transcript.id])
+    )
+    assert resp.status_code == 200
+    assert resp.context["analysis_failed"] is True
+    body = resp.content.decode()
+    assert str(ANALYSIS_FAILED_LABEL) in body
+    assert "Retry" in body
+    assert reverse("speech_center:generate_ai_insights", args=[transcript.id]) in body
+
+
+@pytest.mark.django_db
+def test_retry_ai_insights_reenqueues_task(
+    sc_client, sc_transcript_with_speakers, monkeypatch
+):
+    from turing.services import ai_analysis_trigger as trigger
+
+    transcript = sc_transcript_with_speakers
+    trigger.mark_failed(str(transcript.id))
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        "turing.tasks.analysis.generate_transcript_analysis.delay",
+        lambda transcript_id: scheduled.append(transcript_id),
+    )
+    resp = sc_client.post(
+        reverse("speech_center:generate_ai_insights", args=[transcript.id])
+    )
+    assert resp.status_code == 302
+    assert scheduled == [str(transcript.id)]
+    assert trigger.get_trigger_state(str(transcript.id)) == trigger.STATE_GENERATING
+
+
+@pytest.mark.django_db
+def test_transcript_detail_shows_ready_analysis(
+    sc_client, sc_transcript_with_speakers
+):
+    from turing.domain.enums import AnalysisType
+    from turing.models import TranscriptAnalysis
+
+    transcript = sc_transcript_with_speakers
+    org = transcript.organization
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=org,
+        analysis_type=AnalysisType.SUMMARY,
+        content={"summary": "Ready summary", "main_points": []},
+        provider="fake",
+        model_name="fake-v1",
+    )
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=org,
+        analysis_type=AnalysisType.TOPICS,
+        content=["kw"],
+        provider="fake",
+        model_name="fake-v1",
+    )
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=org,
+        analysis_type=AnalysisType.ACTION_ITEMS,
+        content=[{"task": "Do it", "owner": None, "deadline": None}],
+        provider="fake",
+        model_name="fake-v1",
+    )
+    resp = sc_client.get(
+        reverse("speech_center:transcript_detail", args=[transcript.id])
+    )
+    assert resp.status_code == 200
+    assert resp.context["analysis_ready"] is True
+    assert resp.context["analysis_idle"] is False
+    body = resp.content.decode()
+    assert "Ready summary" in body
+    assert "Generate AI Insights" not in body
+    assert "Generate Analysis" not in body
+    assert "data-sc-analysis-poll" not in body
+
+
+@pytest.mark.django_db
+def test_transcript_detail_empty_completed_analysis_shows_dash(
+    sc_client, sc_transcript_with_speakers
+):
+    from turing.domain.enums import AnalysisType
+    from turing.models import TranscriptAnalysis
+    from turing.ui.speech_center.views import (
+        ANALYSIS_EMPTY_LABEL,
+        ANALYSIS_PENDING_LABEL,
+    )
+
+    transcript = sc_transcript_with_speakers
+    org = transcript.organization
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=org,
+        analysis_type=AnalysisType.SUMMARY,
+        content={"summary": "Ready summary", "main_points": []},
+        provider="fake",
+        model_name="fake-v1",
+    )
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=org,
+        analysis_type=AnalysisType.TOPICS,
+        content=[],
+        provider="fake",
+        model_name="fake-v1",
+    )
+    TranscriptAnalysis.objects.create(
+        transcript=transcript,
+        organization=org,
+        analysis_type=AnalysisType.ACTION_ITEMS,
+        content=[],
+        provider="fake",
+        model_name="fake-v1",
+    )
+
+    resp = sc_client.get(
+        reverse("speech_center:transcript_detail", args=[transcript.id])
+    )
+    assert resp.status_code == 200
+    assert resp.context["summary_text"] == "Ready summary"
+    assert resp.context["topics_text"] == ANALYSIS_EMPTY_LABEL
+    assert resp.context["actions_text"] == ANALYSIS_EMPTY_LABEL
+    assert resp.context["analysis_pending"] is False
+    body = resp.content.decode()
+    assert str(ANALYSIS_PENDING_LABEL) not in body
+    assert "data-sc-analysis-poll" not in body

@@ -115,13 +115,17 @@ class ConnectorCredentialAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, adm
         "revoked_at",
         "updated_at",
     )
-    list_filter = ("auth_type", "organization", "expires_at")
+    list_filter = ("auth_type", ("organization", admin.RelatedOnlyFieldListFilter), "expires_at")
     search_fields = (
         "id",
         "connector_installation__name",
         "connector_installation__connector_type",
         "organization__name",
     )
+    list_select_related = ("organization", "connector_installation")
+    list_per_page = 50
+    date_hierarchy = "updated_at"
+    ordering = ("-updated_at",)
     readonly_fields = (
         "organization",
         "connector_installation",
@@ -141,6 +145,9 @@ class ConnectorCredentialAdmin(PersianAdminMixin, CapabilityGatedAdminMixin, adm
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False
 
     @admin.display(boolean=True, description="توکن دسترسی")

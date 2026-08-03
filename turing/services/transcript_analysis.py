@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Iterable
 
 from django.contrib.auth.models import AbstractBaseUser
 from django.db import transaction
 
 from turing.ai.registry import AIProviderRegistry
-from turing.ai.types import TranscriptInput, TranscriptSegmentInput
+from turing.ai.types import AnalysisResult, TranscriptInput, TranscriptSegmentInput
 from turing.auth.tenancy import assert_organization_access, scope_by_organization
 from turing.conf import get_turing_settings
 from turing.domain.enums import AnalysisType
@@ -66,30 +67,94 @@ class TranscriptAnalysisService:
         provider_code = provider_code or get_turing_settings().ai_provider
         provider = AIProviderRegistry.get(provider_code)
         transcript_input = self._build_input(transcript)
+        requested = [str(item) for item in analysis_types]
+        # Preserve order, drop duplicates.
+        requested_unique = list(dict.fromkeys(requested))
         created: list[TranscriptAnalysis] = []
+        total_started = time.perf_counter()
+        llm_duration = 0.0
 
-        for analysis_type in analysis_types:
-            try:
-                result = provider.analyze(transcript_input, analysis_type)
-            except ProviderError:
-                raise
-            except Exception as exc:  # noqa: BLE001
-                raise ProviderError(
-                    f"AI provider failed for {analysis_type}: {exc}",
-                    code="PROVIDER_RESPONSE",
-                    retryable=False,
-                ) from exc
-
-            content = self._validate_content(analysis_type, result.content)
-            analysis = TranscriptAnalysis.objects.create(
-                transcript=transcript,
-                organization=transcript.organization,
-                analysis_type=analysis_type,
-                content=content,
-                provider=provider_code,
-                model_name=result.model_name or "",
+        use_suite = self._should_use_suite(requested_unique)
+        try:
+            if use_suite:
+                llm_started = time.perf_counter()
+                try:
+                    suite = provider.analyze_suite(transcript_input)
+                except ProviderError:
+                    llm_duration = time.perf_counter() - llm_started
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    llm_duration = time.perf_counter() - llm_started
+                    raise ProviderError(
+                        f"AI provider suite failed: {exc}",
+                        code="PROVIDER_RESPONSE",
+                        retryable=False,
+                    ) from exc
+                llm_duration = time.perf_counter() - llm_started
+                results_by_type = {
+                    str(key): value for key, value in (suite or {}).items()
+                }
+                for analysis_type in requested_unique:
+                    result = results_by_type.get(analysis_type)
+                    if result is None:
+                        raise ProviderError(
+                            f"AI suite response missing '{analysis_type}'.",
+                            code="PROVIDER_RESPONSE",
+                            retryable=False,
+                        )
+                    created.append(
+                        self._persist_analysis(
+                            transcript=transcript,
+                            analysis_type=analysis_type,
+                            result=result,
+                            provider_code=provider_code,
+                        )
+                    )
+            else:
+                for analysis_type in requested_unique:
+                    type_started = time.perf_counter()
+                    try:
+                        result = provider.analyze(transcript_input, analysis_type)
+                    except ProviderError:
+                        llm_duration += time.perf_counter() - type_started
+                        raise
+                    except Exception as exc:  # noqa: BLE001
+                        llm_duration += time.perf_counter() - type_started
+                        raise ProviderError(
+                            f"AI provider failed for {analysis_type}: {exc}",
+                            code="PROVIDER_RESPONSE",
+                            retryable=False,
+                        ) from exc
+                    llm_duration += time.perf_counter() - type_started
+                    created.append(
+                        self._persist_analysis(
+                            transcript=transcript,
+                            analysis_type=analysis_type,
+                            result=result,
+                            provider_code=provider_code,
+                        )
+                    )
+        except ProviderError:
+            logger.warning(
+                "[ANALYSIS-TIMING] transcript_id=%s llm_request_duration=%.3f "
+                "total_analysis_duration=%.3f status=failed suite=%s",
+                transcript.pk,
+                llm_duration,
+                time.perf_counter() - total_started,
+                use_suite,
             )
-            created.append(analysis)
+            raise
+
+        total_duration = time.perf_counter() - total_started
+        logger.warning(
+            "[ANALYSIS-TIMING] transcript_id=%s llm_request_duration=%.3f "
+            "total_analysis_duration=%.3f status=ok suite=%s created=%s",
+            transcript.pk,
+            llm_duration,
+            total_duration,
+            use_suite,
+            len(created),
+        )
 
         if created:
             emit_after_commit(
@@ -190,6 +255,31 @@ class TranscriptAnalysisService:
     def scope_queryset(self, queryset, user):
         return scope_by_organization(queryset, user, field="organization_id")
 
+    def _should_use_suite(self, requested: list[str]) -> bool:
+        """Use one provider suite call when generating multiple default types."""
+        if len(requested) < 2:
+            return False
+        allowed = {choice.value for choice in AnalysisType}
+        return all(item in allowed for item in requested)
+
+    def _persist_analysis(
+        self,
+        *,
+        transcript: Transcript,
+        analysis_type: str,
+        result: AnalysisResult,
+        provider_code: str,
+    ) -> TranscriptAnalysis:
+        content = self._validate_content(analysis_type, result.content)
+        return TranscriptAnalysis.objects.create(
+            transcript=transcript,
+            organization=transcript.organization,
+            analysis_type=analysis_type,
+            content=content,
+            provider=provider_code,
+            model_name=result.model_name or "",
+        )
+
     def _build_input(self, transcript: Transcript) -> TranscriptInput:
         loaded = self.transcript_service.get(str(transcript.id))
         segments = tuple(
@@ -219,9 +309,11 @@ class TranscriptAnalysisService:
                 raise ValidationError("Summary analysis requires a string 'summary'.")
             if main_points is not None and not isinstance(main_points, list):
                 raise ValidationError("Summary 'main_points' must be a list.")
+            from turing.ai.providers.openai import _limit_main_points, _limit_sentences
+
             return {
-                "summary": summary,
-                "main_points": list(main_points or []),
+                "summary": _limit_sentences(summary),
+                "main_points": _limit_main_points(list(main_points or [])),
             }
 
         if analysis_type == AnalysisType.ACTION_ITEMS:
@@ -230,11 +322,15 @@ class TranscriptAnalysisService:
             for item in content:
                 if not isinstance(item, dict) or "task" not in item:
                     raise ValidationError("Each action item must be an object with 'task'.")
-            return content
+            from turing.ai.providers.openai import _limit_action_items
+
+            return _limit_action_items(content)
 
         if analysis_type == AnalysisType.TOPICS:
             if not isinstance(content, list):
                 raise ValidationError("Topics analysis must be a JSON array.")
-            return [str(topic) for topic in content]
+            from turing.ai.providers.openai import _limit_topics
+
+            return _limit_topics(content)
 
         raise ValidationError(f"Unsupported analysis type: {analysis_type}")

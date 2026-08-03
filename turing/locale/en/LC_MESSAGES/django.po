@@ -1,0 +1,823 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-08-02 12:34+0330\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: turing/apps.py:10
+msgid "هوش گفتار تورینگ"
+msgstr ""
+
+#: turing/templates/admin/app_list.html:8
+#, python-format
+msgid "Models in the %(name)s application"
+msgstr ""
+
+#: turing/templates/admin/app_list.html:12
+msgid "Model name"
+msgstr ""
+
+#: turing/templates/admin/app_list.html:13
+msgid "Add link"
+msgstr ""
+
+#: turing/templates/admin/app_list.html:14
+msgid "Change or view list link"
+msgstr ""
+
+#: turing/templates/admin/app_list.html:29
+msgid "Add"
+msgstr ""
+
+#: turing/templates/admin/app_list.html:36
+msgid "View"
+msgstr ""
+
+#: turing/templates/admin/app_list.html:38
+msgid "Change"
+msgstr ""
+
+#: turing/templates/admin/app_list.html:50
+msgid "You don’t have permission to view or edit anything."
+msgstr ""
+
+#: turing/templates/admin/base_site.html:4
+msgid "Django site admin"
+msgstr ""
+
+#: turing/templates/admin/base_site.html:7
+msgid "Django administration"
+msgstr ""
+
+#: turing/templates/admin/search_form.html:5
+#, python-format
+msgid "Search %(name)s"
+msgstr ""
+
+#: turing/templates/admin/search_form.html:7
+msgid "Search"
+msgstr ""
+
+#: turing/templates/admin/search_form.html:9
+#, python-format
+msgid "%(counter)s result"
+msgid_plural "%(counter)s results"
+msgstr[0] ""
+msgstr[1] ""
+
+#: turing/templates/admin/search_form.html:9
+#, python-format
+msgid "%(full_result_count)s total"
+msgstr ""
+
+#: turing/templates/admin/search_form.html:9
+msgid "Show all"
+msgstr ""
+
+#: turing/templates/speech_center/_speaker_chip.html:9
+#, python-format
+msgid "Edit speaker %(display_name)s"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:7
+#: turing/templates/speech_center/base.html:18
+#: turing/templates/speech_center/base.html:54
+#: turing/templates/speech_center/base.html:60
+#: turing/templates/speech_center/dashboard.html:8
+#: turing/ui/speech_center/views.py:249
+msgid "Speech Center"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:21
+#: turing/templates/speech_center/create_transcript.html:43
+#: turing/templates/speech_center/create_transcript.html:85
+#: turing/templates/speech_center/transcript_detail.html:13
+#: turing/templates/speech_center/transcripts.html:15
+msgid "Language"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:44
+msgid "Admin"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:46
+msgid "Toggle theme"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:46
+msgid "Theme"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:48
+msgid "Log out"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:55
+msgid "Navigation"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:66
+#: turing/templates/speech_center/create_transcript.html:11
+#: turing/templates/speech_center/create_transcript.html:105
+#: turing/templates/speech_center/dashboard.html:55
+#: turing/templates/speech_center/queue.html:100
+#: turing/templates/speech_center/transcripts.html:45
+#: turing/ui/speech_center/views.py:347
+msgid "Upload Content"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:72
+#: turing/templates/speech_center/create_transcript.html:47
+#: turing/templates/speech_center/queue.html:101
+#: turing/templates/speech_center/transcripts.html:46
+#: turing/ui/speech_center/views.py:402
+msgid "Create Transcript"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:78
+#: turing/ui/speech_center/views.py:446
+msgid "Processing Queue"
+msgstr ""
+
+#: turing/templates/speech_center/base.html:84
+#: turing/ui/speech_center/views.py:510
+msgid "Transcripts"
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:5
+msgid ""
+"Select media already stored in Turing. Upload new files from Upload Content."
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:10
+msgid "Choose a file, set language if needed, then send it to transcription."
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:15
+#: turing/templates/speech_center/create_transcript.html:19
+#: turing/templates/speech_center/create_transcript.html:75
+msgid "Just uploaded"
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:27
+#: turing/templates/speech_center/transcript_detail.html:14
+#: turing/templates/speech_center/transcripts.html:16
+#: turing/templates/speech_center/upload.html:113
+msgid "Duration"
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:31
+#: turing/templates/speech_center/create_transcript.html:63
+#: turing/templates/speech_center/upload.html:37
+#: turing/templates/speech_center/upload.html:62
+#: turing/templates/speech_center/upload.html:125
+msgid "Organization"
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:35
+#: turing/templates/speech_center/meetings.html:30
+#: turing/templates/speech_center/transcript_detail.html:12
+#: turing/templates/speech_center/transcripts.html:18
+#: turing/templates/speech_center/upload.html:80
+msgid "Status"
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:36
+msgid "Ready"
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:53
+msgid ""
+"Your uploaded recording is highlighted below — send it to transcription when "
+"ready."
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:62
+#: turing/templates/speech_center/transcripts.html:14
+msgid "Media"
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:64
+#: turing/templates/speech_center/transcript_detail.html:15
+#: turing/templates/speech_center/transcripts.html:17
+msgid "Created"
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:91
+#: turing/templates/speech_center/dashboard.html:84
+msgid "Send to Transcription"
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:102
+msgid "No media available"
+msgstr ""
+
+#: turing/templates/speech_center/create_transcript.html:103
+msgid "Upload a file first, then return here to start transcription."
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:7
+msgid "Welcome"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:9
+#, python-format
+msgid "Hello, %(name)s"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:11
+msgid "Manage your recordings, transcripts and optional AI insights."
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:15
+msgid "Quick actions"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:16
+msgid "Quick Actions"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:19
+msgid "+ Upload Audio"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:20
+msgid "Add a file to the media library."
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:23
+msgid "+ Record Audio"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:24
+msgid "Capture directly in the browser."
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:27
+msgid "+ Create Transcript"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:28
+msgid "Send stored media to transcription."
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:33
+msgid "Recent activity"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:35
+msgid "Recent Activity"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:36
+msgid "View Status"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:41
+msgid "Recent recordings"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:52
+msgid "No recordings yet. Upload or record to get started."
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:60
+msgid "Processing status"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:81
+msgid "No jobs in the queue yet."
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:89
+msgid "Recent transcripts"
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:102
+msgid "Transcripts will appear here when ready."
+msgstr ""
+
+#: turing/templates/speech_center/dashboard.html:105
+msgid "Open"
+msgstr ""
+
+#: turing/templates/speech_center/meetings.html:5
+msgid ""
+"Meeting import foundation — provider integrations are not connected yet."
+msgstr ""
+
+#: turing/templates/speech_center/meetings.html:9
+msgid "Meetings"
+msgstr ""
+
+#: turing/templates/speech_center/meetings.html:11
+msgid "Schedule and track meeting recordings here once providers are wired."
+msgstr ""
+
+#: turing/templates/speech_center/meetings.html:12
+msgid "Coming soon"
+msgstr ""
+
+#: turing/templates/speech_center/meetings.html:12
+msgid "+ New Meeting"
+msgstr ""
+
+#: turing/templates/speech_center/meetings.html:18
+msgid "Provider"
+msgstr ""
+
+#: turing/templates/speech_center/meetings.html:22
+msgid "Connect"
+msgstr ""
+
+#: turing/templates/speech_center/meetings.html:29
+msgid "Status legend"
+msgstr ""
+
+#: turing/templates/speech_center/meetings.html:37
+msgid "No meetings yet"
+msgstr ""
+
+#: turing/templates/speech_center/meetings.html:38
+msgid ""
+"This page is a UI foundation only. Alocom, Zoom, and Teams will plug in "
+"later without changing the media pipeline."
+msgstr ""
+
+#: turing/templates/speech_center/queue.html:5
+msgid ""
+"Live status from the existing processing pipeline. This page refreshes "
+"automatically while jobs are active."
+msgstr ""
+
+#: turing/templates/speech_center/queue.html:35
+msgid "Cancel this processing job? Pending retries will be stopped."
+msgstr ""
+
+#: turing/templates/speech_center/queue.html:41
+#: turing/templates/speech_center/queue.html:42
+msgid "Cancel job"
+msgstr ""
+
+#: turing/templates/speech_center/queue.html:63
+msgid "Processing pipeline"
+msgstr ""
+
+#: turing/templates/speech_center/queue.html:77
+#: turing/templates/speech_center/transcript_detail.html:142
+msgid "Retry"
+msgstr ""
+
+#: turing/templates/speech_center/queue.html:97
+msgid "No processing jobs yet"
+msgstr ""
+
+#: turing/templates/speech_center/queue.html:98
+msgid "Upload audio and send it to transcription to track progress here."
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:22
+#: turing/templates/speech_center/transcript_detail.html:23
+msgid "Speakers"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:34
+msgid "No speakers found."
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:38
+msgid "Transcript timeline"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:40
+#: turing/ui/speech_center/views.py:640
+msgid "Transcript"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:50
+msgid "Edit Transcript"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:73
+msgid "No transcript available."
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:79
+msgid "Edit transcript"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:88
+msgid "Save"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:91
+msgid "Cancel"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:99
+#: turing/templates/speech_center/transcript_detail.html:160
+msgid "Insights"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:102
+msgid "AI analysis"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:105
+msgid "AI Analysis"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:120
+msgid "Generate Analysis"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:124
+msgid "AI insights are not available yet."
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:132
+msgid "This page refreshes automatically when results are ready."
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:138
+msgid "You can try again without re-running transcription."
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:148
+msgid "Summary"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:151
+msgid "Keywords"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:154
+msgid "Actions"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:162
+msgid "View Segments"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:163
+msgid "View Words"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:164
+msgid "View Analysis"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:165
+msgid "Open Intelligence"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:166
+msgid "Export PDF"
+msgstr ""
+
+#: turing/templates/speech_center/transcript_detail.html:167
+msgid "Export DOCX"
+msgstr ""
+
+#: turing/templates/speech_center/transcripts.html:5
+msgid "Browse transcripts produced by the existing Speech Center pipeline."
+msgstr ""
+
+#: turing/templates/speech_center/transcripts.html:42
+msgid "No transcripts yet"
+msgstr ""
+
+#: turing/templates/speech_center/transcripts.html:43
+msgid ""
+"When transcription finishes, transcripts appear here so you can read, "
+"export, and optionally generate AI insights."
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:5
+msgid ""
+"Add audio to Turing as a normal media asset — upload a file or record in the "
+"browser."
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:9
+#: turing/templates/speech_center/upload.html:10
+msgid "Upload content"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:13
+msgid "Upload File"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:17
+msgid "Record Audio"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:24
+msgid "Choose audio file"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:31
+msgid "Drop audio here, or click to browse"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:40
+#: turing/templates/speech_center/upload.html:65
+msgid "No organizations available"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:49
+msgid "Upload"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:57
+msgid ""
+"This browser does not support MediaRecorder. Use Chrome, Edge, Firefox, or "
+"Safari 14.1+, or switch to Upload File."
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:76
+msgid "Microphone"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:77
+msgid "Checking…"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:81
+msgid "Ready to record"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:84
+msgid "Timer"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:92
+msgid "Start"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:93
+msgid "Pause"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:94
+msgid "Resume"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:95
+msgid "Stop"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:96
+msgid "Delete"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:99
+msgid ""
+"Shortcuts: <kbd>R</kbd> start / again · <kbd>P</kbd> pause / resume · "
+"<kbd>S</kbd> stop"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:103
+msgid "Recording details"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:107
+msgid "Recording"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:108
+msgid "Review your recording"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:117
+msgid "Format"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:121
+msgid "Size"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:131
+msgid "Waveform trim preview"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:132
+msgid "Full recording"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:133
+msgid "Drag handles to trim. Nothing changes until Save &amp; Upload."
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:139
+msgid "Focus playback"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:139
+msgid "▶ Play"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:140
+msgid "Focus trim handles"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:140
+msgid "✂ Trim"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:141
+msgid "🔄 Record Again"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:143
+msgid "⬆ Save &amp; Upload"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:150
+#: turing/templates/speech_center/upload.html:152
+msgid "Upload progress"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:153
+msgid "Preparing audio"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:154
+msgid "Uploading file"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:155
+msgid "Upload complete"
+msgstr ""
+
+#: turing/templates/speech_center/upload.html:156
+msgid "Creating transcript"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:17
+msgid "Queued"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:18
+msgid "Preparing"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:19
+#: turing/ui/speech_center/presentation.py:192
+msgid "Uploading"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:20
+msgid "Submitted"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:21
+msgid "Processing"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:22
+#: turing/ui/speech_center/views.py:59
+msgid "Completed"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:23
+msgid "Retry Scheduled"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:24
+#: turing/ui/speech_center/views.py:60
+msgid "Failed"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:25
+msgid "Cancelled"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:56
+#, python-format
+msgid "%(n)d second"
+msgid_plural "%(n)d seconds"
+msgstr[0] ""
+msgstr[1] ""
+
+#: turing/ui/speech_center/presentation.py:59
+#, python-format
+msgid "%(n)d minute"
+msgid_plural "%(n)d minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: turing/ui/speech_center/presentation.py:63
+#, python-format
+msgid "%(n)d hour"
+msgid_plural "%(n)d hours"
+msgstr[0] ""
+msgstr[1] ""
+
+#: turing/ui/speech_center/presentation.py:64
+#, python-format
+msgid "%(hours)d h %(minutes)d min"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:102
+#, python-format
+msgid "%(status)s — %(elapsed)s total"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:106
+#, python-format
+msgid "%(status)s — %(elapsed)s"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:165
+msgid "Cancelled by user"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:193
+msgid "Preparing media"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:194
+msgid "Speech recognition"
+msgstr ""
+
+#: turing/ui/speech_center/presentation.py:195
+msgid "Transcript ready"
+msgstr ""
+
+#: turing/ui/speech_center/views.py:50
+msgid "Preparing analysis…"
+msgstr ""
+
+#: turing/ui/speech_center/views.py:51
+msgid "Generating AI insights…"
+msgstr ""
+
+#: turing/ui/speech_center/views.py:52
+msgid "AI analysis failed."
+msgstr ""
+
+#: turing/ui/speech_center/views.py:53
+msgid "AI insights (optional)"
+msgstr ""
+
+#: turing/ui/speech_center/views.py:55
+msgid ""
+"Your transcript is ready. Generate summary, keywords, and action items when "
+"you need them."
+msgstr ""
+
+#: turing/ui/speech_center/views.py:57
+msgid "Not generated yet"
+msgstr ""
+
+#: turing/ui/speech_center/views.py:58
+msgid "Generating"
+msgstr ""
+
+#: turing/ui/speech_center/views.py:295
+msgid "Please choose an audio file to upload."
+msgstr ""
+
+#: turing/ui/speech_center/views.py:298
+msgid "Please select an organization."
+msgstr ""
+
+#: turing/ui/speech_center/views.py:323
+#, python-format
+msgid "Recording uploaded successfully: %(name)s."
+msgstr ""
+
+#: turing/ui/speech_center/views.py:328
+#, python-format
+msgid "Uploaded %(name)s."
+msgstr ""
+
+#: turing/ui/speech_center/views.py:381
+#, python-format
+msgid "Transcription job created (%(job_id)s)."
+msgstr ""
+
+#: turing/ui/speech_center/views.py:462
+#, python-format
+msgid "Retry scheduled for job %(job_id)s."
+msgstr ""
+
+#: turing/ui/speech_center/views.py:478
+#, python-format
+msgid "Job %(job_id)s cancelled."
+msgstr ""

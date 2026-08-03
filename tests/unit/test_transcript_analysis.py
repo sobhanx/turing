@@ -161,6 +161,261 @@ def test_fake_provider_outputs_expected_shapes(transcript):
     assert all(isinstance(topic, str) for topic in topics)
 
 
+def test_suite_prompt_enforces_concise_summary_rules():
+    from turing.ai.providers.openai import (
+        MAX_SUITE_ACTION_ITEMS,
+        MAX_SUITE_TOPICS,
+        SUITE_SYSTEM_PROMPT,
+    )
+
+    assert "Return JSON only" in SUITE_SYSTEM_PROMPT
+    assert "maximum 5 sentences" in SUITE_SYSTEM_PROMPT
+    assert "maximum 5 items" in SUITE_SYSTEM_PROMPT
+    assert "only actionable tasks" in SUITE_SYSTEM_PROMPT
+    assert f"maximum {MAX_SUITE_ACTION_ITEMS} items" in SUITE_SYSTEM_PROMPT
+    assert f"maximum {MAX_SUITE_TOPICS} short labels" in SUITE_SYSTEM_PROMPT
+    assert "Persian" in SUITE_SYSTEM_PROMPT
+
+
+def test_summary_limit_helpers_cap_sentences_and_points():
+    from turing.ai.providers.openai import (
+        MAX_SUITE_ACTION_ITEMS,
+        MAX_SUITE_TOPICS,
+        _limit_action_items,
+        _limit_main_points,
+        _limit_sentences,
+        _limit_topics,
+        _split_sentences,
+    )
+
+    long_summary = (
+        "One. Two. Three. Four. Five. Six. Seven."
+    )
+    assert len(_split_sentences(long_summary)) == 7
+    capped = _limit_sentences(long_summary)
+    assert len(_split_sentences(capped)) == 5
+    assert "Five." in capped
+    assert "Six." not in capped
+
+    points = [f"Point {i}." for i in range(1, 9)]
+    limited = _limit_main_points(points)
+    assert len(limited) == 5
+    assert limited[0] == "Point 1."
+
+    topics = [f"topic-{i}" for i in range(1, 15)]
+    assert len(_limit_topics(topics)) == MAX_SUITE_TOPICS
+    assert _limit_topics(topics)[0] == "topic-1"
+    assert "topic-9" not in _limit_topics(topics)
+
+    actions = [
+        {"task": f"Task {i}", "owner": None, "deadline": None} for i in range(1, 16)
+    ]
+    limited_actions = _limit_action_items(actions)
+    assert len(limited_actions) == MAX_SUITE_ACTION_ITEMS
+    assert limited_actions[0]["task"] == "Task 1"
+    assert limited_actions[-1]["task"] == f"Task {MAX_SUITE_ACTION_ITEMS}"
+
+
+@pytest.mark.django_db
+def test_openai_suite_uses_one_llm_call_and_creates_three_rows(transcript, monkeypatch):
+    from turing.ai.providers.openai import OpenAIProvider
+
+    calls: list[dict] = []
+
+    def fake_chat_json(self, *, system, user, timeout=60):
+        calls.append({"system": system, "timeout": timeout})
+        return {
+            "summary": {
+                "summary": "Suite summary about pricing",
+                "main_points": ["Discuss pricing"],
+            },
+            "action_items": [
+                {"task": "Send quote", "owner": "Ada", "deadline": None},
+            ],
+            "topics": ["pricing", "contract"],
+        }
+
+    monkeypatch.setattr(OpenAIProvider, "_chat_json", fake_chat_json)
+    monkeypatch.setattr(
+        "turing.services.transcript_analysis.AIProviderRegistry.get",
+        lambda code: OpenAIProvider(),
+    )
+    monkeypatch.setattr(
+        OpenAIProvider,
+        "_api_key",
+        lambda self: "sk-test",
+    )
+    monkeypatch.setattr(
+        OpenAIProvider,
+        "_model_name",
+        lambda self: "gpt-4o-mini",
+    )
+
+    created = TranscriptAnalysisService().generate_default_suite(
+        transcript,
+        provider_code="openai",
+    )
+    assert len(calls) == 1
+    assert len(created) == 3
+    by_type = {row.analysis_type: row for row in created}
+    assert by_type[AnalysisType.SUMMARY].content["summary"] == "Suite summary about pricing"
+    assert by_type[AnalysisType.ACTION_ITEMS].content[0]["task"] == "Send quote"
+    assert by_type[AnalysisType.TOPICS].content == ["pricing", "contract"]
+    assert all(row.provider == "openai" for row in created)
+    assert all(row.model_name == "gpt-4o-mini" for row in created)
+
+
+@pytest.mark.django_db
+def test_openai_suite_caps_summary_sentences_and_main_points(transcript, monkeypatch):
+    from turing.ai.providers.openai import OpenAIProvider, _split_sentences
+
+    def verbose_chat_json(self, *, system, user, timeout=60):
+        return {
+            "summary": {
+                "summary": (
+                    "First sentence. Second sentence. Third sentence. "
+                    "Fourth sentence. Fifth sentence. Sixth sentence. Seventh."
+                ),
+                "main_points": [
+                    "Point one is long enough.",
+                    "Point two is long enough.",
+                    "Point three is long enough.",
+                    "Point four is long enough.",
+                    "Point five is long enough.",
+                    "Point six should be dropped.",
+                    "Point seven should be dropped.",
+                ],
+            },
+            "action_items": [],
+            "topics": ["alpha"],
+        }
+
+    monkeypatch.setattr(OpenAIProvider, "_chat_json", verbose_chat_json)
+    monkeypatch.setattr(
+        "turing.services.transcript_analysis.AIProviderRegistry.get",
+        lambda code: OpenAIProvider(),
+    )
+    monkeypatch.setattr(OpenAIProvider, "_api_key", lambda self: "sk-test")
+    monkeypatch.setattr(OpenAIProvider, "_model_name", lambda self: "gpt-4o-mini")
+
+    created = TranscriptAnalysisService().generate_default_suite(
+        transcript,
+        provider_code="openai",
+    )
+    summary = next(
+        row.content for row in created if row.analysis_type == AnalysisType.SUMMARY
+    )
+    assert len(_split_sentences(summary["summary"])) <= 5
+    assert len(summary["main_points"]) <= 5
+
+
+@pytest.mark.django_db
+def test_openai_suite_truncates_topics_and_action_items(transcript, monkeypatch):
+    from turing.ai.providers.openai import (
+        MAX_SUITE_ACTION_ITEMS,
+        MAX_SUITE_TOPICS,
+        OpenAIProvider,
+    )
+
+    def oversized_chat_json(self, *, system, user, timeout=60):
+        return {
+            "summary": {"summary": "Short summary.", "main_points": ["One."]},
+            "action_items": [
+                {"task": f"Task {i}", "owner": "Ada", "deadline": None}
+                for i in range(1, 16)
+            ],
+            "topics": [f"topic-{i}" for i in range(1, 20)],
+        }
+
+    monkeypatch.setattr(OpenAIProvider, "_chat_json", oversized_chat_json)
+    monkeypatch.setattr(
+        "turing.services.transcript_analysis.AIProviderRegistry.get",
+        lambda code: OpenAIProvider(),
+    )
+    monkeypatch.setattr(OpenAIProvider, "_api_key", lambda self: "sk-test")
+    monkeypatch.setattr(OpenAIProvider, "_model_name", lambda self: "gpt-4o-mini")
+
+    created = {
+        row.analysis_type: row.content
+        for row in TranscriptAnalysisService().generate_default_suite(
+            transcript,
+            provider_code="openai",
+        )
+    }
+    assert len(created[AnalysisType.TOPICS]) == MAX_SUITE_TOPICS
+    assert created[AnalysisType.TOPICS][0] == "topic-1"
+    assert f"topic-{MAX_SUITE_TOPICS + 1}" not in created[AnalysisType.TOPICS]
+    assert len(created[AnalysisType.ACTION_ITEMS]) == MAX_SUITE_ACTION_ITEMS
+    assert created[AnalysisType.ACTION_ITEMS][0]["task"] == "Task 1"
+    assert created[AnalysisType.ACTION_ITEMS][-1]["task"] == (
+        f"Task {MAX_SUITE_ACTION_ITEMS}"
+    )
+
+
+@pytest.mark.django_db
+def test_openai_suite_malformed_response_creates_no_rows(transcript, monkeypatch):
+    from turing.ai.providers.openai import OpenAIProvider
+
+    def bad_chat_json(self, *, system, user, timeout=60):
+        return {"summary": "not-an-object", "action_items": [], "topics": []}
+
+    monkeypatch.setattr(OpenAIProvider, "_chat_json", bad_chat_json)
+    monkeypatch.setattr(
+        "turing.services.transcript_analysis.AIProviderRegistry.get",
+        lambda code: OpenAIProvider(),
+    )
+    monkeypatch.setattr(OpenAIProvider, "_api_key", lambda self: "sk-test")
+    monkeypatch.setattr(OpenAIProvider, "_model_name", lambda self: "gpt-4o-mini")
+
+    with pytest.raises(ProviderError):
+        TranscriptAnalysisService().generate_default_suite(
+            transcript,
+            provider_code="openai",
+        )
+    assert TranscriptAnalysis.objects.filter(transcript=transcript).count() == 0
+
+
+@pytest.mark.django_db
+def test_empty_topics_suite_renders_dash_on_transcript_detail(
+    transcript, monkeypatch, client
+):
+    from django.contrib.auth import get_user_model
+    from django.urls import reverse
+
+    from turing.ai.providers.openai import OpenAIProvider
+    from turing.ui.speech_center.views import ANALYSIS_EMPTY_LABEL
+
+    def empty_topics_chat(self, *, system, user, timeout=60):
+        return {
+            "summary": {"summary": "Ready summary", "main_points": []},
+            "action_items": [{"task": "Follow up", "owner": None, "deadline": None}],
+            "topics": [],
+        }
+
+    monkeypatch.setattr(OpenAIProvider, "_chat_json", empty_topics_chat)
+    monkeypatch.setattr(
+        "turing.services.transcript_analysis.AIProviderRegistry.get",
+        lambda code: OpenAIProvider(),
+    )
+    monkeypatch.setattr(OpenAIProvider, "_api_key", lambda self: "sk-test")
+    monkeypatch.setattr(OpenAIProvider, "_model_name", lambda self: "gpt-4o-mini")
+
+    TranscriptAnalysisService().generate_default_suite(
+        transcript,
+        provider_code="openai",
+    )
+
+    user = get_user_model().objects.create_superuser(
+        "analysis-ui", "a@example.com", "pass"
+    )
+    client.force_login(user)
+    resp = client.get(reverse("speech_center:transcript_detail", args=[transcript.id]))
+    assert resp.status_code == 200
+    assert resp.context["summary_text"] == "Ready summary"
+    assert "Follow up" in resp.context["actions_text"]
+    assert resp.context["topics_text"] == ANALYSIS_EMPTY_LABEL
+
+
 @pytest.mark.django_db
 def test_failed_provider_does_not_corrupt_transcript(transcript, monkeypatch):
     class FailingProvider(AIProvider):
@@ -190,7 +445,7 @@ def test_failed_provider_does_not_corrupt_transcript(transcript, monkeypatch):
 
 
 @pytest.mark.django_db
-def test_fetch_task_schedules_analysis_only_on_create(monkeypatch, db):
+def test_fetch_task_schedules_analysis_only_on_create_when_auto_enabled(monkeypatch, db):
     provider = FakeSTTProvider()
     monkeypatch.setattr(
         "turing.providers.registry.ProviderRegistry.get",
@@ -207,6 +462,9 @@ def test_fetch_task_schedules_analysis_only_on_create(monkeypatch, db):
         filename="meeting.wav",
         use_case=UseCase.MEETING,
     )
+    Organization.objects.filter(pk=media.organization_id).update(
+        auto_generate_ai_analysis=True
+    )
     job = JobOrchestrator().create_transcription_job(
         media=media,
         language_code="en",
@@ -219,6 +477,38 @@ def test_fetch_task_schedules_analysis_only_on_create(monkeypatch, db):
 
     transcription_tasks.fetch_and_persist_transcription.run(str(job.id))
     assert len(scheduled) == 1
+
+
+@pytest.mark.django_db
+def test_fetch_task_skips_analysis_when_auto_disabled(monkeypatch, db):
+    provider = FakeSTTProvider()
+    monkeypatch.setattr(
+        "turing.providers.registry.ProviderRegistry.get",
+        lambda code: provider,
+    )
+    scheduled: list[str] = []
+    monkeypatch.setattr(
+        "turing.tasks.analysis.generate_transcript_analysis.delay",
+        lambda transcript_id: scheduled.append(transcript_id) or MagicMock(),
+    )
+
+    media = MediaService().create_from_upload(
+        uploaded_file=io.BytesIO(b"audio"),
+        filename="meeting.wav",
+        use_case=UseCase.MEETING,
+    )
+    Organization.objects.filter(pk=media.organization_id).update(
+        auto_generate_ai_analysis=False
+    )
+    job = JobOrchestrator().create_transcription_job(
+        media=media,
+        language_code="en",
+        auto_enqueue=False,
+    )
+    TranscriptionService().submit(str(job.id))
+
+    transcription_tasks.fetch_and_persist_transcription.run(str(job.id))
+    assert scheduled == []
 
 
 @pytest.mark.django_db
