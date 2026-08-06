@@ -89,6 +89,8 @@ class AudioNormalizationService:
                 command,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
                 timeout=DEFAULT_FFMPEG_TIMEOUT_SECONDS,
             )

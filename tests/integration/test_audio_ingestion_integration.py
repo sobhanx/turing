@@ -73,6 +73,8 @@ def _ffmpeg_transcode(input_bytes: bytes, *, input_suffix: str, output_suffix: s
             [ffmpeg, "-y", "-i", str(input_path), *codec_args, str(output_path)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if completed.returncode != 0:
