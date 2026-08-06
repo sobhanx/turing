@@ -1,0 +1,70 @@
+# =============================================================================
+# Turing — development, test, and optional extras
+# =============================================================================
+# Install:  pip install -r requirements-dev.txt
+# Includes runtime deps via -r requirements.txt, then test tools and optional
+# feature/production packages (not required for migrate / runserver / celery on
+# local SQLite + filesystem storage).
+# =============================================================================
+
+-r requirements.txt
+
+# -----------------------------------------------------------------------------
+# Development / test
+# -----------------------------------------------------------------------------
+
+# Test runner — tests/, pytest.ini via pyproject [tool.pytest.ini_options]
+pytest==9.1.1
+
+# Django test integration — DJANGO_SETTINGS_MODULE=config.settings for pytest
+pytest-django==4.13.0
+
+# HTTP mocking — connector / Speechmatics / webhook unit tests (import responses)
+responses==0.26.2
+
+# Declared in pyproject [project.optional-dependencies].dev; no current test imports
+# factory_boy / factory — kept for fixture parity with package metadata
+factory-boy==3.3.3
+
+# -----------------------------------------------------------------------------
+# Optional feature: transcript export (PDF / DOCX / RTL shaping)
+# Lazy-imported inside exporters; RuntimeError if missing when exporting.
+# Required to run export-related unit tests.
+# -----------------------------------------------------------------------------
+
+# PDF export — turing/services/export/pdf.py (import reportlab)
+reportlab==5.0.0
+
+# DOCX export — turing/services/export/docx_exporter.py (import docx)
+python-docx==1.2.0
+
+# Arabic/Persian glyph reshaping for PDF RTL — turing/services/export/text.py
+arabic-reshaper==3.0.1
+
+# BiDi reordering for RTL PDF text — from bidi.algorithm import get_display
+python-bidi==0.6.11
+
+# -----------------------------------------------------------------------------
+# Optional feature: richer audio metadata
+# Soft-optional in turing/media/metadata.py (ImportError → empty metadata)
+# -----------------------------------------------------------------------------
+
+mutagen==1.48.1
+
+# -----------------------------------------------------------------------------
+# Optional production: object storage (TURING_STORAGE_BACKEND=s3)
+# Not imported at boot when using local FileSystemStorage.
+# -----------------------------------------------------------------------------
+
+# Django storage backend string: storages.backends.s3boto3.S3Boto3Storage
+django-storages==1.14.6
+
+# AWS / MinIO / S3-compatible API client required by django-storages S3 backend
+boto3==1.43.65
+
+# -----------------------------------------------------------------------------
+# Optional production: PostgreSQL (DATABASE_URL=postgres://...)
+# Local default is SQLite; production settings require Postgres.
+# -----------------------------------------------------------------------------
+
+psycopg[binary]==3.3.4

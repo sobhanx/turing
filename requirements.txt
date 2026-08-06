@@ -1,0 +1,41 @@
+# =============================================================================
+# Turing — runtime requirements
+# =============================================================================
+# Install:  python -m venv .venv && pip install -r requirements.txt
+# Covers:   python manage.py migrate
+#           python manage.py runserver
+#           celery -A config worker -l info
+#
+# Versions pinned from the project's local .venv where installed; otherwise from
+# pyproject.toml lower bounds / current PyPI within those constraints.
+# Standard-library modules are omitted. Optional extras live in requirements-dev.txt.
+# =============================================================================
+
+# Web framework — Django project (config/, turing/), manage.py, admin, ORM, migrations
+Django==5.2.17
+
+# REST API — INSTALLED_APPS rest_framework (+ authtoken); all API viewsets/serializers
+djangorestframework==3.17.2
+
+# Query filtering — INSTALLED_APPS django_filters; REST_FRAMEWORK DEFAULT_FILTER_BACKENDS
+django-filter==26.1
+
+# Background jobs — config/celery.py, config/__init__.py, turing/tasks/*, CELERY_* settings
+celery==5.6.3
+
+# Celery broker / result backend — CELERY_BROKER_URL / CELERY_RESULT_BACKEND default to redis://
+redis==8.1.0
+
+# HTTP clients — Speechmatics client, OAuth/connectors, media ingest, outbound webhooks
+requests==2.34.2
+
+# Direct import in Speechmatics Retry config (turing/providers/speechmatics/client.py)
+# Also pulled transitively by requests; pinned because the project imports it directly.
+urllib3==2.7.0
+
+# Fernet encryption for provider/webhook secrets (turing/security/secrets.py, EncryptedCharField,
+# migration 0003_encrypt_provider_api_keys)
+cryptography==50.0.0
+
+# Load .env in config/settings/base.py (import is unconditional at settings import time)
+python-dotenv==1.2.2
