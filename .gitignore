@@ -12,7 +12,9 @@ build/
 .coverage
 htmlcov/
 db.sqlite3
-media/
+# Uploaded/generated audio only (repo root). Do NOT use bare "media/" —
+# that also ignores the Python package turing/media/.
+/media/
 staticfiles/
 *.log
 .DS_Store
