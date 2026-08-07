@@ -21,13 +21,18 @@ class SpeechmaticsAdapter(STTProvider):
     display_name = "Speechmatics"
 
     def __init__(self, client: SpeechmaticsClient | None = None) -> None:
-        self._client = client
+        # Injected sticky-credential client (Attempt-scoped). Never overwritten
+        # by legacy singleton resolution — keeps credential A off Attempt B.
+        self._injected_client = client
+        self._legacy_client: SpeechmaticsClient | None = None
 
     def _get_client(self) -> SpeechmaticsClient:
         # Explicit client (e.g. Attempt sticky credential) always wins — never
         # replace with settings / SpeechProviderConfig singleton resolution.
-        if self._client is not None:
-            return self._client
+        if self._injected_client is not None:
+            return self._injected_client
+        if self._legacy_client is not None:
+            return self._legacy_client
         settings = get_turing_settings()
         # Legacy fallback: DB encrypted secret → env → empty (client errors clearly)
         api_key = settings.speechmatics_api_key
@@ -46,14 +51,14 @@ class SpeechmaticsAdapter(STTProvider):
         except Exception:
             pass
         self._operating_point_default = operating_point
-        self._client = SpeechmaticsClient(
+        self._legacy_client = SpeechmaticsClient(
             api_key=api_key,
             base_url=base_url,
             connect_timeout=settings.speechmatics_connect_timeout,
             upload_timeout=settings.speechmatics_upload_timeout,
             read_timeout=settings.speechmatics_read_timeout,
         )
-        return self._client
+        return self._legacy_client
 
     def submit(self, request: TranscriptionRequest) -> ProviderJobHandle:
         client = self._get_client()

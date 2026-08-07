@@ -837,3 +837,178 @@ def test_poll_transient_error_keeps_same_attempt_credential(provider_a, job):
     ) as acquire:
         TranscriptionService()._ensure_running_attempt(job)
         acquire.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — pool hardening
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_acquire_same_priority_rotates_by_last_used_at(provider_a):
+    now = timezone.now()
+    first = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="a",
+        api_key="key-a",
+        priority=10,
+        last_used_at=now - timedelta(hours=2),
+        is_active=True,
+    )
+    second = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="b",
+        api_key="key-b",
+        priority=10,
+        last_used_at=now - timedelta(hours=1),
+        is_active=True,
+    )
+    got1 = CredentialManager.acquire("speechmatics")
+    assert got1 is not None and got1.pk == first.pk
+    got2 = CredentialManager.acquire("speechmatics")
+    assert got2 is not None and got2.pk == second.pk
+
+
+@pytest.mark.django_db
+def test_mark_failure_quota_sets_cooldown(provider_a):
+    cred = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="q",
+        api_key="k",
+        is_active=True,
+    )
+    before = timezone.now()
+    CredentialManager.mark_failure(cred, "PROVIDER_QUOTA")
+    cred.refresh_from_db()
+    assert cred.failure_count == 1
+    assert cred.last_error_code == "PROVIDER_QUOTA"
+    assert cred.last_error_at is not None
+    assert cred.cooldown_until is not None
+    assert cred.cooldown_until > before
+    assert not CredentialManager.is_available(cred)
+    assert CredentialManager.acquire("speechmatics") is None
+
+
+@pytest.mark.django_db
+def test_mark_failure_auth_longer_cooldown_than_quota(provider_a):
+    quota = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="quota",
+        api_key="kq",
+        is_active=True,
+    )
+    auth = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="auth",
+        api_key="ka",
+        is_active=True,
+    )
+    CredentialManager.mark_failure(quota, "PROVIDER_QUOTA")
+    CredentialManager.mark_failure(auth, "PROVIDER_AUTH")
+    quota.refresh_from_db()
+    auth.refresh_from_db()
+    assert auth.cooldown_until > quota.cooldown_until
+
+
+@pytest.mark.django_db
+def test_mark_failure_preserves_longer_existing_cooldown(provider_a):
+    far = timezone.now() + timedelta(days=2)
+    cred = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="long",
+        api_key="k",
+        is_active=True,
+        cooldown_until=far,
+        failure_count=3,
+    )
+    CredentialManager.mark_failure(cred, "PROVIDER_QUOTA")
+    cred.refresh_from_db()
+    assert cred.failure_count == 4
+    assert cred.cooldown_until == far
+
+
+@pytest.mark.django_db
+def test_mark_failure_transient_does_not_cooldown(provider_a):
+    cred = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="ok",
+        api_key="k",
+        is_active=True,
+    )
+    CredentialManager.mark_failure(cred, "PROVIDER_SERVER")
+    cred.refresh_from_db()
+    assert cred.failure_count == 0
+    assert cred.cooldown_until is None
+    assert CredentialManager.is_available(cred)
+
+
+@pytest.mark.django_db
+def test_deactivate_skips_new_attempt_but_running_sticky_still_works(provider_a, job):
+    pool_secret = "active-then-off"
+    attempt = _submit_job_with_pool_key(
+        job, provider_a, pool_secret=pool_secret, external_id="ext-deact-1"
+    )
+    cred = attempt.provider_credential
+    assert cred is not None
+    cred.is_active = False
+    cred.save(update_fields=["is_active", "updated_at"])
+
+    assert CredentialManager.acquire("speechmatics") is None
+
+    constructed: list[str] = []
+    real_init = SpeechmaticsClient.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        constructed.append(self.api_key)
+
+    with patch.object(SpeechmaticsClient, "__init__", tracking_init), patch.object(
+        SpeechmaticsClient,
+        "get_job",
+        return_value={"job": {"id": "ext-deact-1", "status": "running"}},
+    ):
+        TranscriptionService().poll_once(str(job.id))
+    assert constructed == [pool_secret]
+
+
+@pytest.mark.django_db
+def test_adapter_injected_clients_do_not_share_cache():
+    from turing.providers.speechmatics.adapter import SpeechmaticsAdapter
+
+    client_a = SpeechmaticsClient(api_key="cred-a-key")
+    client_b = SpeechmaticsClient(api_key="cred-b-key")
+    adapter_a = SpeechmaticsAdapter(client=client_a)
+    adapter_b = SpeechmaticsAdapter(client=client_b)
+    assert adapter_a._get_client() is client_a
+    assert adapter_b._get_client() is client_b
+    assert adapter_a._get_client().api_key == "cred-a-key"
+    assert adapter_b._get_client().api_key == "cred-b-key"
+
+
+@pytest.mark.django_db
+def test_submit_quota_marks_credential_cooldown(provider_a, job):
+    from turing.domain.exceptions import ProviderError
+
+    ProviderCredential.objects.create(
+        provider=provider_a,
+        name="quota-cred",
+        api_key="will-quota",
+        is_active=True,
+    )
+    with patch.object(
+        SpeechmaticsClient,
+        "submit_job",
+        side_effect=ProviderError(
+            "rate limit",
+            code="PROVIDER_QUOTA",
+            retryable=True,
+            provider_code="speechmatics",
+        ),
+    ):
+        with pytest.raises(ProviderError):
+            TranscriptionService().submit(str(job.id))
+
+    cred = ProviderCredential.objects.get(name="quota-cred")
+    assert cred.failure_count == 1
+    assert cred.last_error_code == "PROVIDER_QUOTA"
+    assert cred.cooldown_until is not None

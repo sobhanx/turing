@@ -383,6 +383,13 @@ class JobOrchestrator:
             raise NotFoundError(f"Job '{job_id}' not found.") from exc
 
     def begin_attempt(self, job: ProcessingJob) -> ProcessingAttempt:
+        """
+        Start a new provider execution Attempt.
+
+        Invariant: the provider credential is selected once here and remains
+        sticky for submit, poll, fetch, and cancel. Credential rotation happens
+        only by creating a new Attempt (e.g. after failure + retry).
+        """
         assert_job_transition(job.status, JobStatus.RUNNING)
         from turing.services.credential_manager import CredentialManager
 

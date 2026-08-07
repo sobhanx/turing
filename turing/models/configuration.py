@@ -188,9 +188,11 @@ class ProviderCredential(TimeStampedModel):
     """
     Poolable API-key credential belonging to a speech provider configuration.
 
-    Multiple credentials may exist per ``SpeechProviderConfig``. Selection and
-    sticky use on ``ProcessingAttempt`` are handled by CredentialManager /
-    later pipeline phases — this model only stores pool state.
+    Multiple credentials may exist per ``SpeechProviderConfig``.
+
+    Invariant: a credential is selected once per ``ProcessingAttempt`` and
+    remains sticky for submit, poll, fetch, and cancel. Credential rotation
+    happens only by creating a new Attempt (via CredentialManager.acquire).
     """
 
     provider = models.ForeignKey(

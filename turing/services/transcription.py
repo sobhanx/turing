@@ -152,6 +152,7 @@ class TranscriptionService:
                 error_code=exc.code,
                 error_message=exc.message,
             )
+            self._mark_attempt_credential_failure(attempt, exc.code)
             raise
         except Exception as exc:  # noqa: BLE001
             self._clear_submit_claim(attempt)
@@ -348,6 +349,7 @@ class TranscriptionService:
                 error_code=exc.code,
                 error_message=exc.message,
             )
+            self._mark_attempt_credential_failure(attempt, exc.code)
             return PollOutcome(
                 action=PollAction.FAILED,
                 error_code=exc.code,
@@ -481,6 +483,7 @@ class TranscriptionService:
                 error_code=exc.code,
                 error_message=exc.message,
             )
+            self._mark_attempt_credential_failure(attempt, exc.code)
             raise
         except Exception as exc:  # noqa: BLE001
             self.orchestrator.mark_failed(
@@ -703,6 +706,10 @@ class TranscriptionService:
         """
         Build an STT provider for this Attempt.
 
+        Invariant: provider credential is selected once per ProcessingAttempt
+        and remains sticky for submit, poll, fetch, cancel. Credential rotation
+        happens only by creating a new Attempt.
+
         When ``attempt.provider_credential`` is set, inject an explicit
         Speechmatics client using that sticky API key. Otherwise use the
         legacy registry path (settings / SpeechProviderConfig.api_key).
@@ -743,6 +750,21 @@ class TranscriptionService:
             return ProviderRegistry.get(code, client=client)
 
         return ProviderRegistry.get(code)
+
+    def _mark_attempt_credential_failure(
+        self,
+        attempt: ProcessingAttempt | None,
+        error_code: str,
+    ) -> None:
+        """Cool down the Attempt's sticky credential on quota/auth failures."""
+        if attempt is None:
+            return
+        credential = getattr(attempt, "provider_credential", None)
+        if credential is None:
+            return
+        from turing.services.credential_manager import CredentialManager
+
+        CredentialManager.mark_failure(credential, error_code)
 
     def _attempt_for_provider_job(
         self,
