@@ -140,6 +140,14 @@ class ProcessingAttempt(UUIDModel):
     error_message = models.TextField(blank=True, default="")
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    provider_credential = models.ForeignKey(
+        "turing.ProviderCredential",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="attempts",
+        help_text="Credential used for this provider execution attempt.",
+    )
 
     class Meta:
         ordering = ["attempt_number"]

@@ -182,3 +182,69 @@ class SpeechProviderConfig(TimeStampedModel):
         from turing.conf import clear_settings_cache
 
         clear_settings_cache()
+
+
+class ProviderCredential(TimeStampedModel):
+    """
+    Poolable API-key credential belonging to a speech provider configuration.
+
+    Multiple credentials may exist per ``SpeechProviderConfig``. Selection and
+    sticky use on ``ProcessingAttempt`` are handled by CredentialManager /
+    later pipeline phases — this model only stores pool state.
+    """
+
+    provider = models.ForeignKey(
+        SpeechProviderConfig,
+        on_delete=models.PROTECT,
+        related_name="credentials",
+    )
+    name = models.CharField(max_length=128)
+    api_key = EncryptedCharField(
+        max_length=1024,
+        blank=True,
+        default="",
+        help_text="Provider API key (stored encrypted).",
+    )
+    is_active = models.BooleanField(default=True, db_index=True)
+    priority = models.PositiveSmallIntegerField(
+        default=100,
+        help_text="Lower values are preferred.",
+    )
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    cooldown_until = models.DateTimeField(null=True, blank=True)
+    failure_count = models.PositiveIntegerField(default=0)
+    last_error_code = models.CharField(max_length=64, blank=True, default="")
+    last_error_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["priority", "last_used_at", "id"]
+        verbose_name = "Provider credential"
+        verbose_name_plural = "Provider credentials"
+        indexes = [
+            models.Index(
+                fields=["provider", "is_active"],
+                name="turing_cred_prov_active",
+            ),
+            models.Index(
+                fields=["provider", "cooldown_until"],
+                name="turing_cred_prov_cool",
+            ),
+            models.Index(
+                fields=["provider", "priority"],
+                name="turing_cred_prov_prio",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        provider_name = getattr(self.provider, "name", None) or "provider"
+        return f"{provider_name} key {self.name}"
+
+    @property
+    def api_key_masked(self) -> str:
+        return mask_secret(self.api_key)
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        from turing.conf import clear_settings_cache
+
+        clear_settings_cache()
