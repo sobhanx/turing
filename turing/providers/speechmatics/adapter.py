@@ -24,10 +24,12 @@ class SpeechmaticsAdapter(STTProvider):
         self._client = client
 
     def _get_client(self) -> SpeechmaticsClient:
+        # Explicit client (e.g. Attempt sticky credential) always wins — never
+        # replace with settings / SpeechProviderConfig singleton resolution.
         if self._client is not None:
             return self._client
         settings = get_turing_settings()
-        # Priority: DB encrypted secret → env → empty (client errors clearly)
+        # Legacy fallback: DB encrypted secret → env → empty (client errors clearly)
         api_key = settings.speechmatics_api_key
         base_url = settings.speechmatics_base_url
         operating_point = "enhanced"

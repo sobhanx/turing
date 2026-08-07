@@ -20,10 +20,12 @@ class ProviderRegistry:
         return provider_cls
 
     @classmethod
-    def get(cls, code: str) -> STTProvider:
+    def get(cls, code: str, *, client=None) -> STTProvider:
         provider_cls = cls._providers.get(code)
         if not provider_cls:
             raise NotFoundError(f"Unknown speech provider '{code}'.")
+        if client is not None:
+            return provider_cls(client=client)
         return provider_cls()
 
     @classmethod

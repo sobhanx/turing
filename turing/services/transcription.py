@@ -139,8 +139,8 @@ class TranscriptionService:
             )
             attempt.save(update_fields=["response_metadata", "updated_at"])
 
-        # Provider I/O outside the row lock
-        provider = ProviderRegistry.get(job.provider_code)
+        # Provider I/O outside the row lock — sticky Attempt credential when set
+        provider = self._provider_for_attempt(job, attempt)
         try:
             request = self._build_request(job)
             handle = provider.submit(request)
@@ -677,6 +677,48 @@ class TranscriptionService:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _provider_for_attempt(self, job: ProcessingJob, attempt: ProcessingAttempt):
+        """
+        Build an STT provider for this Attempt.
+
+        When ``attempt.provider_credential`` is set, inject an explicit
+        Speechmatics client using that sticky API key. Otherwise use the
+        legacy registry path (settings / SpeechProviderConfig.api_key).
+
+        Does not call CredentialManager.acquire — credential was chosen at
+        Attempt creation.
+        """
+        credential = getattr(attempt, "provider_credential", None)
+        api_key = ""
+        if credential is not None:
+            api_key = (credential.api_key or "").strip()
+
+        if api_key and job.provider_code == "speechmatics":
+            from turing.providers.speechmatics.client import SpeechmaticsClient
+
+            settings = get_turing_settings()
+            base_url = settings.speechmatics_base_url
+            try:
+                from turing.models.configuration import SpeechProviderConfig
+
+                row = SpeechProviderConfig.objects.filter(
+                    code=job.provider_code, is_active=True
+                ).first()
+                if row and row.base_url:
+                    base_url = row.base_url
+            except Exception:
+                pass
+            client = SpeechmaticsClient(
+                api_key=api_key,
+                base_url=base_url,
+                connect_timeout=settings.speechmatics_connect_timeout,
+                upload_timeout=settings.speechmatics_upload_timeout,
+                read_timeout=settings.speechmatics_read_timeout,
+            )
+            return ProviderRegistry.get(job.provider_code, client=client)
+
+        return ProviderRegistry.get(job.provider_code)
 
     def _ensure_running_attempt(self, job: ProcessingJob) -> ProcessingAttempt:
         attempt = (

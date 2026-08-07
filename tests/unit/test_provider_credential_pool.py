@@ -8,7 +8,7 @@ import pytest
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 
-from turing.conf import clear_settings_cache
+from turing.conf import clear_settings_cache, get_turing_settings
 from turing.domain.enums import JobStatus, UseCase
 from turing.models import (
     Organization,
@@ -17,6 +17,7 @@ from turing.models import (
     ProviderCredential,
     SpeechProviderConfig,
 )
+from turing.providers.speechmatics.client import SpeechmaticsClient
 from turing.security.secrets import ENCRYPTED_PREFIX, is_encrypted, mask_secret
 from turing.services.credential_manager import CredentialManager
 from turing.services.job_orchestrator import JobOrchestrator
@@ -404,3 +405,110 @@ def test_begin_attempt_logs_do_not_leak_api_key(provider_a, job):
         assert "api_key" not in log.context
         blob = f"{log.message}{log.context}"
         assert "never-log" not in blob
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — sticky credential on submit
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_submit_uses_attempt_credential_not_singleton(provider_a, job, settings):
+    settings.TURING_SPEECHMATICS_API_KEY = "legacy-env-key-should-not-win"
+    provider_a.api_key = "legacy-db-key-should-not-win"
+    provider_a.save()
+    clear_settings_cache()
+    # Warm process settings cache with the legacy key.
+    assert get_turing_settings().speechmatics_api_key == "legacy-db-key-should-not-win"
+
+    pool_secret = "pool-sticky-submit-key"
+    ProviderCredential.objects.create(
+        provider=provider_a,
+        name="pool-submit",
+        api_key=pool_secret,
+        priority=1,
+        is_active=True,
+    )
+
+    constructed: list[str] = []
+    real_init = SpeechmaticsClient.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        constructed.append(self.api_key)
+
+    with patch.object(SpeechmaticsClient, "__init__", tracking_init), patch.object(
+        SpeechmaticsClient,
+        "submit_job",
+        return_value={"job": {"id": "ext-sticky-submit-1"}},
+    ):
+        result = TranscriptionService().submit(str(job.id))
+
+    assert result == "submitted"
+    assert constructed
+    assert constructed[0] == pool_secret
+    assert "legacy" not in constructed[0]
+
+    job.refresh_from_db()
+    attempt = job.attempts.get()
+    assert attempt.provider_credential is not None
+    assert attempt.provider_credential.api_key == pool_secret
+    for log in ProcessingLog.objects.filter(job=job):
+        assert pool_secret not in log.message
+        assert pool_secret not in str(log.context)
+
+
+@pytest.mark.django_db
+def test_submit_null_credential_uses_legacy_singleton(provider_a, job, settings):
+    settings.TURING_SPEECHMATICS_API_KEY = "env-legacy-only"
+    provider_a.api_key = ""
+    provider_a.save()
+    clear_settings_cache()
+    assert not ProviderCredential.objects.filter(provider=provider_a).exists()
+
+    constructed: list[str] = []
+    real_init = SpeechmaticsClient.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        constructed.append(self.api_key)
+
+    with patch.object(SpeechmaticsClient, "__init__", tracking_init), patch.object(
+        SpeechmaticsClient,
+        "submit_job",
+        return_value={"job": {"id": "ext-legacy-1"}},
+    ):
+        result = TranscriptionService().submit(str(job.id))
+
+    assert result == "submitted"
+    assert constructed == ["env-legacy-only"]
+    attempt = job.attempts.get()
+    assert attempt.provider_credential_id is None
+
+
+@pytest.mark.django_db
+def test_submit_reuses_running_attempt_without_second_acquire(provider_a, job):
+    ProviderCredential.objects.create(
+        provider=provider_a,
+        name="once",
+        api_key="only-once-key",
+        is_active=True,
+    )
+    orch = JobOrchestrator()
+    first = orch.begin_attempt(job)
+
+    with patch(
+        "turing.services.credential_manager.CredentialManager.acquire"
+    ) as acquire, patch.object(
+        SpeechmaticsClient,
+        "submit_job",
+        return_value={"job": {"id": "ext-reuse-1"}},
+    ):
+        result = TranscriptionService().submit(str(job.id))
+        acquire.assert_not_called()
+
+    assert result == "submitted"
+    job.refresh_from_db()
+    assert job.attempts.count() == 1
+    assert job.attempts.get().pk == first.pk
+    assert job.attempts.get().provider_credential_id == first.provider_credential_id
