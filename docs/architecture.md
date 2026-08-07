@@ -28,6 +28,7 @@ Processing is asynchronous by default (Celery). See [async-pipeline.md](async-pi
 | Topic | Document |
 |-------|----------|
 | Current modules & limitations | [architecture/current-state.md](architecture/current-state.md) |
+| Provider credential pool (Attempt-sticky) | [architecture/provider-credential-pool.md](architecture/provider-credential-pool.md) |
 | Async jobs & idempotency | [async-pipeline.md](async-pipeline.md) |
 | Media & object storage | [media-storage.md](media-storage.md) |
 | Audio ingestion | [audio-ingestion.md](audio-ingestion.md) |

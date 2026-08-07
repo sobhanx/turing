@@ -41,16 +41,21 @@ Recommended:
 | `SECURE_SSL_REDIRECT` | `true` (default in production) |
 | `LOG_LEVEL` | `INFO` |
 
-## Provider secrets (Phase 2.4)
+## Provider secrets (Phase 2.4 + credential pool)
 
 Speechmatics API keys configured in Admin are **encrypted at rest** (Fernet, key
 derived from `DJANGO_SECRET_KEY`).
 
 | Priority | Source |
 |----------|--------|
-| 1 | Database `SpeechProviderConfig.api_key` (decrypted in-process) |
-| 2 | `TURING_SPEECHMATICS_API_KEY` environment variable |
-| 3 | Missing → clear configuration error when submitting jobs |
+| 1 | Sticky `ProcessingAttempt.provider_credential` (pool row) when set |
+| 2 | Database `SpeechProviderConfig.api_key` (legacy / empty-pool fallback) |
+| 3 | `TURING_SPEECHMATICS_API_KEY` environment variable |
+| 4 | Missing → clear configuration error when submitting jobs |
+
+Pool credentials (`ProviderCredential`) are selected once per Attempt and reused
+for submit/poll/fetch/cancel. See
+[architecture/provider-credential-pool.md](architecture/provider-credential-pool.md).
 
 ### Admin UX
 

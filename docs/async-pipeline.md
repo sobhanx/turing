@@ -42,6 +42,9 @@ from Admin or API schedules `submit_transcription_job` automatically.
 - Concurrent workers claim `stage=submitting` before provider I/O; losers return
   `submit_in_progress` (Celery retries shortly) instead of creating a second
   provider job.
+- Provider API keys are **Attempt-sticky**: selected once in `begin_attempt`,
+  reused for submit/poll/fetch/cancel. Rotation only occurs on a **new** Attempt
+  after failure/retry. See [architecture/provider-credential-pool.md](architecture/provider-credential-pool.md).
 - If two submits still race after provider I/O, the orphan `external_job_id` is
   best-effort cancelled via `STTProvider.cancel`.
 - `persist_from_provider` returns the existing transcript if one exists for the

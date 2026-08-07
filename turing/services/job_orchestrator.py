@@ -394,8 +394,8 @@ class JobOrchestrator:
         from turing.services.credential_manager import CredentialManager
 
         with transaction.atomic():
-            # TODO: Legacy SpeechProviderConfig.api_key fallback will be handled
-            # in provider I/O migration phase.
+            # Empty pool → provider_credential=NULL; sticky I/O uses legacy
+            # SpeechProviderConfig.api_key / env via adapter fallback.
             credential = CredentialManager.acquire(job.provider_code)
 
             job.attempt_count += 1
