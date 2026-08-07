@@ -185,6 +185,7 @@ class TranscriptionService:
                     job,
                     external_job_id=external_id,
                     provider_code=job.provider_code,
+                    attempt=attempt,
                 )
                 return "cancelled"
 
@@ -194,6 +195,7 @@ class TranscriptionService:
                     job,
                     external_job_id=external_id,
                     provider_code=job.provider_code,
+                    attempt=attempt,
                 )
                 self.orchestrator.log(
                     job,
@@ -261,7 +263,13 @@ class TranscriptionService:
                 error_message="Cannot poll: provider job has not been submitted.",
             )
 
-        attempt = self._latest_attempt(job)
+        attempt = self._attempt_for_provider_job(job, job.external_job_id)
+        if attempt is None:
+            return PollOutcome(
+                action=PollAction.FAILED,
+                error_code="PIPELINE_STATE",
+                error_message="Cannot poll: no ProcessingAttempt for provider job.",
+            )
         settings = get_turing_settings()
 
         if self._is_poll_timed_out(
@@ -308,7 +316,7 @@ class TranscriptionService:
                 error_message=message,
             )
 
-        provider = ProviderRegistry.get(job.provider_code)
+        provider = self._provider_for_attempt(job, attempt)
         handle = ProviderJobHandle(
             external_job_id=job.external_job_id,
             provider_code=job.provider_code,
@@ -447,14 +455,19 @@ class TranscriptionService:
                     code="PIPELINE_STATE",
                     retryable=False,
                 )
-            attempt = self._latest_attempt(job)
+            attempt = self._attempt_for_provider_job(job, job.external_job_id)
+            if attempt is None:
+                raise ProviderError(
+                    "Cannot fetch: no ProcessingAttempt for provider job.",
+                    code="PIPELINE_STATE",
+                    retryable=False,
+                )
             external_job_id = job.external_job_id
             provider_code = job.provider_code
-            if attempt:
-                self._update_pipeline_meta(attempt, stage="fetching")
-                attempt.save(update_fields=["response_metadata", "updated_at"])
+            self._update_pipeline_meta(attempt, stage="fetching")
+            attempt.save(update_fields=["response_metadata", "updated_at"])
 
-        provider = ProviderRegistry.get(provider_code)
+        provider = self._provider_for_attempt(job, attempt)
         handle = ProviderJobHandle(
             external_job_id=external_job_id,
             provider_code=provider_code,
@@ -641,7 +654,9 @@ class TranscriptionService:
                     return WebhookDeliveryOutcome.DUPLICATE
                 return WebhookDeliveryOutcome.IGNORED
 
-            attempt = self._latest_attempt(job)
+            attempt = self._attempt_for_provider_job(
+                job, notification.external_job_id
+            )
             if attempt:
                 self._update_pipeline_meta(
                     attempt,
@@ -678,7 +693,13 @@ class TranscriptionService:
     # Internals
     # ------------------------------------------------------------------
 
-    def _provider_for_attempt(self, job: ProcessingJob, attempt: ProcessingAttempt):
+    def _provider_for_attempt(
+        self,
+        job: ProcessingJob,
+        attempt: ProcessingAttempt | None,
+        *,
+        provider_code: str | None = None,
+    ):
         """
         Build an STT provider for this Attempt.
 
@@ -689,12 +710,15 @@ class TranscriptionService:
         Does not call CredentialManager.acquire — credential was chosen at
         Attempt creation.
         """
-        credential = getattr(attempt, "provider_credential", None)
+        code = (provider_code or job.provider_code or "").strip()
+        credential = None
+        if attempt is not None:
+            credential = getattr(attempt, "provider_credential", None)
         api_key = ""
         if credential is not None:
             api_key = (credential.api_key or "").strip()
 
-        if api_key and job.provider_code == "speechmatics":
+        if api_key and code == "speechmatics":
             from turing.providers.speechmatics.client import SpeechmaticsClient
 
             settings = get_turing_settings()
@@ -703,7 +727,7 @@ class TranscriptionService:
                 from turing.models.configuration import SpeechProviderConfig
 
                 row = SpeechProviderConfig.objects.filter(
-                    code=job.provider_code, is_active=True
+                    code=code, is_active=True
                 ).first()
                 if row and row.base_url:
                     base_url = row.base_url
@@ -716,9 +740,41 @@ class TranscriptionService:
                 upload_timeout=settings.speechmatics_upload_timeout,
                 read_timeout=settings.speechmatics_read_timeout,
             )
-            return ProviderRegistry.get(job.provider_code, client=client)
+            return ProviderRegistry.get(code, client=client)
 
-        return ProviderRegistry.get(job.provider_code)
+        return ProviderRegistry.get(code)
+
+    def _attempt_for_provider_job(
+        self,
+        job: ProcessingJob,
+        external_job_id: str = "",
+    ) -> ProcessingAttempt | None:
+        """
+        Resolve the Attempt that owns a provider external job id.
+
+        Prefer ``attempt.external_job_id == external_job_id``. If the job has no
+        external id, fall back to the latest RUNNING Attempt. When an external
+        id is present but no Attempt row matches (and no legacy RUNNING row
+        without an external id), return None — do not invent another credential.
+        """
+        eid = (external_job_id or job.external_job_id or "").strip()
+        qs = job.attempts.select_related("provider_credential")
+        if eid:
+            matched = qs.filter(external_job_id=eid).order_by("-attempt_number").first()
+            if matched is not None:
+                return matched
+            # Pre-sticky / race: RUNNING attempt not yet stamped with external id
+            running = (
+                qs.filter(status=JobStatus.RUNNING)
+                .order_by("-attempt_number")
+                .first()
+            )
+            if running is not None and not (running.external_job_id or "").strip():
+                return running
+            return None
+        return (
+            qs.filter(status=JobStatus.RUNNING).order_by("-attempt_number").first()
+        )
 
     def _ensure_running_attempt(self, job: ProcessingJob) -> ProcessingAttempt:
         attempt = (

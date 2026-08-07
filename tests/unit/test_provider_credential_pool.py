@@ -17,12 +17,14 @@ from turing.models import (
     ProviderCredential,
     SpeechProviderConfig,
 )
+from turing.models.webhook import WebhookDeliveryOutcome
 from turing.providers.speechmatics.client import SpeechmaticsClient
 from turing.security.secrets import ENCRYPTED_PREFIX, is_encrypted, mask_secret
 from turing.services.credential_manager import CredentialManager
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
 from turing.services.transcription import TranscriptionService
+from turing.webhooks.types import ProviderNotification
 
 
 @pytest.fixture(autouse=True)
@@ -512,3 +514,326 @@ def test_submit_reuses_running_attempt_without_second_acquire(provider_a, job):
     assert job.attempts.count() == 1
     assert job.attempts.get().pk == first.pk
     assert job.attempts.get().provider_credential_id == first.provider_credential_id
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — sticky credential on poll / fetch / cancel
+# ---------------------------------------------------------------------------
+
+
+def _submit_job_with_pool_key(job, provider_a, *, pool_secret: str, external_id: str):
+    ProviderCredential.objects.create(
+        provider=provider_a,
+        name=f"cred-{external_id}",
+        api_key=pool_secret,
+        priority=1,
+        is_active=True,
+    )
+    with patch.object(
+        SpeechmaticsClient,
+        "submit_job",
+        return_value={"job": {"id": external_id}},
+    ):
+        assert TranscriptionService().submit(str(job.id)) == "submitted"
+    job.refresh_from_db()
+    return job.attempts.get()
+
+
+@pytest.mark.django_db
+def test_poll_uses_attempt_credential_not_singleton(provider_a, job, settings):
+    settings.TURING_SPEECHMATICS_API_KEY = "legacy-poll-env"
+    provider_a.api_key = "legacy-poll-db"
+    provider_a.save()
+    clear_settings_cache()
+    get_turing_settings()
+
+    pool_secret = "pool-sticky-poll-key"
+    attempt = _submit_job_with_pool_key(
+        job, provider_a, pool_secret=pool_secret, external_id="ext-poll-1"
+    )
+
+    constructed: list[str] = []
+    real_init = SpeechmaticsClient.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        constructed.append(self.api_key)
+
+    with patch.object(SpeechmaticsClient, "__init__", tracking_init), patch.object(
+        SpeechmaticsClient,
+        "get_job",
+        return_value={"job": {"id": "ext-poll-1", "status": "running"}},
+    ):
+        outcome = TranscriptionService().poll_once(str(job.id), poll_count=0)
+
+    assert outcome.action.value == "reschedule"
+    assert constructed == [pool_secret]
+    attempt.refresh_from_db()
+    assert attempt.provider_credential.api_key == pool_secret
+
+
+@pytest.mark.django_db
+def test_fetch_uses_attempt_credential_not_singleton(provider_a, job, settings):
+    settings.TURING_SPEECHMATICS_API_KEY = "legacy-fetch-env"
+    provider_a.api_key = "legacy-fetch-db"
+    provider_a.save()
+    clear_settings_cache()
+    get_turing_settings()
+
+    pool_secret = "pool-sticky-fetch-key"
+    _submit_job_with_pool_key(
+        job, provider_a, pool_secret=pool_secret, external_id="ext-fetch-1"
+    )
+
+    constructed: list[str] = []
+    real_init = SpeechmaticsClient.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        constructed.append(self.api_key)
+
+    transcript_payload = {
+        "format": "2.9",
+        "job": {"id": "ext-fetch-1"},
+        "metadata": {"transcript_language": "fa"},
+        "results": [
+            {
+                "type": "word",
+                "start_time": 0.0,
+                "end_time": 0.5,
+                "alternatives": [{"content": "سلام", "confidence": 0.9, "speaker": "S1"}],
+            }
+        ],
+    }
+    with patch.object(SpeechmaticsClient, "__init__", tracking_init), patch.object(
+        SpeechmaticsClient,
+        "get_transcript",
+        return_value=transcript_payload,
+    ):
+        transcript = TranscriptionService().fetch_and_persist(str(job.id))
+
+    assert transcript.full_text
+    assert constructed == [pool_secret]
+
+
+@pytest.mark.django_db
+def test_cancel_uses_attempt_credential(provider_a, job, settings):
+    settings.TURING_SPEECHMATICS_API_KEY = "legacy-cancel-env"
+    provider_a.api_key = "legacy-cancel-db"
+    provider_a.save()
+    clear_settings_cache()
+    get_turing_settings()
+
+    pool_secret = "pool-sticky-cancel-key"
+    _submit_job_with_pool_key(
+        job, provider_a, pool_secret=pool_secret, external_id="ext-cancel-1"
+    )
+
+    constructed: list[str] = []
+    real_init = SpeechmaticsClient.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        constructed.append(self.api_key)
+
+    with patch.object(SpeechmaticsClient, "__init__", tracking_init), patch.object(
+        SpeechmaticsClient,
+        "delete_job",
+        return_value=None,
+    ) as delete_job:
+        JobOrchestrator().cancel(job)
+
+    assert constructed == [pool_secret]
+    delete_job.assert_called()
+    job.refresh_from_db()
+    assert job.status == JobStatus.CANCELLED
+
+
+@pytest.mark.django_db
+def test_webhook_ready_fetch_uses_attempt_credential(provider_a, job, settings):
+    settings.TURING_SPEECHMATICS_API_KEY = "legacy-webhook-env"
+    provider_a.api_key = "legacy-webhook-db"
+    provider_a.save()
+    clear_settings_cache()
+    get_turing_settings()
+
+    pool_secret = "pool-sticky-webhook-key"
+    attempt = _submit_job_with_pool_key(
+        job, provider_a, pool_secret=pool_secret, external_id="ext-wh-1"
+    )
+
+    notification = ProviderNotification(
+        provider_code="speechmatics",
+        external_job_id="ext-wh-1",
+        status_param="success",
+        provider_state="succeeded",
+        provider_message="success",
+        dedupe_key="dedupe-sticky-wh",
+        payload_hash="hash1",
+        raw_metadata={},
+    )
+
+    constructed: list[str] = []
+    real_init = SpeechmaticsClient.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        constructed.append(self.api_key)
+
+    transcript_payload = {
+        "format": "2.9",
+        "job": {"id": "ext-wh-1"},
+        "metadata": {"transcript_language": "fa"},
+        "results": [
+            {
+                "type": "word",
+                "start_time": 0.0,
+                "end_time": 0.4,
+                "alternatives": [{"content": "hi", "confidence": 0.9, "speaker": "S1"}],
+            }
+        ],
+    }
+
+    service = TranscriptionService()
+    with patch(
+        "turing.tasks.transcription.fetch_and_persist_transcription.delay",
+        side_effect=lambda jid: service.fetch_and_persist(jid),
+    ), patch.object(SpeechmaticsClient, "__init__", tracking_init), patch.object(
+        SpeechmaticsClient,
+        "get_transcript",
+        return_value=transcript_payload,
+    ):
+        outcome = service.ingest_provider_notification(notification)
+
+    assert outcome == WebhookDeliveryOutcome.PROCESSED
+    assert constructed == [pool_secret]
+    attempt.refresh_from_db()
+    assert attempt.provider_credential.api_key == pool_secret
+
+
+@pytest.mark.django_db
+def test_external_job_id_resolves_correct_attempt_among_many(provider_a, job):
+    cred_old = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="old",
+        api_key="old-attempt-key",
+        priority=1,
+        is_active=True,
+    )
+    cred_new = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="new",
+        api_key="new-attempt-key",
+        priority=2,
+        is_active=True,
+    )
+    orch = JobOrchestrator()
+    with patch(
+        "turing.services.credential_manager.CredentialManager.acquire",
+        return_value=cred_old,
+    ):
+        a1 = orch.begin_attempt(job)
+    a1.external_job_id = "ext-old"
+    a1.status = JobStatus.FAILED
+    a1.save(update_fields=["external_job_id", "status", "updated_at"])
+    orch.mark_failed(job, a1, error_code="PROVIDER_QUOTA", error_message="q")
+
+    job.refresh_from_db()
+    with patch(
+        "turing.services.credential_manager.CredentialManager.acquire",
+        return_value=cred_new,
+    ):
+        a2 = orch.begin_attempt(job)
+    a2.external_job_id = "ext-new"
+    a2.save(update_fields=["external_job_id", "updated_at"])
+    job.external_job_id = "ext-new"
+    job.save(update_fields=["external_job_id", "updated_at"])
+
+    service = TranscriptionService()
+    resolved = service._attempt_for_provider_job(job, "ext-new")
+    assert resolved is not None
+    assert resolved.pk == a2.pk
+    assert resolved.provider_credential_id == cred_new.pk
+
+    constructed: list[str] = []
+    real_init = SpeechmaticsClient.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        constructed.append(self.api_key)
+
+    with patch.object(SpeechmaticsClient, "__init__", tracking_init), patch.object(
+        SpeechmaticsClient,
+        "get_job",
+        return_value={"job": {"id": "ext-new", "status": "running"}},
+    ):
+        TranscriptionService().poll_once(str(job.id))
+
+    assert constructed == ["new-attempt-key"]
+
+
+@pytest.mark.django_db
+def test_poll_legacy_null_credential_uses_fallback(provider_a, job, settings):
+    settings.TURING_SPEECHMATICS_API_KEY = "env-poll-legacy"
+    provider_a.api_key = ""
+    provider_a.save()
+    clear_settings_cache()
+
+    with patch.object(
+        SpeechmaticsClient,
+        "submit_job",
+        return_value={"job": {"id": "ext-leg-poll"}},
+    ):
+        TranscriptionService().submit(str(job.id))
+    attempt = job.attempts.get()
+    assert attempt.provider_credential_id is None
+
+    constructed: list[str] = []
+    real_init = SpeechmaticsClient.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        real_init(self, *args, **kwargs)
+        constructed.append(self.api_key)
+
+    with patch.object(SpeechmaticsClient, "__init__", tracking_init), patch.object(
+        SpeechmaticsClient,
+        "get_job",
+        return_value={"job": {"id": "ext-leg-poll", "status": "running"}},
+    ):
+        TranscriptionService().poll_once(str(job.id))
+
+    assert constructed == ["env-poll-legacy"]
+
+
+@pytest.mark.django_db
+def test_poll_transient_error_keeps_same_attempt_credential(provider_a, job):
+    from turing.domain.exceptions import ProviderError
+    from turing.domain.pipeline import PollAction
+
+    pool_secret = "pool-no-rotate-key"
+    attempt = _submit_job_with_pool_key(
+        job, provider_a, pool_secret=pool_secret, external_id="ext-no-rotate"
+    )
+    cred_id = attempt.provider_credential_id
+
+    with patch.object(
+        SpeechmaticsClient,
+        "get_job",
+        side_effect=ProviderError(
+            "temporarily unavailable",
+            code="PROVIDER_SERVER",
+            retryable=True,
+            provider_code="speechmatics",
+        ),
+    ):
+        outcome = TranscriptionService().poll_once(str(job.id), poll_count=0)
+
+    assert outcome.action == PollAction.RESCHEDULE
+    attempt.refresh_from_db()
+    assert attempt.provider_credential_id == cred_id
+    assert job.attempts.filter(status=JobStatus.RUNNING).count() == 1
+    with patch(
+        "turing.services.credential_manager.CredentialManager.acquire"
+    ) as acquire:
+        TranscriptionService()._ensure_running_attempt(job)
+        acquire.assert_not_called()

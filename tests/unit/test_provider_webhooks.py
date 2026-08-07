@@ -169,13 +169,16 @@ def test_ingest_failed_marks_job_failed(submitted_job):
 def test_ingest_duplicate_delivery(submitted_job):
     notification = _notification(dedupe_key="dedupe-dup")
     service = TranscriptionService()
-    assert service.ingest_provider_notification(notification) == WebhookDeliveryOutcome.PROCESSED
     with patch(
         "turing.tasks.transcription.fetch_and_persist_transcription.delay"
     ) as mock_fetch:
+        assert (
+            service.ingest_provider_notification(notification)
+            == WebhookDeliveryOutcome.PROCESSED
+        )
         outcome = service.ingest_provider_notification(notification)
     assert outcome == WebhookDeliveryOutcome.DUPLICATE
-    mock_fetch.assert_not_called()
+    mock_fetch.assert_called_once()
     assert (
         ProviderWebhookDelivery.objects.filter(dedupe_key="dedupe-dup").count() == 1
     )

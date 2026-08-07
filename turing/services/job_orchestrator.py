@@ -237,6 +237,17 @@ class JobOrchestrator:
             assert_job_transition(locked.status, JobStatus.CANCELLED)
             external_job_id = locked.external_job_id
             provider_code = locked.provider_code
+            attempt = None
+            if external_job_id:
+                attempt = (
+                    ProcessingAttempt.objects.filter(
+                        job_id=locked.pk,
+                        external_job_id=external_job_id,
+                    )
+                    .select_related("provider_credential")
+                    .order_by("-attempt_number")
+                    .first()
+                )
             locked.status = JobStatus.CANCELLED
             locked.finished_at = timezone.now()
             locked.error_code = "CANCELLED_BY_USER"
@@ -260,6 +271,7 @@ class JobOrchestrator:
                 job,
                 external_job_id=external_job_id,
                 provider_code=provider_code,
+                attempt=attempt,
             )
         return job
 
@@ -316,20 +328,38 @@ class JobOrchestrator:
         *,
         external_job_id: str | None = None,
         provider_code: str | None = None,
+        attempt: ProcessingAttempt | None = None,
     ) -> bool:
-        """Best-effort provider cancel. Returns True if cancel was attempted successfully."""
+        """
+        Best-effort provider cancel. Returns True if cancel was attempted successfully.
+
+        Prefer the sticky credential on ``attempt`` (or the Attempt owning
+        ``external_job_id``). Never pick a different pool credential for cancel.
+        """
         eid = (external_job_id or job.external_job_id or "").strip()
         if not eid:
             return False
         code = provider_code or job.provider_code
+        if attempt is None:
+            attempt = (
+                ProcessingAttempt.objects.filter(job_id=job.pk, external_job_id=eid)
+                .select_related("provider_credential")
+                .order_by("-attempt_number")
+                .first()
+            )
         try:
-            provider = ProviderRegistry.get(code)
+            from turing.services.transcription import TranscriptionService
+
+            provider = TranscriptionService()._provider_for_attempt(
+                job, attempt, provider_code=code
+            )
             provider.cancel(
                 ProviderJobHandle(external_job_id=eid, provider_code=code)
             )
             self.log(
                 job,
                 f"Requested provider cancel for {eid}.",
+                attempt=attempt,
                 context={"external_job_id": eid},
             )
             return True
@@ -340,6 +370,7 @@ class JobOrchestrator:
             self.log(
                 job,
                 f"Provider cancel failed (ignored): {exc}",
+                attempt=attempt,
                 level=LogLevel.WARNING,
                 context={"external_job_id": eid, "error": str(exc)},
             )
