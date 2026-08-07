@@ -20,7 +20,15 @@ from turing.models import (
 from turing.models.webhook import WebhookDeliveryOutcome
 from turing.providers.speechmatics.client import SpeechmaticsClient
 from turing.security.secrets import ENCRYPTED_PREFIX, is_encrypted, mask_secret
-from turing.services.credential_manager import CredentialManager
+from turing.services.credential_manager import (
+    AcquireOutcome,
+    AcquireResult,
+    CredentialManager,
+)
+from turing.services.credential_signals import (
+    credential_signal_counts,
+    reset_credential_signals,
+)
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
 from turing.services.transcription import TranscriptionService
@@ -30,8 +38,10 @@ from turing.webhooks.types import ProviderNotification
 @pytest.fixture(autouse=True)
 def _clear_cache():
     clear_settings_cache()
+    reset_credential_signals()
     yield
     clear_settings_cache()
+    reset_credential_signals()
 
 
 @pytest.fixture
@@ -366,9 +376,15 @@ def test_retry_begin_attempt_may_select_different_credential(provider_a, job):
     assert job.status == JobStatus.FAILED
 
     # Prefer B on next acquire (A still usable but we force via mock for clarity).
+    from turing.services.credential_manager import AcquireOutcome, AcquireResult
+
     with patch(
-        "turing.services.credential_manager.CredentialManager.acquire",
-        return_value=cred_b,
+        "turing.services.credential_manager.CredentialManager.acquire_result",
+        return_value=AcquireResult(
+            credential=cred_b,
+            outcome=AcquireOutcome.ACQUIRED,
+            provider_code="speechmatics",
+        ),
     ):
         attempt2 = orch.begin_attempt(job)
 
@@ -729,8 +745,12 @@ def test_external_job_id_resolves_correct_attempt_among_many(provider_a, job):
     )
     orch = JobOrchestrator()
     with patch(
-        "turing.services.credential_manager.CredentialManager.acquire",
-        return_value=cred_old,
+        "turing.services.credential_manager.CredentialManager.acquire_result",
+        return_value=AcquireResult(
+            credential=cred_old,
+            outcome=AcquireOutcome.ACQUIRED,
+            provider_code="speechmatics",
+        ),
     ):
         a1 = orch.begin_attempt(job)
     a1.external_job_id = "ext-old"
@@ -740,8 +760,12 @@ def test_external_job_id_resolves_correct_attempt_among_many(provider_a, job):
 
     job.refresh_from_db()
     with patch(
-        "turing.services.credential_manager.CredentialManager.acquire",
-        return_value=cred_new,
+        "turing.services.credential_manager.CredentialManager.acquire_result",
+        return_value=AcquireResult(
+            credential=cred_new,
+            outcome=AcquireOutcome.ACQUIRED,
+            provider_code="speechmatics",
+        ),
     ):
         a2 = orch.begin_attempt(job)
     a2.external_job_id = "ext-new"
@@ -1012,3 +1036,245 @@ def test_submit_quota_marks_credential_cooldown(provider_a, job):
     assert cred.failure_count == 1
     assert cred.last_error_code == "PROVIDER_QUOTA"
     assert cred.cooldown_until is not None
+    assert credential_signal_counts().get("credential_cooldown", 0) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — operational hardening
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_acquire_result_distinguishes_empty_pool(provider_a):
+    assert not ProviderCredential.objects.filter(provider=provider_a).exists()
+    result = CredentialManager.acquire_result("speechmatics")
+    assert result.credential is None
+    assert result.outcome == AcquireOutcome.EMPTY_POOL
+    assert credential_signal_counts().get("acquire_miss_empty_pool") == 1
+
+
+@pytest.mark.django_db
+def test_acquire_result_distinguishes_pool_exhausted(provider_a):
+    ProviderCredential.objects.create(
+        provider=provider_a,
+        name="cooled",
+        api_key="k",
+        is_active=True,
+        cooldown_until=timezone.now() + timedelta(hours=1),
+    )
+    ProviderCredential.objects.create(
+        provider=provider_a,
+        name="off",
+        api_key="k2",
+        is_active=False,
+    )
+    result = CredentialManager.acquire_result("speechmatics")
+    assert result.credential is None
+    assert result.outcome == AcquireOutcome.POOL_EXHAUSTED
+    assert CredentialManager.acquire("speechmatics") is None
+    assert credential_signal_counts().get("acquire_miss_pool_exhausted") >= 1
+
+
+@pytest.mark.django_db
+def test_begin_attempt_pool_exhausted_logs_legacy_fallback(provider_a, job):
+    ProviderCredential.objects.create(
+        provider=provider_a,
+        name="only-cooled",
+        api_key="secret-must-not-appear",
+        is_active=True,
+        cooldown_until=timezone.now() + timedelta(hours=2),
+    )
+    attempt = JobOrchestrator().begin_attempt(job)
+    assert attempt.provider_credential_id is None
+    counts = credential_signal_counts()
+    assert counts.get("acquire_miss_pool_exhausted") == 1
+    assert counts.get("legacy_fallback") == 1
+    logs = list(ProcessingLog.objects.filter(job=job).order_by("created_at"))
+    messages = " ".join(log.message for log in logs)
+    contexts = " ".join(str(log.context) for log in logs)
+    assert "exhausted" in messages.lower() or "pool exhausted" in messages.lower()
+    assert "secret-must-not-appear" not in messages
+    assert "secret-must-not-appear" not in contexts
+    assert any(
+        (log.context or {}).get("acquire_outcome") == "pool_exhausted" for log in logs
+    )
+
+
+@pytest.mark.django_db
+def test_begin_attempt_empty_pool_signals_legacy_fallback(job):
+    attempt = JobOrchestrator().begin_attempt(job)
+    assert attempt.provider_credential_id is None
+    counts = credential_signal_counts()
+    assert counts.get("acquire_miss_empty_pool") == 1
+    assert counts.get("legacy_fallback") == 1
+
+
+@pytest.mark.django_db
+def test_attempt_admin_credential_display_hides_secret(provider_a, job):
+    from django.contrib.admin.sites import AdminSite
+
+    from turing.admin.job import ProcessingAttemptInline
+
+    secret = "admin-must-never-show-this-key"
+    cred = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="visible-name",
+        api_key=secret,
+        is_active=True,
+    )
+    attempt = JobOrchestrator().begin_attempt(job)
+    inline = ProcessingAttemptInline(ProcessingAttempt, AdminSite())
+    identity = inline.provider_credential_identity(attempt)
+    assert "visible-name" in identity
+    assert str(cred.pk) in identity
+    assert "speechmatics" in identity
+    assert secret not in identity
+    assert inline.credential_id_display(attempt) == str(cred.pk)
+    assert inline.credential_name_display(attempt) == "visible-name"
+    assert secret not in inline.credential_name_display(attempt)
+
+
+@pytest.mark.django_db
+def test_fake_api_key_provider_sticky_lifecycle(db):
+    """
+    Provider-agnostic sticky lifecycle via injected ApiKeyClient (not Speechmatics).
+    """
+    from turing.domain.pipeline import PollAction
+    from turing.providers.api_key_client import ApiKeyClient
+    from turing.providers.registry import ProviderRegistry
+    from turing.providers.types import (
+        NormalizedSegment,
+        NormalizedSpeaker,
+        NormalizedTranscript,
+        ProviderJobHandle,
+        ProviderJobStatus,
+    )
+
+    FAKE_CODE = "fake-api-key-stt"
+    ops: list[tuple[str, str | None]] = []
+
+    class TrackingFakeApiKeySTT:
+        code = FAKE_CODE
+        display_name = "Fake API Key STT"
+
+        def __init__(self, client=None) -> None:
+            self.client = client
+            self.api_key = getattr(client, "api_key", None) if client else None
+
+        def submit(self, request):
+            ops.append(("submit", self.api_key))
+            return ProviderJobHandle(
+                external_job_id="fake-ext-1", provider_code=FAKE_CODE
+            )
+
+        def get_status(self, handle):
+            ops.append(("poll", self.api_key))
+            return ProviderJobStatus(
+                external_job_id=handle.external_job_id,
+                state="succeeded",
+                message="",
+            )
+
+        def fetch_result(self, handle):
+            ops.append(("fetch", self.api_key))
+            return NormalizedTranscript(
+                language_code="fa",
+                full_text="S1: hi",
+                confidence_avg=0.9,
+                speakers=[NormalizedSpeaker(label="S1", display_name="S1")],
+                segments=[
+                    NormalizedSegment(
+                        sequence=0,
+                        text="hi",
+                        start_ms=0,
+                        end_ms=100,
+                        confidence=0.9,
+                        speaker_label="S1",
+                    )
+                ],
+            )
+
+        def cancel(self, handle):
+            ops.append(("cancel", self.api_key))
+            return None
+
+    ProviderRegistry.register(TrackingFakeApiKeySTT)
+    try:
+        provider = SpeechProviderConfig.objects.create(
+            code=FAKE_CODE,
+            name="Fake API Key STT",
+            is_active=True,
+        )
+        cred_a = ProviderCredential.objects.create(
+            provider=provider,
+            name="fake-a",
+            api_key="fake-secret-a",
+            priority=10,
+            is_active=True,
+        )
+        cred_b = ProviderCredential.objects.create(
+            provider=provider,
+            name="fake-b",
+            api_key="fake-secret-b",
+            priority=20,
+            is_active=True,
+        )
+        media = MediaService().create_from_upload(
+            uploaded_file=io.BytesIO(b"audio-bytes"),
+            filename="fake.wav",
+            use_case=UseCase.VOICE_FILE,
+        )
+        orch = JobOrchestrator()
+        job = orch.create_transcription_job(
+            media=media,
+            language_code="fa",
+            provider_code=FAKE_CODE,
+            auto_enqueue=False,
+        )
+        service = TranscriptionService()
+
+        assert service.submit(str(job.id)) == "submitted"
+        job.refresh_from_db()
+        attempt1 = job.attempts.get(attempt_number=1)
+        assert attempt1.provider_credential_id == cred_a.pk
+
+        outcome = service.poll_once(str(job.id))
+        assert outcome.action == PollAction.READY
+        orch.cancel_provider_job(
+            job,
+            external_job_id=job.external_job_id,
+            provider_code=FAKE_CODE,
+            attempt=attempt1,
+        )
+        service.fetch_and_persist(str(job.id))
+
+        assert ops == [
+            ("submit", "fake-secret-a"),
+            ("poll", "fake-secret-a"),
+            ("cancel", "fake-secret-a"),
+            ("fetch", "fake-secret-a"),
+        ]
+        provider_obj = service._provider_for_attempt(job, attempt1)
+        assert isinstance(provider_obj.client, ApiKeyClient)
+        assert provider_obj.client.api_key == "fake-secret-a"
+
+        # New job after cooling A → acquire may select B (rotation via new Attempt).
+        CredentialManager.mark_failure(cred_a, "PROVIDER_QUOTA")
+        media2 = MediaService().create_from_upload(
+            uploaded_file=io.BytesIO(b"audio-bytes-2"),
+            filename="fake2.wav",
+            use_case=UseCase.VOICE_FILE,
+        )
+        job2 = orch.create_transcription_job(
+            media=media2,
+            language_code="fa",
+            provider_code=FAKE_CODE,
+            auto_enqueue=False,
+        )
+        ops.clear()
+        assert service.submit(str(job2.id)) == "submitted"
+        attempt2 = job2.attempts.get(attempt_number=1)
+        assert attempt2.provider_credential_id == cred_b.pk
+        assert ops == [("submit", "fake-secret-b")]
+    finally:
+        ProviderRegistry._providers.pop(FAKE_CODE, None)

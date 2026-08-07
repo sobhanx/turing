@@ -22,9 +22,25 @@ class ProcessingAttemptInline(PersianInlineMixin, admin.TabularInline):
     extra = 0
     verbose_name = fa_labels.MODEL_TITLES["ProcessingAttempt"][0]
     verbose_name_plural = fa_labels.MODEL_TITLES["ProcessingAttempt"][1]
+    fields = (
+        "attempt_number",
+        "provider_code",
+        "provider_credential_identity",
+        "credential_id_display",
+        "credential_name_display",
+        "external_job_id",
+        "status",
+        "error_code",
+        "error_message",
+        "started_at",
+        "finished_at",
+    )
     readonly_fields = (
         "attempt_number",
         "provider_code",
+        "provider_credential_identity",
+        "credential_id_display",
+        "credential_name_display",
         "external_job_id",
         "status",
         "error_code",
@@ -33,6 +49,35 @@ class ProcessingAttemptInline(PersianInlineMixin, admin.TabularInline):
         "finished_at",
     )
     can_delete = False
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("provider_credential", "provider_credential__provider")
+        )
+
+    @admin.display(description="Credential identity")
+    def provider_credential_identity(self, obj: ProcessingAttempt) -> str:
+        """Human-readable sticky credential (never plaintext secret)."""
+        cred = getattr(obj, "provider_credential", None)
+        if cred is None:
+            return "— (legacy fallback)"
+        provider = getattr(cred, "provider", None)
+        provider_code = getattr(provider, "code", "") or "?"
+        return f"{cred.name} · id={cred.pk} · {provider_code}"
+
+    @admin.display(description="Credential id")
+    def credential_id_display(self, obj: ProcessingAttempt) -> str:
+        cred_id = getattr(obj, "provider_credential_id", None)
+        return str(cred_id) if cred_id is not None else "—"
+
+    @admin.display(description="Credential name")
+    def credential_name_display(self, obj: ProcessingAttempt) -> str:
+        cred = getattr(obj, "provider_credential", None)
+        if cred is None:
+            return "—"
+        return cred.name
 
 
 class ProcessingLogInline(PersianInlineMixin, admin.TabularInline):

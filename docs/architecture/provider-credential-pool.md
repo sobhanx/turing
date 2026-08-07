@@ -33,8 +33,13 @@ provider jobs (Speechmatics job IDs are account-scoped).
 5. When `ProcessingAttempt.provider_credential` is set, settings cache /
    `SpeechProviderConfig.api_key` / adapter legacy singleton resolution must
    **never** override that sticky key.
-6. When the FK is `NULL` (pre-migration rows or empty pool), the legacy
-   singleton path remains (`get_turing_settings` / `SpeechProviderConfig.api_key`).
+6. When the FK is `NULL`:
+   - **Empty pool** (no `ProviderCredential` rows): legacy singleton fallback
+     (`SpeechProviderConfig.api_key` / env) — compatibility for pre-pool hosts.
+   - **Pool exhausted** (rows exist but all inactive/cooldown): Attempt still
+     gets `NULL` and may use the same legacy path for compatibility, but the
+     outcome is **explicit** (logs + `acquire_miss_pool_exhausted` /
+     `legacy_fallback` signals). Exhaustion is never silent.
 
 ### Model sketch
 
@@ -78,7 +83,9 @@ migration complexity without a second STT auth scheme in tree.
 
 - `turing/models/configuration.py` — `ProviderCredential`
 - `turing/models/job.py` — `ProcessingAttempt.provider_credential`
-- `turing/services/credential_manager.py`
+- `turing/services/credential_manager.py` — `acquire_result` / `AcquireOutcome`
+- `turing/services/credential_signals.py` — safe operational counters/logs
 - `turing/services/job_orchestrator.py` — `begin_attempt`
 - `turing/services/transcription.py` — sticky `_provider_for_attempt`
+- `turing/providers/api_key_client.py` — generic API-key injection
 - `turing/providers/speechmatics/adapter.py` — injected vs legacy client

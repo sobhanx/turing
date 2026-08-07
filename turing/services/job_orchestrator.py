@@ -391,12 +391,15 @@ class JobOrchestrator:
         only by creating a new Attempt (e.g. after failure + retry).
         """
         assert_job_transition(job.status, JobStatus.RUNNING)
-        from turing.services.credential_manager import CredentialManager
+        from turing.services.credential_manager import AcquireOutcome, CredentialManager
+        from turing.services.credential_signals import record_credential_event
 
         with transaction.atomic():
-            # Empty pool → provider_credential=NULL; sticky I/O uses legacy
-            # SpeechProviderConfig.api_key / env via adapter fallback.
-            credential = CredentialManager.acquire(job.provider_code)
+            # Explicit acquire outcome: empty pool vs exhausted vs acquired.
+            # NULL credential → legacy SpeechProviderConfig.api_key / env
+            # (compatibility). Exhaustion is never silent — logged + signalled.
+            acquire = CredentialManager.acquire_result(job.provider_code)
+            credential = acquire.credential
 
             job.attempt_count += 1
             job.status = JobStatus.RUNNING
@@ -432,6 +435,36 @@ class JobOrchestrator:
                     context={
                         "credential_id": str(credential.id),
                         "credential_name": credential.name,
+                        "acquire_outcome": acquire.outcome.value,
+                    },
+                )
+            else:
+                # Compatibility: sticky I/O uses legacy singleton when FK is null.
+                record_credential_event(
+                    "legacy_fallback",
+                    provider_code=job.provider_code,
+                    acquire_outcome=acquire.outcome.value,
+                    attempt_number=attempt.attempt_number,
+                )
+                level = (
+                    LogLevel.WARNING
+                    if acquire.outcome == AcquireOutcome.POOL_EXHAUSTED
+                    else LogLevel.INFO
+                )
+                self.log(
+                    job,
+                    (
+                        "Credential pool exhausted; Attempt will use legacy "
+                        "provider API key fallback"
+                        if acquire.outcome == AcquireOutcome.POOL_EXHAUSTED
+                        else "No pool credentials configured; Attempt will use "
+                        "legacy provider API key fallback"
+                    ),
+                    attempt=attempt,
+                    level=level,
+                    context={
+                        "acquire_outcome": acquire.outcome.value,
+                        "provider_code": job.provider_code,
                     },
                 )
             return attempt

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 """Acquire pool credentials for STT providers (no HTTP / adapter logic)."""
 
+from dataclasses import dataclass
 from datetime import timedelta
+from enum import Enum
 
 from django.db import connection, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
 from turing.models.configuration import ProviderCredential
+from turing.services.credential_signals import record_credential_event
 
 # Cooldown durations for pool failures (production defaults).
 COOLDOWN_QUOTA_SECONDS = 15 * 60
@@ -16,6 +19,36 @@ COOLDOWN_AUTH_SECONDS = 24 * 60 * 60
 
 # Error codes that take a credential out of the pool temporarily.
 COOLDOWN_ERROR_CODES = frozenset({"PROVIDER_QUOTA", "PROVIDER_AUTH"})
+
+
+class AcquireOutcome(str, Enum):
+    """Result of a pool acquire attempt (distinct from legacy fallback policy)."""
+
+    ACQUIRED = "acquired"
+    EMPTY_POOL = "empty_pool"
+    POOL_EXHAUSTED = "pool_exhausted"
+
+
+@dataclass(frozen=True)
+class AcquireResult:
+    """
+    Explicit acquire outcome.
+
+    - ``ACQUIRED``: ``credential`` is set.
+    - ``EMPTY_POOL``: no ``ProviderCredential`` rows for the provider code
+      (legacy singleton fallback is the compatibility path).
+    - ``POOL_EXHAUSTED``: rows exist but none are available (inactive/cooldown).
+      Legacy fallback may still apply for compatibility, but must be logged —
+      exhaustion is not silent.
+    """
+
+    credential: ProviderCredential | None
+    outcome: AcquireOutcome
+    provider_code: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return self.credential is not None
 
 
 class CredentialManager:
@@ -44,16 +77,37 @@ class CredentialManager:
         """
         Atomically pick the next available credential for ``provider_code``.
 
+        Convenience wrapper around :meth:`acquire_result` that returns only the
+        credential (or ``None``). Prefer ``acquire_result`` when callers need
+        empty-pool vs exhausted distinction.
+        """
+        return cls.acquire_result(provider_code).credential
+
+    @classmethod
+    def acquire_result(cls, provider_code: str) -> AcquireResult:
+        """
+        Atomically pick the next available credential, with explicit outcome.
+
         Ordering: ``priority`` ASC, ``last_used_at`` ASC NULLS FIRST, ``id`` ASC.
         On PostgreSQL uses ``SELECT … FOR UPDATE SKIP LOCKED`` so concurrent
         workers can claim different rows without blocking.
 
-        Updates ``last_used_at`` on success. Returns ``None`` when the pool has
-        no usable rows (caller may fall back to legacy config/env).
+        Updates ``last_used_at`` on success.
+
+        Outcomes:
+        - ``ACQUIRED`` — usable row selected.
+        - ``EMPTY_POOL`` — no credential rows configured for this provider.
+        - ``POOL_EXHAUSTED`` — rows exist but all inactive or in cooldown.
         """
         code = (provider_code or "").strip()
         if not code:
-            return None
+            result = AcquireResult(
+                credential=None,
+                outcome=AcquireOutcome.EMPTY_POOL,
+                provider_code=code,
+            )
+            cls._emit_acquire_signals(result)
+            return result
 
         now = timezone.now()
         with transaction.atomic():
@@ -76,12 +130,30 @@ class CredentialManager:
                 qs = qs.select_for_update()
 
             credential = qs.first()
-            if credential is None:
-                return None
+            if credential is not None:
+                credential.last_used_at = now
+                credential.save(update_fields=["last_used_at", "updated_at"])
+                result = AcquireResult(
+                    credential=credential,
+                    outcome=AcquireOutcome.ACQUIRED,
+                    provider_code=code,
+                )
+                cls._emit_acquire_signals(result)
+                return result
 
-            credential.last_used_at = now
-            credential.save(update_fields=["last_used_at", "updated_at"])
-            return credential
+            configured = ProviderCredential.objects.filter(provider__code=code).exists()
+            outcome = (
+                AcquireOutcome.POOL_EXHAUSTED
+                if configured
+                else AcquireOutcome.EMPTY_POOL
+            )
+            result = AcquireResult(
+                credential=None,
+                outcome=outcome,
+                provider_code=code,
+            )
+            cls._emit_acquire_signals(result)
+            return result
 
     @classmethod
     def mark_failure(
@@ -140,4 +212,39 @@ class CredentialManager:
                     "cooldown_until",
                     "updated_at",
                 ]
+            )
+            record_credential_event(
+                "credential_cooldown",
+                credential_id=str(locked.pk),
+                credential_name=locked.name,
+                provider_code=getattr(locked.provider, "code", "") or "",
+                error_code=code,
+                failure_count=int(locked.failure_count or 0),
+                cooldown_until=locked.cooldown_until.isoformat()
+                if locked.cooldown_until
+                else "",
+            )
+
+    @classmethod
+    def _emit_acquire_signals(cls, result: AcquireResult) -> None:
+        code = result.provider_code
+        if result.outcome == AcquireOutcome.ACQUIRED and result.credential is not None:
+            cred = result.credential
+            record_credential_event(
+                "credential_acquired",
+                credential_id=str(cred.pk),
+                credential_name=cred.name,
+                provider_code=code,
+            )
+            return
+        if result.outcome == AcquireOutcome.EMPTY_POOL:
+            record_credential_event(
+                "acquire_miss_empty_pool",
+                provider_code=code,
+            )
+            return
+        if result.outcome == AcquireOutcome.POOL_EXHAUSTED:
+            record_credential_event(
+                "acquire_miss_pool_exhausted",
+                provider_code=code,
             )

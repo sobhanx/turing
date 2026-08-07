@@ -711,7 +711,8 @@ class TranscriptionService:
         happens only by creating a new Attempt.
 
         When ``attempt.provider_credential`` is set, inject an explicit
-        Speechmatics client using that sticky API key. Otherwise use the
+        client using that sticky API key (Speechmatics HTTP client, or
+        ``ApiKeyClient`` for other API-key STT adapters). Otherwise use the
         legacy registry path (settings / SpeechProviderConfig.api_key).
 
         Does not call CredentialManager.acquire — credential was chosen at
@@ -748,6 +749,12 @@ class TranscriptionService:
                 read_timeout=settings.speechmatics_read_timeout,
             )
             return ProviderRegistry.get(code, client=client)
+
+        if api_key:
+            # Provider-agnostic API-key stickiness for non-Speechmatics adapters.
+            from turing.providers.api_key_client import ApiKeyClient
+
+            return ProviderRegistry.get(code, client=ApiKeyClient(api_key=api_key))
 
         return ProviderRegistry.get(code)
 
