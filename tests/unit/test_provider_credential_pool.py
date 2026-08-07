@@ -13,6 +13,7 @@ from turing.domain.enums import JobStatus, UseCase
 from turing.models import (
     Organization,
     ProcessingAttempt,
+    ProcessingLog,
     ProviderCredential,
     SpeechProviderConfig,
 )
@@ -20,6 +21,7 @@ from turing.security.secrets import ENCRYPTED_PREFIX, is_encrypted, mask_secret
 from turing.services.credential_manager import CredentialManager
 from turing.services.job_orchestrator import JobOrchestrator
 from turing.services.media import MediaService
+from turing.services.transcription import TranscriptionService
 
 
 @pytest.fixture(autouse=True)
@@ -273,3 +275,132 @@ def test_attempt_protects_credential_from_delete(provider_a):
     )
     with pytest.raises(ProtectedError):
         cred.delete()
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — sticky credential on Attempt creation
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def job(db, provider_a):
+    media = MediaService().create_from_upload(
+        uploaded_file=io.BytesIO(b"audio"),
+        filename="sticky.wav",
+        use_case=UseCase.VOICE_FILE,
+        organization=Organization.get_default(),
+    )
+    return JobOrchestrator().create_transcription_job(
+        media=media,
+        language_code="fa",
+        provider_code=provider_a.code,
+        auto_enqueue=False,
+    )
+
+
+@pytest.mark.django_db
+def test_begin_attempt_stores_acquired_credential(provider_a, job):
+    cred = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="production-primary",
+        api_key="sticky-secret-xyz",
+        priority=10,
+        is_active=True,
+    )
+    attempt = JobOrchestrator().begin_attempt(job)
+    assert attempt.provider_credential_id == cred.pk
+    assert attempt.provider_credential == cred
+
+
+@pytest.mark.django_db
+def test_ensure_running_attempt_reuses_without_acquire(provider_a, job):
+    cred = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="reuse-me",
+        api_key="reuse-secret",
+        is_active=True,
+    )
+    first = JobOrchestrator().begin_attempt(job)
+    assert first.provider_credential_id == cred.pk
+
+    with patch(
+        "turing.services.credential_manager.CredentialManager.acquire"
+    ) as acquire:
+        again = TranscriptionService()._ensure_running_attempt(job)
+        acquire.assert_not_called()
+
+    assert again.pk == first.pk
+    assert again.provider_credential_id == cred.pk
+
+
+@pytest.mark.django_db
+def test_retry_begin_attempt_may_select_different_credential(provider_a, job):
+    cred_a = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="cred-a",
+        api_key="secret-a",
+        priority=10,
+        is_active=True,
+    )
+    cred_b = ProviderCredential.objects.create(
+        provider=provider_a,
+        name="cred-b",
+        api_key="secret-b",
+        priority=20,
+        is_active=True,
+    )
+    orch = JobOrchestrator()
+    attempt1 = orch.begin_attempt(job)
+    assert attempt1.provider_credential_id == cred_a.pk
+
+    orch.mark_failed(
+        job,
+        attempt1,
+        error_code="PROVIDER_QUOTA",
+        error_message="quota",
+    )
+    job.refresh_from_db()
+    assert job.status == JobStatus.FAILED
+
+    # Prefer B on next acquire (A still usable but we force via mock for clarity).
+    with patch(
+        "turing.services.credential_manager.CredentialManager.acquire",
+        return_value=cred_b,
+    ):
+        attempt2 = orch.begin_attempt(job)
+
+    assert attempt2.pk != attempt1.pk
+    assert attempt2.attempt_number == 2
+    assert attempt2.provider_credential_id == cred_b.pk
+
+
+@pytest.mark.django_db
+def test_begin_attempt_empty_pool_leaves_credential_null(job):
+    assert not ProviderCredential.objects.filter(
+        provider__code=job.provider_code, is_active=True
+    ).exists()
+    attempt = JobOrchestrator().begin_attempt(job)
+    assert attempt.provider_credential_id is None
+    assert attempt.status == JobStatus.RUNNING
+
+
+@pytest.mark.django_db
+def test_begin_attempt_logs_do_not_leak_api_key(provider_a, job):
+    secret = "never-log-this-api-key-value"
+    ProviderCredential.objects.create(
+        provider=provider_a,
+        name="logged-cred",
+        api_key=secret,
+        is_active=True,
+    )
+    attempt = JobOrchestrator().begin_attempt(job)
+    logs = list(ProcessingLog.objects.filter(job=job, attempt=attempt))
+    assert any(
+        log.message == "Provider credential selected for attempt" for log in logs
+    )
+    for log in logs:
+        assert secret not in log.message
+        assert secret not in str(log.context)
+        assert "api_key" not in log.context
+        blob = f"{log.message}{log.context}"
+        assert "never-log" not in blob

@@ -353,30 +353,50 @@ class JobOrchestrator:
 
     def begin_attempt(self, job: ProcessingJob) -> ProcessingAttempt:
         assert_job_transition(job.status, JobStatus.RUNNING)
-        job.attempt_count += 1
-        job.status = JobStatus.RUNNING
-        job.started_at = timezone.now()
-        job.error_code = ""
-        job.error_message = ""
-        job.save(
-            update_fields=[
-                "attempt_count",
-                "status",
-                "started_at",
-                "error_code",
-                "error_message",
-                "updated_at",
-            ]
-        )
-        attempt = ProcessingAttempt.objects.create(
-            job=job,
-            attempt_number=job.attempt_count,
-            provider_code=job.provider_code,
-            status=JobStatus.RUNNING,
-            started_at=timezone.now(),
-        )
-        self.log(job, f"Attempt #{attempt.attempt_number} started.", attempt=attempt)
-        return attempt
+        from turing.services.credential_manager import CredentialManager
+
+        with transaction.atomic():
+            # TODO: Legacy SpeechProviderConfig.api_key fallback will be handled
+            # in provider I/O migration phase.
+            credential = CredentialManager.acquire(job.provider_code)
+
+            job.attempt_count += 1
+            job.status = JobStatus.RUNNING
+            job.started_at = timezone.now()
+            job.error_code = ""
+            job.error_message = ""
+            job.save(
+                update_fields=[
+                    "attempt_count",
+                    "status",
+                    "started_at",
+                    "error_code",
+                    "error_message",
+                    "updated_at",
+                ]
+            )
+            attempt = ProcessingAttempt.objects.create(
+                job=job,
+                attempt_number=job.attempt_count,
+                provider_code=job.provider_code,
+                provider_credential=credential,
+                status=JobStatus.RUNNING,
+                started_at=timezone.now(),
+            )
+            self.log(
+                job, f"Attempt #{attempt.attempt_number} started.", attempt=attempt
+            )
+            if credential is not None:
+                self.log(
+                    job,
+                    "Provider credential selected for attempt",
+                    attempt=attempt,
+                    context={
+                        "credential_id": str(credential.id),
+                        "credential_name": credential.name,
+                    },
+                )
+            return attempt
 
     def mark_succeeded(
         self,
